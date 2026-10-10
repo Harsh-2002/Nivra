@@ -71,7 +71,7 @@ for (const encrypted of [false, true]) {
     const password = `CI-${randomUUID()}`;
     const setup = await request("/api/v1/setup", "POST", {
       name: "Container test",
-      username: "container-test",
+      username: "container_test",
       password,
       encrypted,
     });
@@ -86,7 +86,7 @@ for (const encrypted of [false, true]) {
       (
         await request("/api/v1/setup", "POST", {
           name: "Another owner",
-          username: "another-owner",
+          username: "another_owner",
           password,
           encrypted,
         })
