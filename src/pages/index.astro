@@ -33,7 +33,8 @@ const workflows = [
     alt: "Nivra form builder showing a feedback form with name, email, choice and written answer fields.",
   },
 ];
-const command = `git clone https://github.com/Harsh-2002/Nivra.git\ncd Nivra\ndocker compose up -d --build`;
+const command =
+  "docker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/app/data \\\n  ghcr.io/harsh-2002/nivra:latest";
 ---
 
 <!doctype html>
