@@ -23,23 +23,29 @@ Screenshots use demo content.
 
 ## Get started with Docker
 
-Requires Docker with Compose. Build and run from this repository:
+Requires Docker. Run the public image:
 
 ```sh
-git clone https://github.com/Harsh-2002/Nivra.git
-cd Nivra
-docker compose up -d --build
+docker run -d --name nivra \
+  --restart unless-stopped --init \
+  -p 3000:3000 \
+  -v nivra-data:/app/data \
+  ghcr.io/harsh-2002/nivra:latest
 ```
 
-Open **<http://localhost:3000>**, create your owner account and save the recovery code. No environment configuration is required for local use. The included [compose.yaml](compose.yaml) persists your database, files and generated keys in a named volume.
+Open **<http://localhost:3000>**, create your owner account and save the recovery code. No environment configuration is required for local use. The named volume persists your database, files and generated keys. The image supports Linux AMD64 and ARM64; Docker selects the matching architecture.
 
-For HTTPS behind a reverse proxy:
+Prefer Compose? Download [compose.yaml](compose.yaml), then run `docker compose up -d`. It uses the same published image and persists data in a named volume.
+
+For HTTPS behind a reverse proxy, add `-e NIVRA_PUBLIC_URL=https://notes.example.com` to `docker run`, or with Compose:
 
 ```sh
-NIVRA_PUBLIC_URL=https://notes.example.com docker compose up -d --build
+NIVRA_PUBLIC_URL=https://notes.example.com docker compose up -d
 ```
 
-Use `NIVRA_PORT=3001` to publish a different host port. Complete onboarding before exposing a fresh installation to other people: Nivra has one owner, and later signup is disabled. Save the recovery code. Passkeys and browser notifications require HTTPS or localhost; an email-shaped username does not enable email delivery.
+To use a different host port, change `-p` to `3001:3000` with Docker run, or use `NIVRA_PORT=3001` with Compose. Complete onboarding before exposing a fresh installation to other people: Nivra has one owner, and later signup is disabled. Save the recovery code. Passkeys and browser notifications require HTTPS or localhost; an email-shaped username does not enable email delivery.
+
+Releases use calendar versions (`vYYYY.MM.DD`) and one active GitHub release. Docker uses only `latest`. With Compose, upgrade using `docker compose pull && docker compose up -d`; preserve the data volume and take a backup first. See [contribution guidance](CONTRIBUTING.md#releases) for release checks and source builds.
 
 ## Configuration
 

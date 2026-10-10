@@ -9,8 +9,8 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -24,32 +24,9 @@ jobs:
       - run: npm run verify:api
       - run: npm test
       - run: npm run build
-      - name: Docker startup and persistence smoke check
+      - name: Validate image-based Compose configuration
+        run: docker compose config --quiet
+      - name: Build and verify the source container
         run: |
-          docker compose -p nivra-ci up -d --build --wait
-          curl --fail --retry 5 --retry-delay 2 http://127.0.0.1:3000/health
-          docker compose -p nivra-ci exec -T nivra node backup-cli.cjs list
-          docker compose -p nivra-ci exec -T nivra node <<'NODE'
-          const fs = require('node:fs');
-          (async () => {
-            const base = 'http://localhost:3000';
-            const discovery = await fetch(base + '/.well-known/oauth-authorization-server/api/auth');
-            if (discovery.status !== 409 || fs.existsSync('/app/data/nivra.sqlite')) throw new Error('Fresh requests initialized the database');
-            const setup = await fetch(base + '/api/v1/setup', {method:'POST',headers:{origin:base,'content-type':'application/json'},body:JSON.stringify({name:'CI owner',username:'ciowner',password:'CI-' + require('node:crypto').randomUUID(),encrypted:false})});
-            if (!setup.ok) throw new Error('Owner setup failed');
-            const cookie = setup.headers.getSetCookie().map(value => value.split(';')[0]).join('; ');
-            const note = await fetch(base + '/api/v1/notes', {method:'POST',headers:{origin:base,cookie,'content-type':'application/json'},body:JSON.stringify({title:'Persistence check'})});
-            if (note.status !== 201) throw new Error('Persistent write failed');
-          })().catch(error => { console.error(error.message); process.exitCode = 1; });
-          NODE
-          docker compose -p nivra-ci up -d --force-recreate --wait
-          curl --fail http://127.0.0.1:3000/health
-          docker compose -p nivra-ci exec -T nivra node <<'NODE'
-          const mode = JSON.parse(require('node:fs').readFileSync('/app/data/encryption-mode.json'));
-          if (mode.encrypted !== false) throw new Error('The installation mode changed');
-          const db = new (require('better-sqlite3'))('/app/data/nivra.sqlite', {readonly:true});
-          if (db.prepare('SELECT count(*) n FROM user').get().n !== 1 || db.prepare('SELECT count(*) n FROM notes').get().n !== 1) throw new Error('Owner or content was not preserved');
-          db.close();
-          NODE
-      - if: always()
-        run: docker compose -p nivra-ci down
+          docker build -t nivra:ci .
+          node scripts/smoke-container.mjs nivra:ci

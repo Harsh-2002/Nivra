@@ -15,20 +15,20 @@ Nivra is a single-owner, self-hosted notes, tasks, and bookmarks web app. Its st
 
 ### Documentation index
 
-| Document                                             | Purpose and authority                                                                                                  |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [README.md](README.md)                               | User quick start, Docker commands, supported environment variables, configuration and development setup.               |
-| [AGENTS.md](AGENTS.md)                               | Repository instructions for agents, verification requirements and this documentation index.                            |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Contributor workflow, development upgrade exceptions, HTTP API examples and required checks.                           |
-| [PRODUCT.md](PRODUCT.md)                             | Confirmed product scope, requirements and deferred features; verify implementation in code and tests.                  |
-| [DESIGN.md](DESIGN.md)                               | Interface principles, tokens and responsive behavior.                                                                  |
-| [docs/architecture.md](docs/architecture.md)         | Implementation architecture, persistence, security, storage, Forms/public uploads, recovery and shared services.       |
-| [docs/openapi.json](docs/openapi.json)               | Generated HTTP API contract from the shared operation registry and Zod schemas; never edit manually or serve publicly. |
-| [docs/mcp.md](docs/mcp.md)                           | MCP authentication, permissions, content/Form tools, file transfers and supported client integration.                  |
-| [docs/testing.md](docs/testing.md)                   | Automated, browser, performance and storage verification procedures and limitations.                                   |
-| [docs/third-party.md](docs/third-party.md)           | Third-party licensing and bundled asset notices.                                                                       |
-| [tests/fixtures/README.md](tests/fixtures/README.md) | Synthetic fixture provenance, supported media coverage and shipping exclusions.                                        |
-| [LICENSE](LICENSE)                                   | License for Nivra's own source.                                                                                        |
+| Document                                             | Purpose and authority                                                                                                                |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [README.md](README.md)                               | User quick start, Docker commands, supported environment variables, configuration and development setup.                             |
+| [AGENTS.md](AGENTS.md)                               | Repository instructions for agents, verification requirements and this documentation index.                                          |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Contributor workflow, calendar release policy, source builds, development upgrade exceptions, HTTP API examples and required checks. |
+| [PRODUCT.md](PRODUCT.md)                             | Confirmed product scope, requirements and deferred features; verify implementation in code and tests.                                |
+| [DESIGN.md](DESIGN.md)                               | Interface principles, tokens and responsive behavior.                                                                                |
+| [docs/architecture.md](docs/architecture.md)         | Implementation architecture, persistence, security, storage, Forms/public uploads, recovery and shared services.                     |
+| [docs/openapi.json](docs/openapi.json)               | Generated HTTP API contract from the shared operation registry and Zod schemas; never edit manually or serve publicly.               |
+| [docs/mcp.md](docs/mcp.md)                           | MCP authentication, permissions, content/Form tools, file transfers and supported client integration.                                |
+| [docs/testing.md](docs/testing.md)                   | Automated, browser, performance and storage verification procedures and limitations.                                                 |
+| [docs/third-party.md](docs/third-party.md)           | Third-party licensing and bundled asset notices.                                                                                     |
+| [tests/fixtures/README.md](tests/fixtures/README.md) | Synthetic fixture provenance, supported media coverage and shipping exclusions.                                                      |
+| [LICENSE](LICENSE)                                   | License for Nivra's own source.                                                                                                      |
 
 Keep this index current whenever documentation is added, moved, removed or changes purpose. Update the existing authoritative document rather than adding overlapping guides. Private, ignored `HANDOFF.md` is local continuation context, not published product documentation or proof of verification.
 
@@ -52,7 +52,9 @@ npm run build
 
 `npm run dev` uses port 3000, or the next free port. To choose a port, use `npm run dev -- --port 3001`. Persistent development data defaults to `data/`; tests must use a separate temporary directory.
 
-Docker delivery uses `docker compose up -d --build`. Inspect configuration with `docker compose config`; check readiness with `/health`. Never remove an existing data volume to resolve a startup issue.
+Docker delivery pulls the public AMD64/ARM64 image `ghcr.io/harsh-2002/nivra:latest`; use `docker compose up -d`, or the Docker run command in the README. Source builds and container verification are in CONTRIBUTING.md. Inspect configuration with `docker compose config`; check readiness with `/health`. Never remove an existing data volume to resolve a startup issue.
+
+Release date tags use `vYYYY.MM.DD`. `.github/workflows/release.yml` requires successful CI on the exact current main commit and verifies native containers before promoting `latest`. Maintain one published release; retire its predecessor and tag only after the replacement is public. Do not bypass CI, overwrite a date tag, publish extra image tags, or use a PR/fork as privileged release source. Pin GitHub Actions to the commit of their latest upstream release and keep version comments current.
 
 ## Engineering rules
 

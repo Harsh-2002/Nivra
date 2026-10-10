@@ -1,7 +1,6 @@
 services:
   nivra:
-    build: .
-    image: nivra:local
+    image: ghcr.io/harsh-2002/nivra:latest
     ports:
       - "0.0.0.0:${NIVRA_PORT:-3000}:3000"
     environment:

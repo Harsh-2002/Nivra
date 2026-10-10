@@ -12,7 +12,7 @@ npm test
 npm run build
 ```
 
-The automated suite uses disposable data and covers authentication, single-owner setup, recovery, passkeys, TOTP, persistence, search, pagination, revisions, files, encryption, backups, Calendar, Kanban, MCP and access restrictions. CI also builds Docker and checks health and persistence after container recreation. A passing suite is not proof of every physical browser/device behavior or an exhaustive security audit.
+The automated suite uses disposable data and covers authentication, single-owner setup, recovery, passkeys, TOTP, persistence, search, pagination, revisions, files, encryption, backups, Calendar, Kanban, MCP and access restrictions. CI also builds Docker and runs `scripts/smoke-container.mjs` to check health, encrypted/plaintext onboarding, authorization, the single-owner invariant and persistence after container recreation. Release builds run that same check on native AMD64 and ARM64 containers before promoting the image. `release-policy.test.ts` rejects missing/failed CI, wrong commits, invalid date tags, incomplete architecture manifests and premature retirement of the active release. See [release policy](../CONTRIBUTING.md#releases). A passing suite is not proof of every physical browser/device behavior or an exhaustive security audit.
 
 ## Browser checks
 
