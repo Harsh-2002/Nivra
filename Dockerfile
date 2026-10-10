@@ -2,6 +2,11 @@
 FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS base
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# The source-built ARM64 base omits the license included in the AMD64 archive.
+RUN if [ ! -f /usr/local/LICENSE ]; then \
+      wget -q -T 30 -O /usr/local/LICENSE "https://raw.githubusercontent.com/nodejs/node/v${NODE_VERSION}/LICENSE"; \
+    fi \
+    && echo "5888dbb9a1d2b18f2c3e6c5f6af1b39de658372b402a0577b002777f14c62ace  /usr/local/LICENSE" | sha256sum -c -
 
 FROM base AS dependencies
 RUN apk add --no-cache python3 make g++

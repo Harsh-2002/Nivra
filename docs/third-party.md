@@ -2,6 +2,8 @@
 
 Nivra's own source is MIT licensed. Dependencies retain their original notices and licenses.
 
+- Node.js: MIT, with bundled third-party notices. The runtime image retains its full license at `/usr/share/licenses/node/LICENSE`. The Dockerfile verifies the license hash for the pinned Node release on both architectures; update that hash when changing the Node base image. ARM64's source-built Alpine base obtains the same license from the corresponding [upstream release](https://github.com/nodejs/node/blob/v24.21.0/LICENSE).
+
 - BlockNote core, React, shadcn, code-block, and diagram-block and server-util packages: MPL-2.0. No XL packages are used. Modifications to covered upstream source remain subject to its license; Nivra's custom blocks are maintained separately.
 - Excalidraw: MIT. Its bundled fonts retain their upstream font licenses. Generated assets are copied from the installed package rather than fetched from a CDN.
 - Shiki core, JavaScript engine, precompiled languages and themes, Mermaid, and DOMPurify: MIT. The published reader reuses pinned versions already present in the editor dependency tree.
