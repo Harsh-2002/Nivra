@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { access, mkdtemp, mkdir, copyFile, rm } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  copyFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { EmbeddingWorker } from "../src/lib/server/ai/runtime";
@@ -55,6 +62,39 @@ test("missing or corrupt local model assets fail closed without downloads", asyn
       "corrupt",
     );
     await assert.rejects(worker.start(), /unavailable|stopped/);
+  } finally {
+    await worker.stop();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a crashed or stalled child rejects inference and supports a fresh restart", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "nivra-ai-restart-"));
+  const worker = new EmbeddingWorker(directory);
+  try {
+    await mkdir(path.join(directory, "generated"));
+    const script = path.join(directory, "generated/ai-worker.cjs");
+    await writeFile(
+      script,
+      "process.send({type:'ready',rss:100});process.on('message',m=>{if(m.type==='encode')process.exit(1)});",
+    );
+    await assert.rejects(worker.encode("Crash fixture"), /stopped/);
+    await worker.stop();
+    await writeFile(
+      script,
+      "process.send({type:'ready',rss:100});process.on('message',()=>{});",
+    );
+    await assert.rejects(
+      worker.encode("Timeout fixture", false, 100),
+      /timed out/,
+    );
+    await worker.stop();
+    await writeFile(
+      script,
+      "process.send({type:'ready',rss:100});process.on('message',m=>{if(m.type==='encode')process.send({type:'result',id:m.id,embedding:Array(384).fill(1/Math.sqrt(384))});if(m.type==='shutdown')process.exit(0)});",
+    );
+    const vector = await worker.encode("Restart fixture");
+    assert.equal(vector.length, 384);
   } finally {
     await worker.stop();
     await rm(directory, { recursive: true, force: true });

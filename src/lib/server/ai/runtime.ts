@@ -15,6 +15,7 @@ export class EmbeddingWorker {
   constructor(private directory = process.cwd()) {}
   start() {
     if (this.ready) return this.ready;
+    this.resources.rss = 0;
     this.ready = new Promise<void>((resolve, reject) => {
       const child = (this.child = fork(
         path.join(this.directory, "generated/ai-worker.cjs"),
@@ -113,7 +114,7 @@ export class EmbeddingWorker {
   }
   async stop() {
     const child = this.child;
-    if (!child) return;
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => child.kill("SIGKILL"), 2000);
       child.once("exit", () => {
