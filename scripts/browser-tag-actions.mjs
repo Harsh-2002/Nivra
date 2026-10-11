@@ -173,7 +173,9 @@ try {
           `${engine} ${width} ${colorScheme}: tag create/edit/cancel/delete/focus/content preservation passed`,
         );
       } catch (error) {
-        console.error(`${engine} ${width} ${colorScheme}: UI interaction failed`);
+        console.error(
+          `${engine} ${width} ${colorScheme}: UI interaction failed`,
+        );
         console.error(error);
         throw error;
       } finally {
