@@ -28,7 +28,7 @@ async function api(path, method = "GET", data) {
 }
 if ((await api("status")).setup) {
   await api("setup", "POST", {
-    name: "Local AI test",
+    name: "Smart features test",
     username: "local_ai_test",
     password: `AI-${randomUUID()}`,
   });
@@ -150,6 +150,58 @@ try {
           );
         }
       }
+      async function waitForStableAiIndex(suggestionItemId) {
+        let previous = "";
+        let stable = 0;
+        let latestStatus;
+        let latestSuggestions = [];
+        for (let n = 0; n < 100; n++) {
+          latestStatus = await api("ai");
+          if (suggestionItemId)
+            latestSuggestions = (await api("ai/suggestions")).items;
+          const snapshot = JSON.stringify({
+            total: latestStatus.total,
+            indexed: latestStatus.indexed,
+            failed: latestStatus.failed,
+            capacity: latestStatus.capacity,
+          });
+          stable = snapshot === previous ? stable + 1 : 0;
+          previous = snapshot;
+          if (
+            latestStatus.enabled &&
+            latestStatus.total > 0 &&
+            latestStatus.indexed === latestStatus.total &&
+            latestStatus.failed === 0 &&
+            latestStatus.capacity === 0 &&
+            stable >= 2 &&
+            (!suggestionItemId ||
+              latestSuggestions.some(
+                (item) => item.itemId === suggestionItemId,
+              ))
+          )
+            return { status: latestStatus, suggestions: latestSuggestions };
+          await setTimeout(250);
+        }
+        throw new Error(
+          `Indexed demo fixture did not stabilize; AI status=${JSON.stringify(latestStatus)}; matching suggestion=${latestSuggestions.some((item) => item.itemId === suggestionItemId)}`,
+        );
+      }
+      async function waitForSemanticResult(query, itemId) {
+        const attempts = [];
+        const requestPath = `search?mode=suggest&strategy=semantic&q=${encodeURIComponent(query)}`;
+        for (let n = 0; n < 4; n++) {
+          const result = await api(requestPath);
+          const itemIds = (result.items ?? []).map((item) => item.id);
+          attempts.push({ strategyUsed: result.strategyUsed ?? null, itemIds });
+          if (result.strategyUsed === "semantic" && itemIds.includes(itemId))
+            return result;
+          await setTimeout(250);
+        }
+        const status = await api("ai");
+        throw new Error(
+          `Semantic search did not return the indexed demo note; query=${query}; attempts=${JSON.stringify(attempts)}; AI status=${JSON.stringify(status)}`,
+        );
+      }
       try {
         await page.goto(`${base}/overview`, { waitUntil: "domcontentloaded" });
         await (
@@ -177,13 +229,7 @@ try {
         await edit
           .getByRole("button", { name: "Save tag", exact: true })
           .click();
-        for (let n = 0; n < 100; n++) {
-          const items = (await api("ai/suggestions")).items;
-          if (items.some((i) => i.itemId === note.id)) break;
-          await setTimeout(250);
-          if (n === 99)
-            throw new Error("Synthetic tag proposal did not arrive");
-        }
+        await waitForStableAiIndex(note.id);
         await (
           await nav()
         )
@@ -195,10 +241,16 @@ try {
           .click();
         let local = settings.locator(".local-ai-settings");
         await local
-          .getByRole("heading", { name: "Local AI", exact: true })
+          .getByRole("heading", {
+            name: "Smart tagging and search",
+            exact: true,
+          })
           .waitFor();
         await local
-          .getByRole("checkbox", { name: "Enable local AI", exact: true })
+          .getByRole("checkbox", {
+            name: "Enable smart features",
+            exact: true,
+          })
           .waitFor();
         let approve = local.getByRole("button", {
           name: `Approve ${tag.name} for ${title}`,
@@ -240,6 +292,10 @@ try {
           await setTimeout(100);
           if (n === 39) throw new Error("Approval was not persisted");
         }
+        const semanticQuery =
+          "recover stored information after restoring a protected safety copy";
+        await waitForStableAiIndex();
+        await waitForSemanticResult(semanticQuery, note.id);
         if (width < 1024)
           await settings
             .getByRole("button", { name: "Back from Settings", exact: true })
@@ -255,13 +311,52 @@ try {
         await search
           .getByRole("checkbox", { name: "Search by meaning", exact: true })
           .check();
+        const semanticResponsePromise = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            url.pathname === "/api/v1/search" &&
+            url.searchParams.get("mode") === "suggest" &&
+            url.searchParams.get("strategy") === "semantic" &&
+            url.searchParams.get("q") === semanticQuery
+          );
+        });
         await search
           .getByRole("combobox", { name: "Search everything", exact: true })
-          .fill(title.split(" ")[0]);
+          .fill(semanticQuery);
+        let semanticResponse;
+        try {
+          semanticResponse = await semanticResponsePromise;
+        } catch {
+          const status = await api("ai");
+          throw new Error(
+            `Semantic UI response did not arrive; query=${semanticQuery}; AI status=${JSON.stringify(status)}`,
+          );
+        }
+        const semanticPayload = await semanticResponse.json();
+        const semanticItems = Array.isArray(semanticPayload.items)
+          ? semanticPayload.items
+          : [];
+        const semanticItemIds = semanticItems.map((item) => item.id);
+        const aiStatus = await api("ai");
+        assert.equal(
+          semanticResponse.status(),
+          200,
+          `Semantic search HTTP status ${semanticResponse.status()}; AI status=${JSON.stringify(aiStatus)}`,
+        );
+        assert.equal(
+          semanticPayload.strategyUsed,
+          "semantic",
+          `Expected a semantic response, got ${JSON.stringify({ strategyUsed: semanticPayload.strategyUsed, itemIds: semanticItemIds, aiStatus })}`,
+        );
+        assert.ok(
+          semanticItemIds.includes(note.id),
+          `Semantic response omitted the demo note; response=${JSON.stringify({ strategyUsed: semanticPayload.strategyUsed, itemIds: semanticItemIds })}; AI status=${JSON.stringify(aiStatus)}`,
+        );
         await search.getByRole("option").filter({ hasText: title }).waitFor();
         await audit(search, "search");
         assert.ok(
           await search.getByText("Related matches", { exact: true }).count(),
+          `The UI did not label the verified semantic response as related matches; response=${JSON.stringify({ strategyUsed: semanticPayload.strategyUsed, itemIds: semanticItemIds })}; AI status=${JSON.stringify(aiStatus)}`,
         );
         await search.getByRole("option").filter({ hasText: title }).click();
         assert.deepEqual(errors, []);
@@ -269,6 +364,96 @@ try {
           `${name} ${width} ${theme}: aliases, approval, semantic results, focus, accessibility and overflow passed`,
         );
         if (width === 320 && theme === "light") {
+          const fallbackQuery = `${semanticQuery} synthetic fallback`;
+          const fallbackPayload = {
+            ...semanticPayload,
+            strategyUsed: "keyword",
+          };
+          await page.route("**/api/v1/search**", async (route) => {
+            const url = new URL(route.request().url());
+            if (
+              url.pathname === "/api/v1/search" &&
+              url.searchParams.get("mode") === "suggest" &&
+              url.searchParams.get("strategy") === "semantic" &&
+              url.searchParams.get("q") === fallbackQuery
+            ) {
+              await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(fallbackPayload),
+              });
+              return;
+            }
+            await route.continue();
+          });
+          await page.goto(`${base}/overview`, {
+            waitUntil: "domcontentloaded",
+          });
+          await (
+            await nav()
+          )
+            .getByRole("button", { name: "Settings", exact: true })
+            .click();
+          const errorSettings = await surface("Settings");
+          await errorSettings
+            .getByRole("tab", { name: "System", exact: true })
+            .click();
+          if (width < 1024)
+            await errorSettings
+              .getByRole("button", { name: "Back from Settings", exact: true })
+              .click();
+          else await page.keyboard.press("Escape");
+          await (
+            await nav()
+          )
+            .getByRole("button", { name: /^Search/ })
+            .first()
+            .click();
+          const fallbackSearch = await surface("Search");
+          const fallbackResponsePromise = page.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return (
+              url.pathname === "/api/v1/search" &&
+              url.searchParams.get("mode") === "suggest" &&
+              url.searchParams.get("strategy") === "semantic" &&
+              url.searchParams.get("q") === fallbackQuery
+            );
+          });
+          await fallbackSearch
+            .getByRole("checkbox", { name: "Search by meaning", exact: true })
+            .check();
+          await fallbackSearch
+            .getByRole("combobox", { name: "Search everything", exact: true })
+            .fill(fallbackQuery);
+          const fallbackResponse = await fallbackResponsePromise;
+          const fallbackResult = await fallbackResponse.json();
+          assert.equal(fallbackResponse.status(), 200);
+          assert.equal(fallbackResult.strategyUsed, "keyword");
+          await fallbackSearch
+            .getByText(
+              "Meaning search is unavailable. Showing keyword results.",
+              {
+                exact: true,
+              },
+            )
+            .waitFor();
+          await fallbackSearch
+            .getByText("Search results", { exact: true })
+            .waitFor();
+          await fallbackSearch
+            .getByRole("option")
+            .filter({ hasText: title })
+            .waitFor();
+          await audit(fallbackSearch, "keyword-fallback");
+          await fallbackSearch
+            .getByRole("option")
+            .filter({ hasText: title })
+            .click();
+          assert.deepEqual(errors, []);
+          console.log(
+            `${name} ${width} ${theme}: deterministic keyword fallback presentation passed`,
+          );
+          await page.unroute("**/api/v1/search**");
           await page.route("**/api/v1/ai/suggestions", (route) =>
             route.fulfill({
               status: 503,
@@ -284,13 +469,13 @@ try {
           )
             .getByRole("button", { name: "Settings", exact: true })
             .click();
-          const errorSettings = await surface("Settings");
-          await errorSettings
+          const errorSettingsAgain = await surface("Settings");
+          await errorSettingsAgain
             .getByRole("tab", { name: "System", exact: true })
             .click();
-          const errorLocal = errorSettings.locator(".local-ai-settings"),
+          const errorLocal = errorSettingsAgain.locator(".local-ai-settings"),
             errorToggle = errorLocal.getByRole("checkbox", {
-              name: "Enable local AI",
+              name: "Enable smart features",
               exact: true,
             });
           await errorLocal
@@ -299,11 +484,11 @@ try {
           assert.equal(
             await errorToggle.isDisabled(),
             false,
-            "Suggestion-list failure must not disable the Local AI toggle",
+            "Suggestion-list failure must not disable the smart-feature toggle",
           );
           assert.deepEqual(errors, []);
           console.log(
-            `${name} ${width} ${theme}: suggestion failure leaves Local AI toggle usable`,
+            `${name} ${width} ${theme}: suggestion failure leaves smart-feature toggle usable`,
           );
         }
       } finally {

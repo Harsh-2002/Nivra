@@ -6,18 +6,23 @@ import {
   isSecureInstallContext,
   normalizeTagName,
   parseTagAliases,
+  STARTER_TAG_SUGGESTIONS,
 } from "../src/lib/onboarding";
 
-test("starter tags follow selected interests without duplicates or invented categories", () => {
-  assert.deepEqual(getSuggestedTags([]), []);
-  assert.deepEqual(getSuggestedTags(["unknown"]), []);
-  const work = getSuggestedTags(["Work"]);
-  assert.ok(work.includes("Meetings"));
-  assert.ok(!work.includes("Health"));
-  assert.deepEqual(getSuggestedTags(["Work", "Work"]), work);
-  const mixed = getSuggestedTags(["Work", "Personal"]);
-  assert.ok(mixed.includes("Meetings") && mixed.includes("Health"));
-  assert.equal(new Set(mixed.map(normalizeTagName)).size, mixed.length);
+test("starter tags are short, predictable and omit normalized existing tags", () => {
+  assert.equal(STARTER_TAG_SUGGESTIONS.length, 6);
+  assert.deepEqual(getSuggestedTags(), [...STARTER_TAG_SUGGESTIONS]);
+  assert.deepEqual(getSuggestedTags(["work", "ＩＤＥＡＳ"]), [
+    "Personal",
+    "Projects",
+    "Learning",
+    "Reference",
+  ]);
+  assert.deepEqual(getSuggestedTags(STARTER_TAG_SUGGESTIONS), []);
+  assert.equal(
+    new Set(STARTER_TAG_SUGGESTIONS.map(normalizeTagName)).size,
+    STARTER_TAG_SUGGESTIONS.length,
+  );
 });
 
 test("custom tag matching words retain useful phrases and remove normalized duplicates", () => {

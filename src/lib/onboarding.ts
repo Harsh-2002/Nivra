@@ -1,46 +1,22 @@
-export const ONBOARDING_INTERESTS = [
-  "Work",
-  "Personal",
-  "Learning",
-  "Projects",
-] as const;
-
-export type OnboardingInterest = (typeof ONBOARDING_INTERESTS)[number];
 export type InstallPlatform = "ios" | "android" | "desktop";
 
-const suggestedTagsByInterest: Record<OnboardingInterest, string[]> = {
-  Work: ["Meetings", "Follow up", "Reference"],
-  Personal: ["Home", "Health", "Reading"],
-  Learning: ["Courses", "Questions", "Resources"],
-  Projects: ["Planning", "In progress", "Review"],
-};
+export const STARTER_TAG_SUGGESTIONS = [
+  "Work",
+  "Personal",
+  "Projects",
+  "Ideas",
+  "Learning",
+  "Reference",
+] as const;
 
 export function normalizeTagName(name: string) {
   return name.normalize("NFKC").trim().toLowerCase();
 }
 
-export function getSuggestedTags(interests: readonly string[]) {
-  const seen = new Set<string>();
-  return interests.flatMap((interest) => {
-    if (!ONBOARDING_INTERESTS.includes(interest as OnboardingInterest))
-      return [];
-    return suggestedTagsByInterest[interest as OnboardingInterest].filter(
-      (name) => {
-        const normalized = normalizeTagName(name);
-        if (!normalized || seen.has(normalized)) return false;
-        seen.add(normalized);
-        return true;
-      },
-    );
-  });
-}
-
-export function getInterestsFromTagNames(tagNames: readonly string[]) {
-  const existing = new Set(tagNames.map(normalizeTagName));
-  return ONBOARDING_INTERESTS.filter((interest) =>
-    getSuggestedTags([interest]).some((name) =>
-      existing.has(normalizeTagName(name)),
-    ),
+export function getSuggestedTags(existingTagNames: readonly string[] = []) {
+  const existing = new Set(existingTagNames.map(normalizeTagName));
+  return STARTER_TAG_SUGGESTIONS.filter(
+    (name) => !existing.has(normalizeTagName(name)),
   );
 }
 

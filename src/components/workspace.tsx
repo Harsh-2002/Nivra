@@ -1409,8 +1409,8 @@ export function Workspace({
                 }
               />
               <p className="field-hint" id="tag-aliases-hint">
-                Up to 10 words or phrases, separated by commas. Helps local AI
-                recognize this tag.
+                Up to 10 words or phrases, separated by commas. Helps tag
+                suggestions match your vocabulary.
               </p>
             </div>
             <TagColorPicker

@@ -5,17 +5,17 @@ import { ArrowLeft, ArrowRight, Check, Download } from "lucide-react";
 import { api, apiItems, type ApiError } from "@/lib/client";
 import type { Settings, Tag } from "@/lib/types";
 import {
-  ONBOARDING_INTERESTS,
-  getInterestsFromTagNames,
   getSuggestedTags,
   normalizeTagName,
   parseTagAliases,
   promptPwaInstall,
   type PwaInstallSnapshot,
 } from "@/lib/onboarding";
+import { shortcuts } from "@/lib/shortcuts";
 import { Mark } from "./auth-screen";
+import { LocalAiSettings } from "./local-ai-settings";
+import { ShortcutKeys } from "./shortcut";
 import { Button } from "./ui/button";
-import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 
@@ -34,11 +34,10 @@ export function WorkspaceOnboarding({
   const [tags, setTags] = useState<Tag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
   const [tagsError, setTagsError] = useState("");
-  const [interests, setInterests] = useState<string[]>([]);
-  const [interestsEdited, setInterestsEdited] = useState(false);
   const [tagName, setTagName] = useState("");
   const [aliases, setAliases] = useState("");
   const [busy, setBusy] = useState(false);
+  const [smartFeaturesBusy, setSmartFeaturesBusy] = useState(false);
   const [installBusy, setInstallBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -71,19 +70,9 @@ export function WorkspaceOnboarding({
     () => new Set(tags.map((tag) => normalizeTagName(tag.name))),
     [tags],
   );
-  const selectedInterests = useMemo(
-    () =>
-      interestsEdited
-        ? interests
-        : getInterestsFromTagNames(tags.map((tag) => tag.name)),
-    [interests, interestsEdited, tags],
-  );
   const suggestions = useMemo(
-    () =>
-      getSuggestedTags(selectedInterests).filter(
-        (name) => !existingTagNames.has(normalizeTagName(name)),
-      ),
-    [existingTagNames, selectedInterests],
+    () => getSuggestedTags(tags.map((tag) => tag.name)),
+    [tags],
   );
   const duplicateName =
     tagName.trim() && existingTagNames.has(normalizeTagName(tagName));
@@ -164,7 +153,7 @@ export function WorkspaceOnboarding({
   }
 
   async function saveStep(next: "tags" | "install" | "complete") {
-    if (busy || installBusy) return;
+    if (busy || installBusy || smartFeaturesBusy) return;
     clearNotice();
     setBusy(true);
     try {
@@ -241,46 +230,21 @@ export function WorkspaceOnboarding({
               Choose your starting tags
             </h1>
             <p className="auth-description">
-              Pick a few areas to see suggestions. Nothing is added until you
-              choose Add. Your tags stay editable later.
+              Add a few suggestions or create your own. Nothing is added until
+              you choose Add.
             </p>
-            <fieldset className="onboarding-interests">
-              <legend>What would you like to organize?</legend>
-              {ONBOARDING_INTERESTS.map((interest) => (
-                <Label key={interest} className="onboarding-interest">
-                  <Checkbox
-                    checked={selectedInterests.includes(interest)}
-                    onCheckedChange={(checked) => {
-                      clearNotice();
-                      setInterestsEdited(true);
-                      setInterests((currentState) => {
-                        const current = interestsEdited
-                          ? currentState
-                          : getInterestsFromTagNames(
-                              tags.map((tag) => tag.name),
-                            );
-                        return checked
-                          ? [...current, interest]
-                          : current.filter((item) => item !== interest);
-                      });
-                    }}
-                  />
-                  {interest}
-                </Label>
-              ))}
-            </fieldset>
             <section
-              className="onboarding-suggestions"
-              aria-labelledby="onboarding-suggestions-title"
+              className="onboarding-your-tags"
+              aria-labelledby="onboarding-your-tags-title"
             >
-              <h2 id="onboarding-suggestions-title">Suggested tags</h2>
+              <h2 id="onboarding-your-tags-title">Your tags</h2>
               {tagsLoading ? (
                 <p className="field-hint" role="status">
-                  Loading your current tags…
+                  Loading your tags…
                 </p>
               ) : tagsError ? (
                 <div className="onboarding-inline-error" role="alert">
-                  <p>Could not load your current tags. {tagsError}</p>
+                  <p>Could not load your tags. {tagsError}</p>
                   <Button
                     type="button"
                     size="sm"
@@ -293,37 +257,41 @@ export function WorkspaceOnboarding({
                     Retry
                   </Button>
                 </div>
-              ) : selectedInterests.length ? (
-                suggestions.length ? (
-                  <ul className="onboarding-tag-list">
-                    {suggestions.map((suggestion) => (
-                      <li key={suggestion}>
-                        <span>{suggestion}</span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={busy}
-                          aria-label={`Add ${suggestion}`}
-                          onClick={() => void addTag(suggestion, [])}
-                        >
-                          Add
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="field-hint">You already have these tags.</p>
-                )
+              ) : tags.length ? (
+                <ul className="onboarding-your-tag-list" role="list">
+                  {tags.map((tag) => (
+                    <li key={tag.id}>{tag.name}</li>
+                  ))}
+                </ul>
               ) : (
-                <p className="field-hint">
-                  Choose an area above to see suggestions.
-                </p>
+                <p className="field-hint">No tags yet.</p>
               )}
-              {tags.length > 0 && !tagsLoading && !tagsError && (
-                <p className="onboarding-existing-tags" role="status">
-                  Already added: {tags.map((tag) => tag.name).join(", ")}
-                </p>
+            </section>
+            <section
+              className="onboarding-suggestions"
+              aria-labelledby="onboarding-suggestions-title"
+            >
+              <h2 id="onboarding-suggestions-title">Suggested tags</h2>
+              {suggestions.length ? (
+                <ul className="onboarding-tag-list">
+                  {suggestions.map((suggestion) => (
+                    <li key={suggestion}>
+                      <span>{suggestion}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || tagsLoading || !!tagsError}
+                        aria-label={`Add ${suggestion}`}
+                        onClick={() => void addTag(suggestion, [])}
+                      >
+                        Add
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="field-hint">All suggestions are in your tags.</p>
               )}
             </section>
             <form
@@ -396,6 +364,11 @@ export function WorkspaceOnboarding({
                 {busy ? "Saving…" : "Add tag"}
               </Button>
             </form>
+            <LocalAiSettings
+              onboarding
+              beforeAction={async () => true}
+              onBusyChange={setSmartFeaturesBusy}
+            />
             {error && (
               <p className="form-error" role="alert">
                 {error}
@@ -414,7 +387,7 @@ export function WorkspaceOnboarding({
               <Button
                 type="button"
                 className="w-full"
-                disabled={busy || installBusy}
+                disabled={busy || installBusy || smartFeaturesBusy}
                 onClick={() => void saveStep("install")}
               >
                 Continue
@@ -424,7 +397,7 @@ export function WorkspaceOnboarding({
                 type="button"
                 variant="ghost"
                 className="w-full"
-                disabled={busy || installBusy}
+                disabled={busy || installBusy || smartFeaturesBusy}
                 onClick={() => void saveStep("install")}
               >
                 Skip tag setup
@@ -437,8 +410,7 @@ export function WorkspaceOnboarding({
               Install Nivra on this device
             </h1>
             <p className="auth-description">
-              Add Nivra to your home screen or app list for a separate window
-              and an easy way back. Your notes remain on your Nivra server.
+              Add Nivra to your Home Screen or app list for quick access.
             </p>
             {install.installed || install.standalone ? (
               <p className="onboarding-installed" role="status">
@@ -466,7 +438,7 @@ export function WorkspaceOnboarding({
                   </Button>
                 )}
                 <div className="onboarding-install-instructions">
-                  <h2>Install from your browser</h2>
+                  <h2>Use Nivra like an app</h2>
                   {install.platform === "ios" ? (
                     <p>
                       On an iPhone or iPad, open Nivra in Safari. Tap Share,
@@ -498,6 +470,34 @@ export function WorkspaceOnboarding({
                   )}
                 </div>
               </>
+            )}
+            {install.platform === "desktop" && (
+              <section
+                className="onboarding-shortcuts"
+                aria-labelledby="onboarding-shortcuts-title"
+              >
+                <h2 id="onboarding-shortcuts-title">Keyboard shortcuts</h2>
+                <dl>
+                  <div>
+                    <dt>Search</dt>
+                    <dd>
+                      <ShortcutKeys chord={shortcuts.search} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>New note</dt>
+                    <dd>
+                      <ShortcutKeys chord={shortcuts.newNote} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Quick</dt>
+                    <dd>
+                      <ShortcutKeys chord={shortcuts.capture} />
+                    </dd>
+                  </div>
+                </dl>
+              </section>
             )}
             {error && (
               <p className="form-error" role="alert">

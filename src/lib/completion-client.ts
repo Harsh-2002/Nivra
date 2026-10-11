@@ -25,43 +25,64 @@ export function useCompletionStream(onRevoked: () => void) {
     let stream: EventSource | undefined;
     let connected = false;
     let lastMessage = Date.now();
-    let checkingSession = false;
+    let checkingSession: EventSource | undefined;
     let active = true;
     const connect = () => {
-      stream?.close();
+      if (!active) return;
+      const previous = stream;
+      stream = undefined;
       connected = false;
       lastMessage = Date.now();
+      previous?.close();
       if (document.visibilityState === "hidden") return;
-      stream = new EventSource("/api/v1/completions");
-      stream.addEventListener("open", () => {
+      const source = new EventSource("/api/v1/completions");
+      stream = source;
+      source.addEventListener("open", () => {
+        if (!active || stream !== source) return;
         connected = true;
       });
-      stream.addEventListener("error", () => {
+      source.addEventListener("error", () => {
+        if (
+          !active ||
+          stream !== source ||
+          document.visibilityState === "hidden"
+        )
+          return;
         connected = false;
-        if (checkingSession) return;
-        checkingSession = true;
+        if (checkingSession === source) return;
+        checkingSession = source;
         void api<{ owner: unknown }>("status")
           .then((status) => {
-            if (active && !status.owner) {
-              stream?.close();
+            if (
+              active &&
+              stream === source &&
+              document.visibilityState !== "hidden" &&
+              !status.owner
+            ) {
+              stream = undefined;
+              source.close();
               revoked.current();
             }
           })
           .catch(() => {})
           .finally(() => {
-            checkingSession = false;
+            if (checkingSession === source) checkingSession = undefined;
           });
       });
       const received = () => {
         connected = true;
         lastMessage = Date.now();
       };
-      stream.addEventListener("heartbeat", received);
-      stream.addEventListener("resync", () => {
+      source.addEventListener("heartbeat", () => {
+        if (active && stream === source) received();
+      });
+      source.addEventListener("resync", () => {
+        if (!active || stream !== source) return;
         received();
         dispatch({});
       });
-      stream.addEventListener("completion", (event) => {
+      source.addEventListener("completion", (event) => {
+        if (!active || stream !== source) return;
         received();
         try {
           const detail = JSON.parse((event as MessageEvent).data) as Completion;
@@ -73,14 +94,16 @@ export function useCompletionStream(onRevoked: () => void) {
             dispatch(detail);
         } catch {}
       });
-      stream.addEventListener("revoked", () => {
-        stream?.close();
+      source.addEventListener("revoked", () => {
+        if (!active || stream !== source) return;
+        stream = undefined;
+        source.close();
         connected = false;
         revoked.current();
       });
     };
     const reconcile = () => {
-      if (document.visibilityState === "visible") dispatch({});
+      if (active && document.visibilityState === "visible") dispatch({});
     };
     const fallback = setInterval(() => {
       if (!connected || Date.now() - lastMessage > 30_000) reconcile();
@@ -92,7 +115,9 @@ export function useCompletionStream(onRevoked: () => void) {
       active = false;
       clearTimeout(start);
       clearInterval(fallback);
-      stream?.close();
+      const current = stream;
+      stream = undefined;
+      current?.close();
       document.removeEventListener("visibilitychange", connect);
       window.removeEventListener("focus", reconcile);
     };

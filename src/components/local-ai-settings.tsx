@@ -28,22 +28,26 @@ type Suggestion = {
 export function LocalAiSettings({
   beforeAction,
   onSelect,
+  onboarding = false,
+  onBusyChange,
 }: {
   beforeAction: () => Promise<boolean>;
   onSelect?: (result: SearchResult) => Promise<boolean>;
+  onboarding?: boolean;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [status, setStatus] = useState<Status | null>(null),
     [suggestions, setSuggestions] = useState<Suggestion[]>([]),
     [statusError, setStatusError] = useState(""),
     [suggestionsError, setSuggestionsError] = useState(""),
     [statusLoading, setStatusLoading] = useState(true),
-    [suggestionsLoading, setSuggestionsLoading] = useState(true),
+    [suggestionsLoading, setSuggestionsLoading] = useState(!onboarding),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [version, setVersion] = useState(0);
   function refresh() {
     setStatusLoading(true);
-    setSuggestionsLoading(true);
+    if (!onboarding) setSuggestionsLoading(true);
     setStatusError("");
     setSuggestionsError("");
     setVersion((n) => n + 1);
@@ -61,26 +65,31 @@ export function LocalAiSettings({
       .finally(() => {
         if (!controller.signal.aborted) setStatusLoading(false);
       });
-    void api<{ items: Suggestion[] }>("ai/suggestions", {
-      signal: controller.signal,
-    })
-      .then((proposals) => {
-        if (!controller.signal.aborted) setSuggestions(proposals.items);
+    if (!onboarding)
+      void api<{ items: Suggestion[] }>("ai/suggestions", {
+        signal: controller.signal,
       })
-      .catch((e) => {
-        if (!controller.signal.aborted) {
-          setSuggestions([]);
-          setSuggestionsError((e as Error).message);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setSuggestionsLoading(false);
-      });
+        .then((proposals) => {
+          if (!controller.signal.aborted) setSuggestions(proposals.items);
+        })
+        .catch((e) => {
+          if (!controller.signal.aborted) {
+            setSuggestions([]);
+            setSuggestionsError((e as Error).message);
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSuggestionsLoading(false);
+        });
     return () => controller.abort();
-  }, [version]);
+  }, [onboarding, version]);
+  function setActionBusy(value: boolean) {
+    setBusy(value);
+    onBusyChange?.(value);
+  }
   async function run(action: () => Promise<unknown>) {
     if (busy) return;
-    setBusy(true);
+    setActionBusy(true);
     setError("");
     try {
       if (!(await beforeAction()))
@@ -88,29 +97,33 @@ export function LocalAiSettings({
       await action();
       refresh();
     } catch (e) {
-      setError((e as Error).message);
+      setError(
+        (e as Error).message === "Save your current item before continuing."
+          ? (e as Error).message
+          : "Could not update smart features. Try again.",
+      );
     } finally {
-      setBusy(false);
+      setActionBusy(false);
     }
   }
   return (
     <section
-      className="settings-section local-ai-settings"
+      className={`settings-section local-ai-settings${onboarding ? " local-ai-onboarding" : ""}`}
       aria-labelledby="local-ai-title"
     >
-      <h2 id="local-ai-title">Local AI</h2>
+      <h2 id="local-ai-title">Smart tagging and search</h2>
       <p className="settings-description">
-        Find related content and review suggestions for your existing tags. Runs
-        privately on your server in English.
+        Suggest tags for your items and find related content. You approve every
+        tag suggestion.
       </p>
       {!status && statusLoading && !error && (
         <p className="settings-description" role="status">
-          Loading local AI settings…
+          Loading smart feature settings…
         </p>
       )}
       {statusError && (
         <p role="alert" className="form-error">
-          Could not load local AI settings. {statusError}{" "}
+          Could not load smart features.{" "}
           <Button size="sm" variant="ghost" onClick={refresh}>
             Retry
           </Button>
@@ -132,20 +145,26 @@ export function LocalAiSettings({
             )
           }
         />
-        Enable local AI
+        Enable smart features
       </Label>
-      {status?.enabled && (
+      {status?.enabled && !onboarding && (
         <>
           <p className="settings-description" role="status">
             {status.indexed.toLocaleString()} of {status.total.toLocaleString()}{" "}
-            sources indexed. Keyword search stays available.
-            {status.failed > 0
-              ? ` ${status.failed} sources could not be indexed.`
-              : ""}
-            {status.capacity > 0
-              ? ` ${status.capacity} sources are waiting for index capacity.`
-              : ""}
+            items ready for smart features. Search by meaning is on.
           </p>
+          {status.failed > 0 && (
+            <p className="settings-description" role="status">
+              Some items could not be prepared for smart tagging or Search by
+              meaning.
+            </p>
+          )}
+          {status.capacity > 0 && (
+            <p className="settings-description" role="status">
+              More items are waiting to be prepared for smart tagging and Search
+              by meaning.
+            </p>
+          )}
           {status.failed > 0 && (
             <Button
               variant="outline"
@@ -163,7 +182,7 @@ export function LocalAiSettings({
                 )
               }
             >
-              Retry indexing
+              Try again
             </Button>
           )}
           <div className="local-ai-suggestions">
@@ -175,7 +194,7 @@ export function LocalAiSettings({
             )}
             {suggestionsError && (
               <p role="alert" className="form-error">
-                Could not load tag suggestions. {suggestionsError}{" "}
+                Could not load tag suggestions.{" "}
                 <Button size="sm" variant="ghost" onClick={refresh}>
                   Retry
                 </Button>
@@ -267,8 +286,8 @@ export function LocalAiSettings({
               !suggestionsLoading &&
               !suggestionsError && (
                 <p className="settings-description">
-                  No suggestions to review. Add matching words to tags to help
-                  recognize your vocabulary.
+                  No suggestions to review. Add matching words to tags to
+                  improve future suggestions.
                 </p>
               )
             )}

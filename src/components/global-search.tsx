@@ -237,7 +237,7 @@ export function GlobalSearch({
               !loading &&
               strategyUsed === "keyword" && (
                 <span role="status">
-                  Keyword results · local AI unavailable
+                  Meaning search is unavailable. Showing keyword results.
                 </span>
               )}
           </div>
