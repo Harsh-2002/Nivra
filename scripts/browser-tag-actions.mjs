@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod } from "node:fs/promises";
+import { setTimeout } from "node:timers/promises";
 import { chromium, firefox, webkit, request } from "playwright";
 
 const base = process.env.NIVRA_BROWSER_TEST_URL ?? "http://localhost:3015";
@@ -52,6 +53,11 @@ try {
         name: `Tag test ${randomUUID().slice(0, 8)}`,
         color: "gray",
       });
+      await page.route(`**/api/v1/tags/${tag.id}`, async (route) => {
+        if (route.request().method() === "DELETE" && colorScheme === "dark")
+          await setTimeout(350);
+        await route.continue();
+      });
       const task = await api("tasks", "POST", {
         title: `Retained task ${randomUUID().slice(0, 8)}`,
       });
@@ -78,7 +84,7 @@ try {
         await page.getByRole("menuitem", { name: action, exact: true }).click();
       }
       async function onlyDialog(role) {
-        const dialog = page.getByRole(role);
+        const dialog = page.locator(`[role="${role}"][data-state="open"]`);
         await dialog.waitFor();
         if (width < 1024)
           await page

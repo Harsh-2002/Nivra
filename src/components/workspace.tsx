@@ -151,9 +151,14 @@ export function Workspace({
   const [navigationContent, setNavigationContent] =
     useState<HTMLDivElement | null>(null);
   const navigationAction = useRef<(() => void) | null>(null);
-  function afterNavigation(action: () => void) {
+  const tagMenuAction = useRef<(() => void) | null>(null);
+  function afterNavigation(action: () => void, fromMenu = false) {
     if (!drawer) {
-      action();
+      if (fromMenu) tagMenuAction.current = action;
+      else {
+        tagMenuAction.current = null;
+        action();
+      }
       return;
     }
     navigationAction.current = action;
@@ -660,6 +665,15 @@ export function Workspace({
       if (active) adopt(await api<Note>(`notes/${active.id}`));
       await load();
       window.dispatchEvent(new Event("nivra:tags-changed"));
+      if (tag === item.id && window.innerWidth < 1024)
+        requestAnimationFrame(() => {
+          if (document.activeElement !== document.body) return;
+          document
+            .querySelector<HTMLElement>(
+              '.workspace button[aria-label="Open navigation"]',
+            )
+            ?.focus({ preventScroll: true });
+        });
     } catch (e) {
       notify.error((e as Error).message);
     }
@@ -745,15 +759,24 @@ export function Workspace({
                 <DropdownMenuContent
                   align="start"
                   portalContainer={drawer ? navigationContent : undefined}
+                  onCloseAutoFocus={() => {
+                    const action = tagMenuAction.current;
+                    tagMenuAction.current = null;
+                    if (action) requestAnimationFrame(action);
+                  }}
                 >
                   <DropdownMenuItem
-                    onSelect={() => afterNavigation(() => setTagDialog(item))}
+                    onSelect={() =>
+                      afterNavigation(() => setTagDialog(item), true)
+                    }
                   >
                     <Pencil size={14} />
                     Edit tag
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onSelect={() => afterNavigation(() => void deleteTag(item))}
+                    onSelect={() =>
+                      afterNavigation(() => void deleteTag(item), true)
+                    }
                   >
                     <Trash2 size={14} />
                     Delete tag

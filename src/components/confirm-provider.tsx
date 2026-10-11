@@ -58,7 +58,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       >
         <AlertDialogContent
           onCloseAutoFocus={(event) => {
-            const target = returnFocus.current;
+            const previous = returnFocus.current;
+            const target = previous?.isConnected
+              ? previous
+              : previous?.getAttribute("aria-label") === "Open navigation"
+                ? document.querySelector<HTMLElement>(
+                    '.workspace button[aria-label="Open navigation"]',
+                  )
+                : null;
             if (target?.isConnected && target !== document.body) {
               event.preventDefault();
               target.focus({ preventScroll: true });
