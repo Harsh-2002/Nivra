@@ -137,6 +137,48 @@ export type Overview = {
     Bookmark,
     "id" | "title" | "url" | "description" | "siteName" | "updatedAt"
   >[];
+  calendar: {
+    id: string;
+    sourceId: string;
+    type: "event";
+    title: string;
+    date: string;
+    startAt?: number;
+    endAt?: number;
+    label: string;
+    revision: number;
+    occurrence?: string;
+  }[];
+  recentItems: (
+    | {
+        id: string;
+        type: "note";
+        title: string;
+        updatedAt: number;
+      }
+    | {
+        id: string;
+        type: "journal";
+        title: string;
+        date: string;
+        updatedAt: number;
+      }
+    | {
+        id: string;
+        type: "bookmark";
+        title: string;
+        url: string;
+        siteName: string;
+        updatedAt: number;
+      }
+    | {
+        id: string;
+        type: "artifact";
+        title: string;
+        updatedAt: number;
+      }
+  )[];
+  review?: { formResponses: number; tagSuggestions: number };
   refreshedAt: number;
 };
 export type Page<T> = { items: T[]; next: string | null };

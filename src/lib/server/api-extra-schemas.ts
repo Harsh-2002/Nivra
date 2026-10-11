@@ -81,6 +81,57 @@ export const extraOutputs = {
         }),
       )
       .max(20),
+    calendar: z
+      .array(
+        z.object({
+          id: z.string(),
+          sourceId: idSchema,
+          type: z.literal("event"),
+          title: z.string(),
+          date: z.string(),
+          startAt: z.number().optional(),
+          endAt: z.number().optional(),
+          label: z.string(),
+          revision: z.number().int().positive(),
+          occurrence: z.string().optional(),
+        }),
+      )
+      .max(5),
+    recentItems: z
+      .discriminatedUnion("type", [
+        z.object({
+          id: idSchema,
+          type: z.literal("note"),
+          title: z.string(),
+          updatedAt: count,
+        }),
+        z.object({
+          id: idSchema,
+          type: z.literal("journal"),
+          title: z.string(),
+          date: z.string(),
+          updatedAt: count,
+        }),
+        z.object({
+          id: idSchema,
+          type: z.literal("bookmark"),
+          title: z.string(),
+          url: z.string(),
+          siteName: z.string(),
+          updatedAt: count,
+        }),
+        z.object({
+          id: idSchema,
+          type: z.literal("artifact"),
+          title: z.string(),
+          updatedAt: count,
+        }),
+      ])
+      .array()
+      .max(8),
+    review: z
+      .object({ formResponses: count, tagSuggestions: count })
+      .optional(),
     refreshedAt: count,
   }),
   calendarRange: z.object({

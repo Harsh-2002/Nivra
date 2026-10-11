@@ -6,12 +6,15 @@ import {
   ArrowRight,
   Bookmark,
   CalendarDays,
+  ClipboardCheck,
   ExternalLink,
   FileText,
+  Layers,
   ListTodo,
   Loader2,
   Plus,
   Repeat2,
+  Tag,
 } from "lucide-react";
 import { api } from "@/lib/client";
 import { formatDate, localDate } from "@/lib/dates";
@@ -24,21 +27,43 @@ import { Checkbox } from "./ui/checkbox";
 import { sectionCache } from "@/lib/section-cache";
 
 const snapshotKey = "overview:snapshot";
+const browserTimezone = () =>
+  Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const freshSnapshot = () => {
-  const cached = sectionCache.get<{ date: string; data: Overview }>(
-    snapshotKey,
-  );
-  return cached?.date === localDate() ? cached.data : null;
+  const cached = sectionCache.get<{
+    date: string;
+    timezone: string;
+    data: Overview;
+  }>(snapshotKey);
+  return cached?.date === localDate() && cached.timezone === browserTimezone()
+    ? cached.data
+    : null;
 };
+type OverviewDestination =
+  | "all"
+  | "tasks"
+  | "bookmarks"
+  | "calendar"
+  | "artifacts"
+  | "forms"
+  | "tag-suggestions";
 export function OverviewPanel({
   onNavigation,
   onOpenNote,
-  onSection,
+  onNavigate,
   onCreate,
 }: {
   onNavigation: () => void;
   onOpenNote: (id: string) => Promise<boolean>;
-  onSection: (section: "all" | "tasks" | "bookmarks", query?: string) => void;
+  onNavigate: (
+    destination: OverviewDestination,
+    options?: {
+      query?: string;
+      date?: string;
+      openId?: string;
+      occurrence?: string;
+    },
+  ) => void;
   onCreate: (kind: "note" | "task" | "bookmark" | "daily") => void;
 }) {
   const [data, setData] = useState<Overview | null>(freshSnapshot);
@@ -47,6 +72,7 @@ export function OverviewPanel({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
+  const completionRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refresh = useCallback(async () => {
     request.current?.abort();
     const controller = new AbortController();
@@ -54,11 +80,13 @@ export function OverviewPanel({
     setLoading(true);
     try {
       const date = localDate();
-      const snapshot = await api<Overview>(`overview?date=${date}`, {
+      const timezone = browserTimezone();
+      const query = new URLSearchParams({ date, timezone });
+      const snapshot = await api<Overview>(`overview?${query}`, {
         signal: controller.signal,
       });
       if (!controller.signal.aborted) {
-        sectionCache.set(snapshotKey, { date, data: snapshot });
+        sectionCache.set(snapshotKey, { date, timezone, data: snapshot });
         setData(snapshot);
         setError("");
       }
@@ -68,14 +96,27 @@ export function OverviewPanel({
       if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
-  useCompletion(undefined, () => {
-    void refresh();
-  });
+  const scheduleRefresh = useCallback(() => {
+    if (completionRefresh.current) clearTimeout(completionRefresh.current);
+    completionRefresh.current = setTimeout(() => {
+      completionRefresh.current = null;
+      void refresh();
+    }, 150);
+  }, [refresh]);
+  useCompletion(undefined, scheduleRefresh);
   useEffect(() => {
-    const captured = () => void refresh();
+    const changed = () => scheduleRefresh();
+    window.addEventListener("nivra:ai-completion", changed);
+    return () => {
+      window.removeEventListener("nivra:ai-completion", changed);
+      if (completionRefresh.current) clearTimeout(completionRefresh.current);
+    };
+  }, [scheduleRefresh]);
+  useEffect(() => {
+    const captured = () => scheduleRefresh();
     window.addEventListener("nivra:captured", captured);
     return () => window.removeEventListener("nivra:captured", captured);
-  }, [refresh]);
+  }, [scheduleRefresh]);
   useEffect(() => {
     let clock: ReturnType<typeof setTimeout>;
     let date = localDate();
@@ -128,19 +169,16 @@ export function OverviewPanel({
     }
   }
   const today = now ? localDate(now) : "";
-  const empty = (
-    message: string,
-    action: string,
-    kind: "note" | "task" | "bookmark",
-  ) => (
-    <div className="overview-empty">
-      <p>{message}</p>
-      <Button variant="outline" onClick={() => onCreate(kind)}>
-        <Plus size={14} />
-        {action}
-      </Button>
-    </div>
-  );
+  const recentItems = data?.recentItems ?? [];
+  const hasReview =
+    (data?.review?.formResponses ?? 0) > 0 ||
+    (data?.review?.tagSuggestions ?? 0) > 0;
+  const firstUse =
+    !!data &&
+    data.counts.open === 0 &&
+    data.calendar.length === 0 &&
+    recentItems.length === 0 &&
+    !hasReview;
   return (
     <section className="overview-panel" aria-label="Overview">
       <div
@@ -153,7 +191,7 @@ export function OverviewPanel({
           <div className="overview-header">
             <SectionHeading
               title="Overview"
-              description="Your notes, tasks and saved links at a glance."
+              description="Your workspace at a glance."
               onNavigation={onNavigation}
             />
             <div className="overview-intro">
@@ -224,21 +262,35 @@ export function OverviewPanel({
           )}
           {!data && loading ? (
             <LoadingState kind="overview" label="Loading your overview" />
+          ) : data && firstUse ? (
+            <div className="overview-grid" data-card-count={1}>
+              <section
+                className="overview-widget overview-welcome"
+                aria-labelledby="overview-welcome-title"
+              >
+                <h2 id="overview-welcome-title">Your workspace is ready</h2>
+                <p>
+                  Your recent work and upcoming plans will appear here as you
+                  add them.
+                </p>
+              </section>
+            </div>
           ) : (
             data && (
-              <div className="overview-grid">
+              <div
+                className="overview-grid"
+                data-card-count={hasReview ? 3 : 2}
+              >
                 <section
                   className="overview-widget overview-tasks"
                   aria-labelledby="overview-tasks-title"
                 >
                   <header>
-                    <h2 id="overview-tasks-title">
-                      Open tasks <span>{data.counts.open}</span>
-                    </h2>
+                    <h2 id="overview-tasks-title">Open tasks</h2>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => onSection("tasks")}
+                      onClick={() => onNavigate("tasks")}
                       aria-label="View all tasks"
                     >
                       View all
@@ -246,9 +298,11 @@ export function OverviewPanel({
                     </Button>
                   </header>
                   <p className="overview-task-summary">
+                    {data.counts.open} open
                     {data.counts.overdue > 0
-                      ? `${data.counts.overdue} overdue · `
+                      ? ` · ${data.counts.overdue} overdue`
                       : ""}
+                    {" · "}
                     {data.counts.today} due today
                   </p>
                   {data.tasks.length ? (
@@ -272,7 +326,9 @@ export function OverviewPanel({
                           </div>
                           <button
                             className="overview-task-link"
-                            onClick={() => onSection("tasks", task.title)}
+                            onClick={() =>
+                              onNavigate("tasks", { query: task.title })
+                            }
                           >
                             <strong>{task.title}</strong>
                             <span>
@@ -295,11 +351,9 @@ export function OverviewPanel({
                       ))}
                     </ul>
                   ) : (
-                    empty(
-                      "Nothing left open. Make room for your next task.",
-                      "Add a task",
-                      "task",
-                    )
+                    <p className="overview-empty">
+                      Nothing left open. Make room for your next task.
+                    </p>
                   )}
                   {data.counts.open > data.tasks.length && (
                     <p className="overview-more">
@@ -313,40 +367,42 @@ export function OverviewPanel({
                       of {data.counts.open} open tasks, newest first.
                     </p>
                   )}
-                </section>
-                <section
-                  className="overview-widget overview-notes"
-                  aria-labelledby="overview-notes-title"
-                >
-                  <header>
-                    <h2 id="overview-notes-title">Recent notes</h2>
+                  <div className="overview-subsection-heading">
+                    <h3>Upcoming calendar</h3>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => onSection("all")}
-                      aria-label="View all notes"
+                      onClick={() => onNavigate("calendar")}
+                      aria-label="Open Calendar"
                     >
-                      View all
+                      Calendar
                       <ArrowRight size={14} />
                     </Button>
-                  </header>
-                  {data.notes.length ? (
-                    <ul tabIndex={0} aria-label="Recent notes">
-                      {data.notes.map((note) => (
-                        <li key={note.id}>
+                  </div>
+                  {data.calendar.length ? (
+                    <ul tabIndex={0} aria-label="Upcoming calendar events">
+                      {data.calendar.map((event) => (
+                        <li key={event.id}>
                           <button
                             className="overview-note-link"
-                            onClick={() => void onOpenNote(note.id)}
+                            onClick={() =>
+                              onNavigate("calendar", {
+                                date: event.date,
+                                openId: event.sourceId,
+                                occurrence: event.occurrence,
+                              })
+                            }
                           >
-                            <FileText size={16} />
+                            <CalendarDays size={16} />
                             <span>
-                              <strong>{note.title || "Untitled"}</strong>
+                              <strong>{event.title}</strong>
                               <small>
-                                Edited{" "}
-                                {new Date(note.updatedAt).toLocaleDateString(
-                                  undefined,
-                                  { month: "short", day: "numeric" },
-                                )}
+                                {formatDate(event.date)}
+                                {event.startAt !== undefined &&
+                                  ` · ${new Date(event.startAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
+                                {event.startAt === undefined &&
+                                  event.label !== "Event" &&
+                                  ` · ${event.label}`}
                               </small>
                             </span>
                             <ArrowRight size={14} />
@@ -355,66 +411,155 @@ export function OverviewPanel({
                       ))}
                     </ul>
                   ) : (
-                    empty(
-                      "A thought, an idea, a place to start.",
-                      "Create a note",
-                      "note",
-                    )
+                    <p className="overview-calendar-empty">
+                      Nothing scheduled in the next week.
+                    </p>
                   )}
                 </section>
                 <section
-                  className="overview-widget overview-bookmarks"
-                  aria-labelledby="overview-bookmarks-title"
+                  className="overview-widget overview-recent"
+                  aria-labelledby="overview-recent-title"
                 >
                   <header>
-                    <h2 id="overview-bookmarks-title">Recent bookmarks</h2>
+                    <h2 id="overview-recent-title">Recent items</h2>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => onSection("bookmarks")}
-                      aria-label="View all bookmarks"
+                      onClick={() => onNavigate("all")}
+                      aria-label="View all notes"
                     >
-                      View all
+                      Notes
                       <ArrowRight size={14} />
                     </Button>
                   </header>
-                  {data.bookmarks.length ? (
-                    <ul tabIndex={0} aria-label="Recent bookmarks">
-                      {data.bookmarks.map((bookmark) => (
-                        <li key={bookmark.id}>
-                          <a
-                            className="overview-bookmark-link"
-                            href={bookmark.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <Bookmark size={16} />
-                            <span>
-                              <strong>{bookmark.title || bookmark.url}</strong>
-                              <small>
-                                {bookmark.siteName ||
-                                  new URL(bookmark.url).hostname}
-                              </small>
-                              {bookmark.description && (
-                                <p>{bookmark.description}</p>
-                              )}
-                            </span>
-                            <ExternalLink
-                              size={14}
-                              aria-label="Opens in a new tab"
-                            />
-                          </a>
+                  {recentItems.length ? (
+                    <ul tabIndex={0} aria-label="Recent items">
+                      {recentItems.map((item) => (
+                        <li key={`${item.type}:${item.id}`}>
+                          {item.type === "bookmark" ? (
+                            <a
+                              className="overview-bookmark-link"
+                              href={item.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Bookmark size={16} />
+                              <span>
+                                <strong>{item.title || item.url}</strong>
+                                <small>
+                                  Bookmark · {item.siteName || "Saved link"}
+                                </small>
+                              </span>
+                              <ExternalLink
+                                size={14}
+                                aria-label="Opens in a new tab"
+                              />
+                            </a>
+                          ) : item.type === "note" ||
+                            item.type === "journal" ? (
+                            <button
+                              className="overview-note-link"
+                              onClick={() => void onOpenNote(item.id)}
+                            >
+                              <FileText size={16} />
+                              <span>
+                                <strong>
+                                  {item.title ||
+                                    (item.type === "journal"
+                                      ? "Journal"
+                                      : "Untitled")}
+                                </strong>
+                                <small>
+                                  {item.type === "journal"
+                                    ? `Journal · ${formatDate(item.date)}`
+                                    : `Note · ${new Date(item.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
+                                </small>
+                              </span>
+                              <ArrowRight size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              className="overview-note-link"
+                              onClick={() =>
+                                onNavigate("artifacts", { openId: item.id })
+                              }
+                            >
+                              <Layers size={16} />
+                              <span>
+                                <strong>
+                                  {item.title || "Untitled artifact"}
+                                </strong>
+                                <small>
+                                  Artifact ·{" "}
+                                  {new Date(item.updatedAt).toLocaleDateString(
+                                    undefined,
+                                    { month: "short", day: "numeric" },
+                                  )}
+                                </small>
+                              </span>
+                              <ArrowRight size={14} />
+                            </button>
+                          )}
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    empty(
-                      "Keep something worth coming back to.",
-                      "Save a link",
-                      "bookmark",
-                    )
+                    <p className="overview-empty">Nothing saved recently.</p>
                   )}
                 </section>
+                {hasReview && (
+                  <section
+                    className="overview-widget overview-review"
+                    aria-labelledby="overview-review-title"
+                  >
+                    <header>
+                      <h2 id="overview-review-title">Needs review</h2>
+                    </header>
+                    <ul aria-label="Items that need review">
+                      {data.review?.formResponses ? (
+                        <li>
+                          <button
+                            className="overview-note-link"
+                            onClick={() => onNavigate("forms")}
+                          >
+                            <ClipboardCheck size={16} />
+                            <span>
+                              <strong>
+                                {data.review.formResponses} unreviewed form{" "}
+                                {data.review.formResponses === 1
+                                  ? "response"
+                                  : "responses"}
+                              </strong>
+                              <small>Forms</small>
+                            </span>
+                            <ArrowRight size={14} />
+                          </button>
+                        </li>
+                      ) : null}
+                      {data.review?.tagSuggestions ? (
+                        <li>
+                          <button
+                            className="overview-note-link"
+                            onClick={() => onNavigate("tag-suggestions")}
+                          >
+                            <Tag size={16} />
+                            <span>
+                              <strong>
+                                {data.review.tagSuggestions}{" "}
+                                {data.review.tagSuggestions === 1
+                                  ? "tag suggestion"
+                                  : "tag suggestions"}{" "}
+                                to review
+                              </strong>
+                              <small>Tags</small>
+                            </span>
+                            <ArrowRight size={14} />
+                          </button>
+                        </li>
+                      ) : null}
+                    </ul>
+                  </section>
+                )}
               </div>
             )
           )}

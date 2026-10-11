@@ -350,7 +350,12 @@ add(
   { binary: "text/event-stream", access: "owner" },
 );
 add("overview", "GET", "Read workspace summaries", extraOutputs.overview, {
-  query: z.object({ date: apiInputs.journalCreate.shape.date }).strict(),
+  query: z
+    .object({
+      date: apiInputs.journalCreate.shape.date,
+      timezone: apiQueries.calendar.shape.timezone.optional(),
+    })
+    .strict(),
 });
 add(
   "notes/{id}/publication",

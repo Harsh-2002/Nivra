@@ -25,7 +25,7 @@ import { PasskeySettings } from "./passkey-settings";
 import { RecoveryCard } from "./auth-screen";
 import { api, authRequest, downloadRequest } from "@/lib/client";
 import { importFiles, type ImportResult } from "@/lib/import-files";
-import type { Owner, Settings, SearchResult } from "@/lib/types";
+import type { Owner, Settings } from "@/lib/types";
 
 type Section = "account" | "data" | "agents" | "system";
 type AccountView = "profile" | "password" | "recovery" | "mfa" | "passkeys";
@@ -38,7 +38,6 @@ export function SettingsPanel({
   beforeAction,
   onImported,
   onSignOut,
-  onSelect,
 }: {
   open: boolean;
   onClose: () => void;
@@ -48,7 +47,6 @@ export function SettingsPanel({
   beforeAction: () => Promise<boolean>;
   onImported: () => Promise<void>;
   onSignOut: () => Promise<void>;
-  onSelect: (result: SearchResult) => Promise<boolean>;
 }) {
   const [tab, setTab] = useState<Section>("account");
   const [accountView, setAccountView] = useState<AccountView>("profile");
@@ -222,16 +220,7 @@ export function SettingsPanel({
             tabIndex={0}
           >
             <FeedbackOutlet />
-            {tab === "system" && (
-              <SystemSettings
-                beforeAction={beforeAction}
-                onSelect={async (result) => {
-                  const selected = await onSelect(result);
-                  if (selected) onClose();
-                  return selected;
-                }}
-              />
-            )}
+            {tab === "system" && <SystemSettings beforeAction={beforeAction} />}
             {tab === "account" && (
               <>
                 {accountView !== "profile" && (

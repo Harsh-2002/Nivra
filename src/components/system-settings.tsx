@@ -18,7 +18,6 @@ import { useConfirm } from "./confirm-provider";
 import { LocalAiSettings } from "./local-ai-settings";
 import { BackupSettings } from "./backup-settings";
 import type { systemStatus } from "@/lib/server/system-api";
-import type { SearchResult } from "@/lib/types";
 type Status = ReturnType<typeof systemStatus>;
 type Draft = {
   provider: "aws" | "r2" | "b2" | "compatible";
@@ -42,12 +41,10 @@ export function SystemSettings({
   beforeAction = async () => true,
   onboarding = false,
   onDone,
-  onSelect,
 }: {
   beforeAction?: () => Promise<boolean>;
   onboarding?: boolean;
   onDone?: () => Promise<void>;
-  onSelect?: (result: SearchResult) => Promise<boolean>;
 }) {
   const confirm = useConfirm();
   const [status, setStatus] = useState<Status | null>(null);
@@ -494,9 +491,7 @@ export function SystemSettings({
           {onboarding ? "Continue" : "Save settings"}
         </Button>
       </form>
-      {!onboarding && (
-        <LocalAiSettings beforeAction={beforeAction} onSelect={onSelect} />
-      )}
+      {!onboarding && <LocalAiSettings beforeAction={beforeAction} />}
       {!onboarding && status.cleanupAvailable && (
         <section className="settings-section">
           <h2>Previous storage</h2>

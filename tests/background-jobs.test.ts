@@ -236,11 +236,46 @@ test("jobs fence stale leases, deduplicate, cancel deletion and stream only owne
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     assert.match(decoder.decode((await reader.read()).value), /event: resync/);
-    jobs.completionEvent(owner, "artifact", "synthetic-id", "done");
+    const unauthorized = completionStream(
+      new Request(request.url),
+      randomUUID(),
+      session,
+    );
+    const unauthorizedReader = unauthorized.body!.getReader();
+    assert.match(
+      decoder.decode((await unauthorizedReader.read()).value),
+      /event: resync/,
+    );
+    jobs.completionEvent(owner, "ai", "synthetic-id", "available");
     const event = decoder.decode((await reader.read()).value);
     assert.match(event, /event: completion/);
     assert.match(event, /synthetic-id/);
-    assert.doesNotMatch(event, /preserved draft|jobs@local/);
+    const eventData = JSON.parse(event.split("data: ")[1]!.trim()) as {
+      id: number;
+      kind: string;
+      target: string;
+      status: string;
+    };
+    assert.deepEqual(Object.keys(eventData).sort(), [
+      "id",
+      "kind",
+      "status",
+      "target",
+    ]);
+    assert.equal(eventData.kind, "ai");
+    assert.equal(eventData.status, "available");
+    assert.doesNotMatch(
+      event,
+      /private proposal sentinel|excerpt|embedding|vector|preserved draft|jobs@local/i,
+    );
+    const unauthorizedEvent = decoder.decode(
+      (await unauthorizedReader.read()).value,
+    );
+    assert.match(unauthorizedEvent, /event: revoked/);
+    assert.doesNotMatch(
+      unauthorizedEvent,
+      /synthetic-id|excerpt|embedding|vector/i,
+    );
     db.prepare("DELETE FROM session WHERE id=?").run(session);
     assert.match(decoder.decode((await reader.read()).value), /event: revoked/);
     assert.equal((await reader.read()).done, true);

@@ -28,6 +28,7 @@ import {
   Trash,
   Zap,
   ClipboardList,
+  Tags,
 } from "lucide-react";
 import { notify } from "@/lib/feedback";
 import { Mark } from "./auth-screen";
@@ -71,6 +72,7 @@ import { SettingsPanel } from "./settings-panel";
 import { BookmarksPanel } from "./bookmarks-panel";
 import { OverviewPanel } from "./overview-panel";
 import { ItemCollection } from "./item-collection";
+import { TagSuggestionsPanel } from "./tag-suggestions-panel";
 import { FeedbackOutlet } from "./inline-feedback";
 import { TrashPanel } from "./trash-panel";
 import { CalendarPanel } from "./calendar-panel";
@@ -753,6 +755,15 @@ export function Workspace({
             <Plus size={14} />
           </Button>
         </div>
+        <button
+          className={`nav-item tags-suggestions-row ${view === "tag-suggestions" && !tag ? "active" : ""}`}
+          aria-label="Tag suggestions"
+          aria-current={view === "tag-suggestions" && !tag ? "page" : undefined}
+          onClick={() => afterNavigation(() => void filter("tag-suggestions"))}
+        >
+          <Tags size={18} strokeWidth={1.6} />
+          Tag suggestions
+        </button>
         <div className="tag-navigation">
           {tags.map((item) => (
             <div
@@ -927,15 +938,41 @@ export function Workspace({
             window.innerWidth < 1024 ? setDrawer(true) : setSidebar(true)
           }
           onOpenNote={navigateNote}
-          onSection={(section, query = "") => {
-            void filter(section).then((changed) => {
+          onNavigate={(destination, options) => {
+            void filter(destination).then((changed) => {
               if (changed) {
-                setSectionTarget({ query });
+                setSectionTarget({
+                  query: options?.query ?? "",
+                  ...(destination === "artifacts" && options?.openId
+                    ? { openId: options.openId }
+                    : {}),
+                });
+                if (
+                  destination === "calendar" &&
+                  (options?.date || options?.openId)
+                ) {
+                  const url = new URL("/calendar", window.location.href);
+                  if (options.date) url.searchParams.set("date", options.date);
+                  if (options.openId)
+                    url.searchParams.set("event", options.openId);
+                  if (options.occurrence)
+                    url.searchParams.set("occurrence", options.occurrence);
+                  window.history.replaceState(null, "", url);
+                  acceptedUrl.current = url.href;
+                }
                 setGeneration((n) => n + 1);
               }
             });
           }}
           onCreate={(kind) => void searchCommand(kind)}
+        />
+      ) : view === "tag-suggestions" ? (
+        <TagSuggestionsPanel
+          beforeAction={() => guard.current()}
+          onSelect={selectResult}
+          onNavigation={() =>
+            window.innerWidth < 1024 ? setDrawer(true) : setSidebar(true)
+          }
         />
       ) : view === "calendar" ? (
         <CalendarPanel
@@ -1061,6 +1098,7 @@ export function Workspace({
                 })
           }
           opening={opening}
+          onReviewSuggestions={() => void filter("tag-suggestions")}
           onNavigation={() =>
             window.innerWidth < 1024 ? setDrawer(true) : setSidebar(true)
           }
@@ -1431,7 +1469,6 @@ export function Workspace({
       <GlobalSearch ref={globalSearch} onSelect={selectResult} />
       <QuickCapture ref={capture} onCaptured={captured} />
       <SettingsPanel
-        onSelect={selectResult}
         open={settingsOpen}
         onOpen={() => setSettingsOpen(true)}
         onClose={() => setSettingsOpen(false)}

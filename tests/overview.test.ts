@@ -250,6 +250,224 @@ test("overview is private, bounded, date-aware and reflects workspace changes", 
         assert.equal(next.dueDate, "2026-10-06");
       },
     );
+    await t.test(
+      "adds bounded recent content, timezone-aware calendar events and owner-only review counts",
+      async () => {
+        const { modelVersion } = await import("../src/lib/server/ai/model");
+        const { executeContent } =
+          await import("../src/lib/server/content-service");
+        const now = Date.now();
+        const recentNote = await value("notes", "POST", {
+          title: "Recent note",
+        });
+        const journal = await value("journals", "POST", {
+          date: "2026-10-05",
+        });
+        const artifact = await value("artifacts", "POST", {
+          text: "Recent artifact body",
+        });
+        const recentBookmarkId = randomUUID();
+        db()
+          .insert(bookmarks)
+          .values({
+            id: recentBookmarkId,
+            ownerId: owner,
+            url: "https://example.com/recent",
+            title: "Recent bookmark",
+            description: "",
+            siteName: "Example",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+        for (const [id, timestamp] of [
+          [recentNote.id, now + 5000],
+          [journal.id, now + 4000],
+          [artifact.id, now + 3000],
+          [recentBookmarkId, now + 2000],
+        ])
+          sqlite()
+            .prepare(
+              "UPDATE " +
+                (id === recentBookmarkId
+                  ? "bookmarks"
+                  : id === artifact.id
+                    ? "artifacts"
+                    : "notes") +
+                " SET updated_at=? WHERE id=?",
+            )
+            .run(timestamp, id);
+
+        const event = await value("events", "POST", {
+          title: "Upcoming timezone event",
+          allDay: true,
+          start: "2026-10-07",
+          end: "2026-10-08",
+          timezone: "America/Los_Angeles",
+          links: [],
+          reminders: [],
+        });
+
+        const formId = randomUUID();
+        const versionId = randomUUID();
+        sqlite()
+          .prepare(
+            "INSERT INTO forms(id,owner_id,title,description,definition,status,created_at,updated_at) VALUES(?,?,?,'','{}','published',?,?)",
+          )
+          .run(formId, owner, "Review form", now, now);
+        sqlite()
+          .prepare(
+            "INSERT INTO form_versions(id,form_id,revision,definition,created_at) VALUES(?,?,1,'{}',?)",
+          )
+          .run(versionId, formId, now);
+        sqlite()
+          .prepare("UPDATE forms SET published_version_id=? WHERE id=?")
+          .run(versionId, formId);
+        const insertResponse = sqlite().prepare(
+          "INSERT INTO form_responses(id,form_id,version_id,answers,search_text,retry_key,request_hash,created_at) VALUES(?,?,?,'{}','',?,?,?)",
+        );
+        const responseIds = [randomUUID(), randomUUID(), randomUUID()];
+        for (const id of responseIds)
+          insertResponse.run(
+            id,
+            formId,
+            versionId,
+            `retry-${id}`,
+            `hash-${id}`,
+            now,
+          );
+        sqlite()
+          .prepare("UPDATE form_responses SET reviewed=1 WHERE id=?")
+          .run(responseIds[1]);
+        sqlite()
+          .prepare("UPDATE form_responses SET trashed_at=? WHERE id=?")
+          .run(now, responseIds[2]);
+
+        const suggestedNote = await value("notes", "POST", {
+          title: "Tag review target",
+        });
+        const assignedNote = await value("notes", "POST", {
+          title: "Already tagged target",
+        });
+        const staleNote = await value("notes", "POST", {
+          title: "Stale proposal target",
+        });
+        const tagId = randomUUID();
+        sqlite()
+          .prepare(
+            "INSERT INTO tags(id,name,color,aliases) VALUES(?,?,'gray','[]')",
+          )
+          .run(tagId, "Overview review tag");
+        sqlite()
+          .prepare("INSERT INTO note_tags(note_id,tag_id) VALUES(?,?)")
+          .run(assignedNote.id, tagId);
+        const attachmentId = randomUUID();
+        sqlite()
+          .prepare(
+            "INSERT INTO attachments(id,note_id,name,mime,size,storage_key,created_at) VALUES(?,?,?,'text/plain',1,?,?)",
+          )
+          .run(attachmentId, suggestedNote.id, "source.txt", randomUUID(), now);
+        sqlite()
+          .prepare("UPDATE notes SET document=? WHERE id=?")
+          .run(JSON.stringify({ attachment: attachmentId }), suggestedNote.id);
+        sqlite()
+          .prepare("UPDATE ai_configuration SET enabled=1 WHERE id=1")
+          .run();
+        const configuration = sqlite()
+          .prepare(
+            "SELECT vocabulary_generation AS generation FROM ai_configuration WHERE id=1",
+          )
+          .get() as { generation: number };
+        const sourceKeys = [
+          `note:${suggestedNote.id}`,
+          `attachment:${attachmentId}`,
+          `note:${assignedNote.id}`,
+          `note:${staleNote.id}`,
+        ];
+        for (const sourceKey of sourceKeys) {
+          const indexed = sqlite()
+            .prepare("SELECT generation FROM ai_content WHERE source_key=?")
+            .get(sourceKey) as { generation: number };
+          sqlite()
+            .prepare(
+              "UPDATE ai_content SET state='indexed',model_version=?,indexed_generation=? WHERE source_key=?",
+            )
+            .run(modelVersion, indexed.generation, sourceKey);
+        }
+        const insertSuggestion = sqlite().prepare(
+          "INSERT INTO ai_suggestions(source_key,id,generation,fingerprint,score,model_version,vocabulary_generation,tag_id,created_at) SELECT source_key,?,?,?,0.9,?,?,?,? FROM ai_content WHERE source_key=?",
+        );
+        for (const [index, sourceKey] of sourceKeys.entries()) {
+          const indexed = sqlite()
+            .prepare("SELECT generation FROM ai_content WHERE source_key=?")
+            .get(sourceKey) as { generation: number };
+          insertSuggestion.run(
+            randomUUID(),
+            index === sourceKeys.length - 1
+              ? indexed.generation - 1
+              : indexed.generation,
+            "fingerprint",
+            modelVersion,
+            index === sourceKeys.length - 1
+              ? configuration.generation - 1
+              : configuration.generation,
+            tagId,
+            now,
+            sourceKey,
+          );
+        }
+        const overview = await value(
+          "overview?date=2026-10-05&timezone=America%2FLos_Angeles",
+        );
+        assert.deepEqual(overview.review, {
+          formResponses: 1,
+          tagSuggestions: 1,
+        });
+        assert.deepEqual(
+          overview.calendar.map((item: { sourceId: string }) => item.sourceId),
+          [event.id],
+        );
+        assert.deepEqual(
+          overview.recentItems
+            .slice(0, 4)
+            .map((item: { type: string }) => item.type),
+          ["note", "journal", "artifact", "bookmark"],
+        );
+        assert.equal(
+          overview.recentItems[1].date,
+          "2026-10-05",
+          "journal summaries carry their journal date and type",
+        );
+        assert.ok(
+          overview.recentItems.length <= 8 && overview.calendar.length <= 5,
+        );
+        assert.ok(!("suggestions" in overview));
+        const agentOverview = await executeContent({
+          ownerId: owner,
+          principal: {
+            ownerId: owner,
+            connectionId: "test-read-agent",
+            scopes: ["nivra:read"],
+          },
+          origin: "http://localhost:3000",
+          path: ["overview"],
+          method: "GET",
+          query: new URLSearchParams(
+            "date=2026-10-05&timezone=America%2FLos_Angeles",
+          ),
+        });
+        assert.ok("data" in agentOverview);
+        assert.ok(
+          !("review" in (agentOverview.data as object)),
+          "review counts stay out of the agent-visible overview DTO",
+        );
+        assert.equal(
+          (await call("overview?date=2026-10-05&timezone=Invalid%2FZone"))
+            .status,
+          400,
+        );
+      },
+    );
   } finally {
     sqlite().close();
     await rm(directory, { recursive: true, force: true });

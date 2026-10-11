@@ -27,12 +27,14 @@ export function ItemCollection({
   onOpen,
   opening,
   onNavigation,
+  onReviewSuggestions,
 }: {
   tag?: string;
   title: string;
   onOpen: (item: TaggedItem) => void;
   opening: boolean;
   onNavigation: () => void;
+  onReviewSuggestions?: () => void;
 }) {
   const label = tag ? "tagged items" : "favorites";
   const [query, setQuery] = useState("");
@@ -143,6 +145,15 @@ export function ItemCollection({
             onNavigation={onNavigation}
           />
           <div className="section-toolbar">
+            {tag && onReviewSuggestions && (
+              <Button
+                className="tag-suggestions-review"
+                variant="outline"
+                onClick={onReviewSuggestions}
+              >
+                Review tag suggestions
+              </Button>
+            )}
             <span className="tag-result-count">
               {rows === null
                 ? "Loading items…"

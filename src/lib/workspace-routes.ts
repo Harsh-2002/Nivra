@@ -8,6 +8,7 @@ export const workspaceRoutes = {
   bookmarks: "/bookmarks",
   artifacts: "/artifacts",
   forms: "/forms",
+  "tag-suggestions": "/tag-suggestions",
   trash: "/trash",
 } as const;
 export type WorkspaceView = keyof typeof workspaceRoutes;

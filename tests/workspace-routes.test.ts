@@ -3,8 +3,23 @@ import test from "node:test";
 import {
   cleanWorkspaceUrl,
   formRoute,
+  workspacePath,
+  workspaceRoutes,
   workspaceView,
 } from "../src/lib/workspace-routes";
+
+test("tag suggestions have a clean internal workspace route", () => {
+  assert.equal(workspaceRoutes["tag-suggestions"], "/tag-suggestions");
+  assert.equal(workspacePath("tag-suggestions"), "/tag-suggestions");
+  assert.equal(workspaceView("/tag-suggestions"), "tag-suggestions");
+  const url = cleanWorkspaceUrl(
+    new URL(
+      "https://example.com/tag-suggestions?tag=stale&note=stale&date=2026-10-11",
+    ),
+  );
+  assert.equal(url.pathname, "/tag-suggestions");
+  assert.equal(url.search, "");
+});
 
 test("calendar parameters are removed from unrelated sections", () => {
   for (const path of [

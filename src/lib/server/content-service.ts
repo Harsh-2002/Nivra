@@ -76,6 +76,7 @@ import { completionEvent } from "./jobs";
 import { getTask, moveTask } from "./tasks";
 import { executeTransfer } from "./transfer-service";
 import { ftsQuery } from "./validation";
+import { zoneSchema } from "../calendar";
 
 import { executeCalendar } from "./calendar-service";
 type Attachment = {
@@ -334,7 +335,8 @@ async function executeContentInternal(
     });
   if (area === "overview" && method === "GET" && !id) {
     const today = calendarDate.parse(query.get("date"));
-    return result(workspaceOverview(owner.id, today));
+    const timezone = zoneSchema.parse(query.get("timezone") ?? "UTC");
+    return result(workspaceOverview(owner.id, today, timezone, !principal));
   }
   if (area === "search" && method === "GET" && !id) {
     const page = offsetPagination(query, "search");

@@ -4403,6 +4403,12 @@
             "in": "query",
             "required": true,
             "schema": { "type": "string" }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "maxLength": 100 }
           }
         ],
         "responses": {
@@ -11106,13 +11112,169 @@
               "additionalProperties": false
             }
           },
+          "calendar": {
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "sourceId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "type": { "type": "string", "const": "event" },
+                "title": { "type": "string" },
+                "date": { "type": "string" },
+                "startAt": { "type": "number" },
+                "endAt": { "type": "number" },
+                "label": { "type": "string" },
+                "revision": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "occurrence": { "type": "string" }
+              },
+              "required": [
+                "id",
+                "sourceId",
+                "type",
+                "title",
+                "date",
+                "label",
+                "revision"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "recentItems": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": { "type": "string", "const": "note" },
+                    "title": { "type": "string" },
+                    "updatedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["id", "type", "title", "updatedAt"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": { "type": "string", "const": "journal" },
+                    "title": { "type": "string" },
+                    "date": { "type": "string" },
+                    "updatedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["id", "type", "title", "date", "updatedAt"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": { "type": "string", "const": "bookmark" },
+                    "title": { "type": "string" },
+                    "url": { "type": "string" },
+                    "siteName": { "type": "string" },
+                    "updatedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "title",
+                    "url",
+                    "siteName",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "type": { "type": "string", "const": "artifact" },
+                    "title": { "type": "string" },
+                    "updatedAt": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["id", "type", "title", "updatedAt"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "formResponses": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "tagSuggestions": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["formResponses", "tagSuggestions"],
+            "additionalProperties": false
+          },
           "refreshedAt": {
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
           }
         },
-        "required": ["counts", "tasks", "notes", "bookmarks", "refreshedAt"],
+        "required": [
+          "counts",
+          "tasks",
+          "notes",
+          "bookmarks",
+          "calendar",
+          "recentItems",
+          "refreshedAt"
+        ],
         "additionalProperties": false
       },
       "get_api_v1_notes_id_publicationResponse": {

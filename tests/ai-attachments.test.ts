@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 test("private note and form-response attachments follow parent visibility and use existing extraction", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "nivra-ai-files-"));
   process.env.NIVRA_DATA_DIR = directory;
@@ -226,6 +227,21 @@ test("private note and form-response attachments follow parent visibility and us
     const { relatedSearch } = await import("../src/lib/server/ai/search");
     const { assignItemTags } = await import("../src/lib/server/item-tags");
     const { taggedItems } = await import("../src/lib/server/item-tags");
+    const { createAgentServer } = await import("../src/lib/server/mcp-tools");
+    const connectReadOnly = async (ownerId: string, connectionId: string) => {
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const server = createAgentServer(
+        { ownerId, connectionId, scopes: ["nivra:read"] },
+        "http://localhost:3000",
+      );
+      const client = new Client({ name: "AI privacy fixture", version: "1" });
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      return { client, server };
+    };
     const responseTag = randomUUID();
     d.prepare(
       "INSERT INTO tags(id,name,color) VALUES(?,'Evidence','gray')",
@@ -241,12 +257,136 @@ test("private note and form-response attachments follow parent visibility and us
         (item) => item.id === response,
       ),
     );
+    const privateSemanticQuery =
+      "How should a cyber perimeter breach be analyzed?";
+    const privateSemantic = await relatedSearch(owner, privateSemanticQuery);
+    assert.equal(privateSemantic.strategyUsed, "semantic");
+    assert.ok(privateSemantic.items.some((item) => item.id === response));
+    const tools = await connectReadOnly(owner, "ai-response-read");
+    const wrongOwnerTools = await connectReadOnly(
+      randomUUID(),
+      "ai-response-wrong-owner",
+    );
+    try {
+      const names = (await tools.client.listTools()).tools.map(
+        (tool) => tool.name,
+      );
+      assert.ok(names.includes("search"));
+      assert.ok(names.includes("tagged_items"));
+      assert.ok(!names.includes("assign_tags"));
+
+      const semantic = await tools.client.callTool({
+        name: "search",
+        arguments: {
+          strategy: "semantic",
+          query: privateSemanticQuery,
+        },
+      });
+      assert.equal(semantic.isError, undefined, JSON.stringify(semantic));
+      const semanticItems = (
+        semantic.structuredContent as { data: { id: string }[] }
+      ).data;
+      const semanticResponse = semanticItems.find(
+        (item) => item.id === response,
+      ) as
+        | {
+            type: string;
+            title: string;
+            excerpt: string;
+            formId?: string;
+          }
+        | undefined;
+      assert.equal(semanticResponse?.type, "response");
+      assert.equal(semanticResponse?.formId, form);
+      assert.equal(
+        semanticResponse?.title,
+        "Private response checks — response",
+      );
+      assert.match(semanticResponse?.excerpt ?? "", /routing incident/i);
+
+      const tagged = await tools.client.callTool({
+        name: "tagged_items",
+        arguments: { id: responseTag, limit: 50, offset: 0 },
+      });
+      assert.equal(tagged.isError, undefined, JSON.stringify(tagged));
+      const taggedItems = (
+        tagged.structuredContent as {
+          data: { items: { id: string; type: string; formId?: string }[] };
+        }
+      ).data.items;
+      assert.ok(
+        taggedItems.some(
+          (item) =>
+            item.id === response &&
+            item.type === "response" &&
+            item.formId === form,
+        ),
+      );
+      assert.doesNotMatch(
+        JSON.stringify({ semanticItems, taggedItems }),
+        /embedding|cosine|source_key/i,
+      );
+
+      const otherOwnerSearch = await wrongOwnerTools.client.callTool({
+        name: "search",
+        arguments: {
+          strategy: "semantic",
+          query: privateSemanticQuery,
+        },
+      });
+      const otherOwnerItems = (
+        otherOwnerSearch.structuredContent as { data: { id: string }[] }
+      ).data;
+      assert.ok(!otherOwnerItems.some((item) => item.id === response));
+      const otherOwnerTagged = await wrongOwnerTools.client.callTool({
+        name: "tagged_items",
+        arguments: { id: responseTag, limit: 50, offset: 0 },
+      });
+      const otherOwnerTaggedItems = (
+        otherOwnerTagged.structuredContent as {
+          data: { items: { id: string }[] };
+        }
+      ).data.items;
+      assert.ok(!otherOwnerTaggedItems.some((item) => item.id === response));
+
+      d.prepare("UPDATE forms SET trashed_at=? WHERE id=?").run(
+        Date.now(),
+        form,
+      );
+      const trashedSearch = await tools.client.callTool({
+        name: "search",
+        arguments: {
+          strategy: "semantic",
+          query: privateSemanticQuery,
+        },
+      });
+      const trashedItems = (
+        trashedSearch.structuredContent as { data: { id: string }[] }
+      ).data;
+      assert.ok(!trashedItems.some((item) => item.id === response));
+      const trashedTagged = await tools.client.callTool({
+        name: "tagged_items",
+        arguments: { id: responseTag, limit: 50, offset: 0 },
+      });
+      const trashedTaggedItems = (
+        trashedTagged.structuredContent as {
+          data: { items: { id: string }[] };
+        }
+      ).data.items;
+      assert.ok(!trashedTaggedItems.some((item) => item.id === response));
+    } finally {
+      await Promise.all([
+        tools.client.close(),
+        tools.server.close(),
+        wrongOwnerTools.client.close(),
+        wrongOwnerTools.server.close(),
+      ]);
+    }
     assert.equal(
       (await relatedSearch(randomUUID(), "SENTINEL_PRIVATE_RESPONSE")).items
         .length,
       0,
     );
-    d.prepare("UPDATE forms SET trashed_at=? WHERE id=?").run(Date.now(), form);
     assert.ok(
       !(await relatedSearch(owner, "SENTINEL_PRIVATE_RESPONSE")).items.some(
         (item) => item.id === response,
