@@ -1,0 +1,11 @@
+Pinned upstream source README:
+https://raw.githubusercontent.com/naptha/tessdata/806cd9adc8c6e8abc11c782db1818c990576bebc/README.md
+Upstream source README SHA-256: 7e83e5899fd3883f10cc44c5b1b57550910b13ee759ed9a8ac57831e960cd7dd
+
+Extracted asset provenance:
+- `4.0.0_best_int` - Integerized Version of "Tessdata Best"
+- `4.0.0_best` - "Tessdata Best"
+  - Source: https://github.com/tesseract-ocr/tessdata_best
+
+Published English asset path:
+https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int/eng.traineddata.gz

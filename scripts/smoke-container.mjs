@@ -45,6 +45,13 @@ for (const encrypted of [false, true]) {
   };
   try {
     run();
+    docker(
+      "exec",
+      name,
+      "node",
+      "-e",
+      "const fs=require('node:fs');const p='/app/THIRD_PARTY_NOTICES.txt';const s=fs.readFileSync(p,'utf8');for(const item of ['NIVRA THIRD-PARTY NOTICES','onnxruntime-node@1.30.0','Assistant (SIL Open Font License 1.1)','Cascadia Code (SIL Open Font License 1.1)','Comic Shanns (MIT)','Excalifont (SIL Open Font License 1.1)','Liberation Sans (pre-2.00 family license)','Lilita One (SIL Open Font License 1.1)','Nunito (SIL Open Font License 1.1)','Virgil (SIL Open Font License 1.1)','Xiaolai SC (SIL Open Font License 1.1)'])if(!s.includes(item))throw Error('Runtime third-party notice is missing: '+item);",
+    );
     let base = await ready();
     const request = (path, method = "GET", body, cookie) =>
       fetch(`${base}${path}`, {
