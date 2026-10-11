@@ -209,11 +209,13 @@ export function TagSuggestionsPanel({
             </div>
           ) : (
             <>
-              {loading && hasLoaded && (
-                <p className="settings-description" role="status">
-                  Updating tag suggestions…
-                </p>
-              )}
+              <p
+                className="settings-description tag-suggestions-refresh-status"
+                role={loading && hasLoaded ? "status" : undefined}
+                aria-hidden={!loading || !hasLoaded}
+              >
+                {loading && hasLoaded ? "Updating tag suggestions…" : ""}
+              </p>
               {items.length ? (
                 <ul className="tag-collection-grid tag-suggestion-grid">
                   {items.map((item) => {

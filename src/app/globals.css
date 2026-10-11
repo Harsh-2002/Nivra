@@ -7352,6 +7352,10 @@ body .bn-mobile-formatting-toolbar {
 .tag-suggestions-message {
   margin: 0 0 16px;
 }
+.tag-suggestions-refresh-status {
+  min-height: 1.65em;
+  margin: 6px 0 0;
+}
 .tag-suggestion-card {
   min-width: 0;
 }
