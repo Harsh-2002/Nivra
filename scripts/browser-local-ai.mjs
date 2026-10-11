@@ -37,6 +37,7 @@ if ((await api("status")).setup) {
   await chmod(session, 0o600);
 }
 assert.match((await api("status")).owner?.name ?? "", /review|audit|test/i);
+const originalTheme = (await api("settings")).theme;
 let status = await api("ai");
 if (!status.enabled)
   await api("ai", "PATCH", { enabled: true, revision: status.revision });
@@ -52,6 +53,8 @@ try {
     .split(",")
     .map(Number))
     for (const theme of ["light", "dark"]) {
+      const updatedSettings = await api("settings", "PATCH", { theme });
+      assert.equal(updatedSettings.theme, theme);
       const context = await browser.newContext({
         storageState: session,
         viewport: { width, height: 900 },
@@ -59,38 +62,126 @@ try {
         hasTouch: width < 1024,
         serviceWorkers: "block",
       });
+      await context.addInitScript(() => {
+        class IsolatedEventSource extends EventTarget {
+          static CONNECTING = 0;
+          static OPEN = 1;
+          static CLOSED = 2;
+
+          constructor(url) {
+            super();
+            this.url = new URL(url, window.location.href).href;
+            this.withCredentials = false;
+            this.readyState = IsolatedEventSource.CONNECTING;
+            this.heartbeat = setInterval(
+              () => this.dispatchEvent(new Event("heartbeat")),
+              5000,
+            );
+            queueMicrotask(() => {
+              this.readyState = IsolatedEventSource.OPEN;
+              this.dispatchEvent(new Event("open"));
+            });
+          }
+
+          close() {
+            this.readyState = IsolatedEventSource.CLOSED;
+            clearInterval(this.heartbeat);
+          }
+        }
+
+        Object.defineProperty(window, "EventSource", {
+          configurable: true,
+          value: IsolatedEventSource,
+        });
+      });
       const page = await context.newPage(),
-        errors = [];
-      page.on("pageerror", (e) => errors.push(e.message));
+        errors = [],
+        failedApiRequests = [],
+        pendingApiRequests = new Set();
+      let lastWorkspaceApiActivity = Date.now();
+      const isWorkspaceApi = (request) =>
+        ["fetch", "xhr"].includes(request.resourceType()) &&
+        request.url().includes("/api/v1/");
+      page.on("pageerror", (error) =>
+        errors.push({ message: error.message, stack: error.stack }),
+      );
+      page.on("request", (request) => {
+        if (isWorkspaceApi(request)) {
+          lastWorkspaceApiActivity = Date.now();
+          pendingApiRequests.add(request);
+        }
+      });
+      page.on("requestfinished", (request) => {
+        if (!isWorkspaceApi(request)) return;
+        lastWorkspaceApiActivity = Date.now();
+        pendingApiRequests.delete(request);
+      });
+      page.on("requestfailed", (request) => {
+        if (!isWorkspaceApi(request)) return;
+        lastWorkspaceApiActivity = Date.now();
+        pendingApiRequests.delete(request);
+        failedApiRequests.push({
+          path: new URL(request.url()).pathname,
+          error: request.failure()?.errorText,
+        });
+      });
       const title = `report-${randomUUID().slice(0, 8)}.pdf SQLite recovery`;
-      const tag = await api("tags", "POST", {
-        name: "Database checks",
-        color: "gray",
-        aliases: ["sqlite database queries indexes"],
-      });
-      const note = await api("notes", "POST", { title });
-      await api(`notes/${note.id}`, "PATCH", {
-        title,
-        revision: note.revision,
-        document: {
-          schemaVersion: 1,
-          blocks: [
-            {
-              id: randomUUID(),
-              type: "paragraph",
-              props: {},
-              content: [
-                {
-                  type: "text",
-                  text: "SQLite database queries and indexes verify encrypted backup restore.",
-                  styles: {},
-                },
-              ],
-              children: [],
-            },
-          ],
-        },
-      });
+      const tagName = `Database checks ${randomUUID().slice(0, 6)}`;
+      let tag = null;
+      let note = null;
+      async function cleanupFixture() {
+        if (note) {
+          const current = await api(`notes/${note.id}`);
+          await api(`notes/${note.id}`, "DELETE", {
+            revision: current.revision,
+          });
+          note = null;
+        }
+        if (tag) {
+          await api(`tags/${tag.id}`, "DELETE");
+          tag = null;
+        }
+      }
+      try {
+        tag = await api("tags", "POST", {
+          name: tagName,
+          color: "gray",
+          aliases: ["sqlite database queries indexes"],
+        });
+        note = await api("notes", "POST", { title });
+        await api(`notes/${note.id}`, "PATCH", {
+          title,
+          revision: note.revision,
+          document: {
+            schemaVersion: 1,
+            blocks: [
+              {
+                id: randomUUID(),
+                type: "paragraph",
+                props: {},
+                content: [
+                  {
+                    type: "text",
+                    text: "SQLite database queries and indexes verify encrypted backup restore.",
+                    styles: {},
+                  },
+                ],
+                children: [],
+              },
+            ],
+          },
+        });
+      } catch (error) {
+        try {
+          await cleanupFixture();
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "Fixture creation and cleanup both failed",
+          );
+        }
+        throw error;
+      }
       async function nav() {
         if (width < 1024) {
           if (await page.locator(".mobile-back").isVisible())
@@ -102,6 +193,23 @@ try {
           return page.getByRole("dialog", { name: "Navigation", exact: true });
         }
         return page.locator(".desktop-navigation");
+      }
+      async function textStartX(locator) {
+        return locator.evaluate((element) => {
+          const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT,
+          );
+          while (walker.nextNode()) {
+            const node = walker.currentNode;
+            if (!node.textContent?.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const bounds = range.getBoundingClientRect();
+            if (bounds.width) return bounds.left;
+          }
+          return null;
+        });
       }
       async function surface(label) {
         const s =
@@ -115,6 +223,13 @@ try {
         return s;
       }
       async function audit(s, label) {
+        assert.equal(
+          await page.evaluate(() =>
+            document.documentElement.classList.contains("dark"),
+          ),
+          theme === "dark",
+          `${name} ${width} ${theme} ${label}: rendered theme must match the test case`,
+        );
         await page.evaluate(axe);
         const findings = await page.evaluate(async () =>
           (
@@ -140,7 +255,7 @@ try {
           });
         if (width < 1024) {
           const sizes = await s
-            .locator(".local-ai-suggestion-actions button")
+            .locator(".tag-suggestion-actions button")
             .evaluateAll((elements) =>
               elements.map((e) => e.getBoundingClientRect().height),
             );
@@ -149,6 +264,50 @@ try {
             "Touch actions must remain 44px",
           );
         }
+      }
+      async function waitForWorkspaceApiIdle(stage) {
+        const idleWindow = 250;
+        const deadline = Date.now() + 5000;
+        for (; Date.now() < deadline; await setTimeout(25)) {
+          if (
+            pendingApiRequests.size === 0 &&
+            Date.now() - lastWorkspaceApiActivity >= idleWindow
+          )
+            break;
+        }
+        assert.equal(
+          pendingApiRequests.size,
+          0,
+          `${stage}: workspace API requests still pending: ${[...pendingApiRequests].map((request) => request.url()).join(", ")}`,
+        );
+        assert.ok(
+          Date.now() - lastWorkspaceApiActivity >= idleWindow,
+          `${stage}: workspace API did not remain idle for ${idleWindow}ms`,
+        );
+        assert.deepEqual(
+          failedApiRequests,
+          [],
+          `${stage}: workspace API requests failed`,
+        );
+      }
+      async function waitForAiCompletionQuiet(targetPage = page) {
+        await targetPage.evaluate(
+          () =>
+            new Promise((resolve) => {
+              let timer;
+              const finish = () => {
+                clearTimeout(timer);
+                window.removeEventListener("nivra:ai-completion", reset);
+                resolve();
+              };
+              const reset = () => {
+                clearTimeout(timer);
+                timer = window.setTimeout(finish, 250);
+              };
+              timer = window.setTimeout(finish, 250);
+              window.addEventListener("nivra:ai-completion", reset);
+            }),
+        );
       }
       async function waitForStableAiIndex(suggestionItemId) {
         let previous = "";
@@ -185,6 +344,324 @@ try {
         throw new Error(
           `Indexed demo fixture did not stabilize; AI status=${JSON.stringify(latestStatus)}; matching suggestion=${latestSuggestions.some((item) => item.itemId === suggestionItemId)}`,
         );
+      }
+      async function createSuggestionNote(title) {
+        const created = await api("notes", "POST", { title });
+        await api(`notes/${created.id}`, "PATCH", {
+          title,
+          revision: created.revision,
+          document: {
+            schemaVersion: 1,
+            blocks: [
+              {
+                id: randomUUID(),
+                type: "paragraph",
+                props: {},
+                content: [
+                  {
+                    type: "text",
+                    text: "SQLite database queries and indexes verify encrypted backup restore.",
+                    styles: {},
+                  },
+                ],
+                children: [],
+              },
+            ],
+          },
+        });
+        return created;
+      }
+      async function runLiveSuggestionsRefresh() {
+        const liveNotes = [];
+        const liveErrors = [];
+        const liveFailedApiRequests = [];
+        const livePendingApiRequests = new Set();
+        const routeFailures = [];
+        const activeRoutes = new Set();
+        let liveContext;
+        let livePage;
+        let holdNextGet = true;
+        let releaseHeldGet = () => {};
+        let enterHeldGet = () => {};
+        const heldGetEntered = new Promise((resolve) => {
+          enterHeldGet = resolve;
+        });
+        const heldGetGate = new Promise((resolve) => {
+          releaseHeldGet = resolve;
+        });
+        let lastLiveApiActivity = Date.now();
+        async function waitForLiveApiIdle(stage) {
+          const idleWindow = 250;
+          const deadline = Date.now() + 5000;
+          for (; Date.now() < deadline; await setTimeout(25))
+            if (
+              livePendingApiRequests.size === 0 &&
+              Date.now() - lastLiveApiActivity >= idleWindow
+            )
+              break;
+          assert.equal(
+            livePendingApiRequests.size,
+            0,
+            `${stage}: live workspace API requests still pending: ${[...livePendingApiRequests].map((request) => request.url()).join(", ")}`,
+          );
+          assert.ok(
+            Date.now() - lastLiveApiActivity >= idleWindow,
+            `${stage}: live workspace API did not remain idle for ${idleWindow}ms`,
+          );
+          assert.deepEqual(
+            liveFailedApiRequests,
+            [],
+            `${stage}: live workspace API requests failed`,
+          );
+        }
+        const liveApiRequest = (request) =>
+          ["fetch", "xhr"].includes(request.resourceType()) &&
+          request.url().includes("/api/v1/");
+        const routeHandler = (route) => {
+          const task = (async () => {
+            const request = route.request();
+            if (
+              holdNextGet &&
+              request.method() === "GET" &&
+              new URL(request.url()).pathname === "/api/v1/ai/suggestions"
+            ) {
+              holdNextGet = false;
+              enterHeldGet();
+              await heldGetGate;
+            }
+            await route.continue();
+          })();
+          activeRoutes.add(task);
+          void task.then(
+            () => activeRoutes.delete(task),
+            (error) => {
+              activeRoutes.delete(task);
+              routeFailures.push(error);
+            },
+          );
+          return task;
+        };
+        let testError = null;
+        let cleanupError = null;
+        try {
+          liveContext = await browser.newContext({
+            storageState: session,
+            viewport: { width: 320, height: 900 },
+            colorScheme: "light",
+            hasTouch: true,
+            serviceWorkers: "block",
+          });
+          livePage = await liveContext.newPage();
+          livePage.on("pageerror", (error) =>
+            liveErrors.push({ message: error.message, stack: error.stack }),
+          );
+          livePage.on("request", (request) => {
+            if (!liveApiRequest(request)) return;
+            lastLiveApiActivity = Date.now();
+            livePendingApiRequests.add(request);
+          });
+          livePage.on("requestfinished", (request) => {
+            if (!liveApiRequest(request)) return;
+            lastLiveApiActivity = Date.now();
+            livePendingApiRequests.delete(request);
+          });
+          livePage.on("requestfailed", (request) => {
+            if (!liveApiRequest(request)) return;
+            lastLiveApiActivity = Date.now();
+            livePendingApiRequests.delete(request);
+            liveFailedApiRequests.push({
+              path: new URL(request.url()).pathname,
+              error: request.failure()?.errorText,
+            });
+          });
+          livePage.setDefaultTimeout(60000);
+          const streamResponsePromise = livePage.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === "/api/v1/completions",
+            { timeout: 30000 },
+          );
+          await livePage.goto(`${base}/tag-suggestions`, {
+            waitUntil: "domcontentloaded",
+          });
+          const streamResponse = await streamResponsePromise;
+          assert.equal(
+            streamResponse.status(),
+            200,
+            "The focused refresh check must use the authenticated live completion stream",
+          );
+          await livePage.evaluate(() => {
+            window.__liveAiCompletionEvents = [];
+            window.addEventListener("nivra:ai-completion", (event) => {
+              const detail = event.detail ?? {};
+              window.__liveAiCompletionEvents.push({
+                kind: detail.kind,
+                target: detail.target,
+                status: detail.status,
+                at: Math.round(performance.now()),
+              });
+            });
+          });
+          const panel = livePage.locator(".tag-suggestions-panel");
+          const firstTitle = `Live SSE seed ${randomUUID().slice(0, 8)}`;
+          const firstNote = await createSuggestionNote(firstTitle);
+          liveNotes.push(firstNote);
+          await waitForStableAiIndex(firstNote.id);
+          await panel
+            .getByRole("button", {
+              name: `Add ${tagName} to ${firstTitle}`,
+              exact: true,
+            })
+            .waitFor();
+          await waitForAiCompletionQuiet(livePage);
+          await waitForLiveApiIdle("seed suggestions settled");
+          const grid = panel.locator(".tag-suggestion-grid");
+          const initialBounds = await grid.evaluate((element) => {
+            const { top, height } = element.getBoundingClientRect();
+            return { top, height };
+          });
+          const baselineEventCount = await livePage.evaluate(
+            () => window.__liveAiCompletionEvents.length,
+          );
+          await livePage.route("**/api/v1/ai/suggestions**", routeHandler);
+          const secondTitle = `Live SSE refresh ${randomUUID().slice(0, 8)}`;
+          const eventPromise = livePage.waitForFunction(
+            (count) => window.__liveAiCompletionEvents.length > count,
+            baselineEventCount,
+            { timeout: 60000 },
+          );
+          const heldRequestPromise = livePage.waitForRequest(
+            (request) =>
+              request.method() === "GET" &&
+              new URL(request.url()).pathname === "/api/v1/ai/suggestions",
+            { timeout: 60000 },
+          );
+          const secondNote = await createSuggestionNote(secondTitle);
+          liveNotes.push(secondNote);
+          await Promise.all([
+            eventPromise,
+            heldRequestPromise,
+            heldGetEntered,
+            waitForStableAiIndex(secondNote.id),
+          ]);
+          const liveEvents = await livePage.evaluate(
+            () => window.__liveAiCompletionEvents,
+          );
+          assert.ok(
+            liveEvents.length > baselineEventCount &&
+              liveEvents.some((event) => event.kind === "ai"),
+            `The new indexed item must arrive over the live AI completion stream; events=${JSON.stringify(liveEvents)}`,
+          );
+          await panel
+            .getByRole("status")
+            .filter({ hasText: "Updating tag suggestions…" })
+            .waitFor();
+          const refreshBounds = await grid.evaluate((element) => {
+            const { top, height } = element.getBoundingClientRect();
+            return { top, height };
+          });
+          assert.ok(
+            Math.abs(refreshBounds.top - initialBounds.top) <= 1 &&
+              Math.abs(refreshBounds.height - initialBounds.height) <= 1,
+            `A live completion refresh must preserve the suggestion grid position; before=${JSON.stringify(initialBounds)} after=${JSON.stringify(refreshBounds)}`,
+          );
+          await panel
+            .getByRole("button", {
+              name: `Add ${tagName} to ${firstTitle}`,
+              exact: true,
+            })
+            .waitFor();
+          assert.equal(
+            await panel
+              .getByRole("button", {
+                name: `Add ${tagName} to ${secondTitle}`,
+                exact: true,
+              })
+              .count(),
+            0,
+            "The pending live response must not replace the existing suggestion cards",
+          );
+          assert.ok(
+            (await api("ai/suggestions")).items.some(
+              (item) => item.itemId === secondNote.id,
+            ),
+            "The second suggestion must exist in the server response before releasing the held browser refresh",
+          );
+          const liveResponsePromise = livePage.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === "/api/v1/ai/suggestions" &&
+              response.request().method() === "GET",
+            { timeout: 30000 },
+          );
+          releaseHeldGet();
+          const liveResponse = await liveResponsePromise;
+          assert.equal(liveResponse.status(), 200);
+          await panel
+            .getByRole("button", {
+              name: `Add ${tagName} to ${secondTitle}`,
+              exact: true,
+            })
+            .waitFor();
+          await panel
+            .getByRole("status")
+            .filter({ hasText: "Updating tag suggestions…" })
+            .waitFor({ state: "hidden" });
+          await waitForLiveApiIdle("live suggestions refreshed");
+          assert.deepEqual(liveErrors, [], "Live SSE refresh page errors");
+          assert.deepEqual(
+            liveFailedApiRequests,
+            [],
+            "Live SSE refresh API failures",
+          );
+          console.log(
+            `${name} live SSE: completion refresh retained the existing suggestion grid until a successful API refresh`,
+          );
+        } catch (error) {
+          testError = error;
+        } finally {
+          releaseHeldGet();
+          const finalCleanupErrors = [];
+          while (activeRoutes.size) await Promise.allSettled([...activeRoutes]);
+          try {
+            if (livePage)
+              await livePage.unroute(
+                "**/api/v1/ai/suggestions**",
+                routeHandler,
+              );
+          } catch (error) {
+            finalCleanupErrors.push(error);
+          }
+          try {
+            await liveContext?.close();
+          } catch (error) {
+            finalCleanupErrors.push(error);
+          }
+          for (const item of liveNotes.reverse()) {
+            try {
+              const current = await api(`notes/${item.id}`);
+              await api(`notes/${item.id}`, "DELETE", {
+                revision: current.revision,
+              });
+            } catch (error) {
+              finalCleanupErrors.push(error);
+            }
+          }
+          if (finalCleanupErrors.length === 1)
+            cleanupError = finalCleanupErrors[0];
+          else if (finalCleanupErrors.length)
+            cleanupError = new AggregateError(
+              finalCleanupErrors,
+              "Live SSE fixture cleanup failed",
+            );
+        }
+        const failures = [testError, cleanupError, ...routeFailures].filter(
+          Boolean,
+        );
+        if (failures.length === 1) throw failures[0];
+        if (failures.length)
+          throw new AggregateError(
+            failures,
+            "Live SSE suggestions check failed",
+          );
       }
       async function waitForSemanticResult(query, itemId) {
         const attempts = [];
@@ -230,58 +707,115 @@ try {
           .getByRole("button", { name: "Save tag", exact: true })
           .click();
         await waitForStableAiIndex(note.id);
-        await (
-          await nav()
-        )
-          .getByRole("button", { name: "Settings", exact: true })
-          .click();
-        let settings = await surface("Settings");
-        await settings
-          .getByRole("tab", { name: "System", exact: true })
-          .click();
-        let local = settings.locator(".local-ai-settings");
-        await local
-          .getByRole("heading", {
-            name: "Smart tagging and search",
-            exact: true,
-          })
+        await waitForAiCompletionQuiet();
+        await waitForWorkspaceApiIdle("overview settled before suggestions");
+        const suggestionsNavigation = await nav();
+        const suggestionsLink = suggestionsNavigation.getByRole("button", {
+          name: "Tag suggestions",
+          exact: true,
+        });
+        assert.equal(
+          await suggestionsLink.evaluate(
+            (element) => element.closest(".tags-heading") !== null,
+          ),
+          false,
+          "Tag suggestions must have its own sidebar row below the Tags heading",
+        );
+        const tagLabel = suggestionsNavigation
+          .locator(".tag-nav-row > button:first-child")
+          .filter({ hasText: tag.name })
+          .first();
+        const [suggestionsTextX, assignedTagTextX] = await Promise.all([
+          textStartX(suggestionsLink),
+          textStartX(tagLabel),
+        ]);
+        assert.ok(
+          suggestionsTextX !== null &&
+            assignedTagTextX !== null &&
+            Math.abs(suggestionsTextX - assignedTagTextX) <= 1,
+          `Sidebar Suggestions and tag labels should align within 1px; suggestions x=${suggestionsTextX}, tag x=${assignedTagTextX}`,
+        );
+        if (output)
+          await page.screenshot({
+            path: `${output}/${name}-${width}-${theme}-tag-navigation.png`,
+          });
+        await suggestionsLink.click();
+        let suggestions = page.locator(".tag-suggestions-panel");
+        await suggestions
+          .getByRole("heading", { name: "Tag suggestions", exact: true })
           .waitFor();
-        await local
-          .getByRole("checkbox", {
-            name: "Enable smart features",
-            exact: true,
-          })
-          .waitFor();
-        let approve = local.getByRole("button", {
-          name: `Approve ${tag.name} for ${title}`,
+        const approve = suggestions.getByRole("button", {
+          name: `Add ${tag.name} to ${title}`,
           exact: true,
         });
         await approve.waitFor();
         await approve.scrollIntoViewIfNeeded();
+        await suggestions
+          .getByRole("button", {
+            name: `Dismiss suggestion for ${tag.name} on ${title}`,
+            exact: true,
+          })
+          .waitFor();
         const evidence =
           "SQLite database queries and indexes verify encrypted backup restore.";
-        await local.getByText(evidence, { exact: true }).waitFor();
-        await audit(settings, "settings");
-        await local
-          .getByRole("button", { name: `Open ${title}`, exact: true })
-          .click();
-        await page.locator('[aria-label="Note content"]').waitFor();
+        await suggestions.getByText(evidence, { exact: true }).waitFor();
+        await suggestions
+          .locator(".tag-suggestion-card")
+          .getByText("Note", { exact: true })
+          .waitFor();
+        await suggestions
+          .locator(".tag-suggestion-chip")
+          .getByText(tag.name, { exact: true })
+          .waitFor();
+        await audit(suggestions, "tag-suggestions");
+        await waitForAiCompletionQuiet();
+        await waitForWorkspaceApiIdle("suggestions settled before navigation");
         await (
           await nav()
         )
-          .getByRole("button", { name: "Settings", exact: true })
+          .getByRole("button", { name: tag.name, exact: true })
           .click();
-        settings = await surface("Settings");
-        await settings
-          .getByRole("tab", { name: "System", exact: true })
+        await page
+          .getByRole("button", {
+            name: "Review tag suggestions",
+            exact: true,
+          })
+          .waitFor();
+        await waitForWorkspaceApiIdle(
+          "tag collection settled before suggestions",
+        );
+        await page
+          .getByRole("button", {
+            name: "Review tag suggestions",
+            exact: true,
+          })
           .click();
-        local = settings.locator(".local-ai-settings");
-        approve = local.getByRole("button", {
-          name: `Approve ${tag.name} for ${title}`,
+        suggestions = page.locator(".tag-suggestions-panel");
+        await waitForWorkspaceApiIdle(
+          "suggestions settled before opening source",
+        );
+        await suggestions
+          .getByRole("button", { name: `Open ${title}`, exact: true })
+          .click();
+        await page.locator('[aria-label="Note content"]').waitFor();
+        await waitForWorkspaceApiIdle("open suggestion source");
+        await (
+          await nav()
+        )
+          .getByRole("button", { name: "Tag suggestions", exact: true })
+          .click();
+        suggestions = page.locator(".tag-suggestions-panel");
+        const review = suggestions.getByRole("button", {
+          name: `Add ${tag.name} to ${title}`,
           exact: true,
         });
-        await approve.waitFor();
-        await approve.click();
+        await review.waitFor();
+        await review.click();
+        await suggestions
+          .getByRole("status")
+          .filter({ hasText: `${tag.name} added to ${title}.` })
+          .waitFor();
+        assert.equal(await review.count(), 0);
         for (let n = 0; n < 40; n++) {
           if (
             (await api(`item-tags/note/${note.id}`)).tags.some(
@@ -292,15 +826,358 @@ try {
           await setTimeout(100);
           if (n === 39) throw new Error("Approval was not persisted");
         }
+        assert.deepEqual(errors, []);
+        await waitForWorkspaceApiIdle("approved tag suggestion");
+        if (width === 320 && theme === "light") {
+          await waitForAiCompletionQuiet();
+          const firstBatch = Array.from({ length: 30 }, (_, index) => ({
+            id: randomUUID(),
+            itemId: note.id,
+            type: "note",
+            title: `Refresh sample ${index + 1}`,
+            excerpt: "A stable suggestion remains visible during refresh.",
+            tag: {
+              id: randomUUID(),
+              name: `Fixture tag ${index + 1}`,
+              color: "gray",
+            },
+            createdAt: Date.now() - index,
+          }));
+          const nextBatch = [
+            {
+              id: randomUUID(),
+              itemId: note.id,
+              type: "note",
+              title: "Queued suggestion sample",
+              excerpt: "This item follows the current suggestion batch.",
+              tag: { id: randomUUID(), name: "Queued tag", color: "gray" },
+              createdAt: Date.now(),
+            },
+          ];
+          let getCount = 0;
+          let holdNextGet = false;
+          let heldItems = firstBatch;
+          let releaseHeldGet = () => {};
+          let heldGet = Promise.resolve();
+          let heldGetGate = Promise.resolve();
+          const pendingFixtureRoutes = new Set();
+          const fixtureRouteErrors = [];
+          const fixtureGets = [];
+          let acceptCommitted = false;
+          await page.evaluate(() => {
+            window.__tagSuggestionCompletionEvents = [];
+            window.addEventListener(
+              "nivra:ai-completion",
+              (event) => {
+                window.__tagSuggestionCompletionEvents.push({
+                  at: Math.round(performance.now()),
+                  source: event.detail?.source ?? "stream",
+                });
+              },
+              { capture: true },
+            );
+          });
+          const holdSuggestionsGet = (items) => {
+            holdNextGet = true;
+            heldItems = items;
+            heldGet = new Promise((resolve) => {
+              resolveHeldGet = resolve;
+            });
+            heldGetGate = new Promise((resolve) => {
+              releaseHeldGet = resolve;
+            });
+          };
+          let resolveHeldGet;
+          const fulfillSuggestions = (route, items) =>
+            route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ items }),
+            });
+          const handleFixtureRoute = async (route) => {
+            const request = route.request();
+            const path = new URL(request.url()).pathname;
+            if (
+              request.method() === "GET" &&
+              path === "/api/v1/ai/suggestions"
+            ) {
+              getCount++;
+              const held = holdNextGet;
+              const responseItems = held
+                ? heldItems
+                : acceptCommitted
+                  ? nextBatch
+                  : firstBatch;
+              fixtureGets.push({
+                count: getCount,
+                held,
+                itemCount: responseItems.length,
+                accepted: acceptCommitted,
+                at: Date.now(),
+              });
+              if (holdNextGet) {
+                holdNextGet = false;
+                resolveHeldGet();
+                await heldGetGate;
+                return fulfillSuggestions(route, responseItems);
+              }
+              return fulfillSuggestions(route, responseItems);
+            }
+            if (
+              request.method() === "POST" &&
+              /^\/api\/v1\/ai\/suggestions\/[^/]+\/accept$/.test(path)
+            ) {
+              acceptCommitted = true;
+              return route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ ok: true }),
+              });
+            }
+            return route.continue();
+          };
+          const fixtureRoute = (route) => {
+            const pending = handleFixtureRoute(route);
+            pendingFixtureRoutes.add(pending);
+            void pending.then(
+              () => pendingFixtureRoutes.delete(pending),
+              (error) => {
+                pendingFixtureRoutes.delete(pending);
+                fixtureRouteErrors.push(error);
+              },
+            );
+            return pending;
+          };
+          await page.route("**/api/v1/ai/suggestions**", fixtureRoute);
+          let freshnessError = null;
+          let fixtureTeardownError = null;
+          try {
+            const firstRefresh = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/ai/suggestions" &&
+                response.request().method() === "GET"
+              );
+            });
+            await page.evaluate(() =>
+              Array.from({ length: 5 }, () =>
+                window.dispatchEvent(
+                  new CustomEvent("nivra:ai-completion", {
+                    detail: { kind: "ai", source: "freshness-fixture" },
+                  }),
+                ),
+              ),
+            );
+            await firstRefresh;
+            assert.equal(
+              getCount,
+              1,
+              "A completion burst should coalesce into one suggestions refresh",
+            );
+            await suggestions
+              .getByRole("button", {
+                name: "Add Fixture tag 1 to Refresh sample 1",
+                exact: true,
+              })
+              .waitFor();
+            assert.equal(
+              await suggestions.locator(".tag-suggestion-card").count(),
+              30,
+              "The initial suggestions batch should be complete",
+            );
+            await waitForAiCompletionQuiet();
+            const grid = suggestions.locator(".tag-suggestion-grid");
+            const initialGridBounds = await grid.evaluate((element) => {
+              const { top, height } = element.getBoundingClientRect();
+              return { top, height };
+            });
+
+            holdSuggestionsGet(firstBatch);
+            const heldRefresh = page.waitForRequest(
+              (request) => {
+                const url = new URL(request.url());
+                return (
+                  url.pathname === "/api/v1/ai/suggestions" &&
+                  request.method() === "GET"
+                );
+              },
+              { timeout: 10000 },
+            );
+            await page.evaluate(() =>
+              window.dispatchEvent(
+                new CustomEvent("nivra:ai-completion", {
+                  detail: { kind: "ai", source: "freshness-fixture" },
+                }),
+              ),
+            );
+            await heldRefresh;
+            await heldGet;
+            await suggestions
+              .getByRole("status")
+              .filter({ hasText: "Updating tag suggestions…" })
+              .waitFor();
+            const refreshingGridBounds = await grid.evaluate((element) => {
+              const { top, height } = element.getBoundingClientRect();
+              return { top, height };
+            });
+            assert.ok(
+              Math.abs(refreshingGridBounds.top - initialGridBounds.top) <= 1 &&
+                Math.abs(
+                  refreshingGridBounds.height - initialGridBounds.height,
+                ) <= 1,
+              `A background refresh must preserve the suggestion grid bounds; before=${JSON.stringify(initialGridBounds)} after=${JSON.stringify(refreshingGridBounds)}`,
+            );
+            assert.equal(
+              await suggestions.locator(".tag-suggestion-card").count(),
+              30,
+              `A background refresh must keep the current batch visible; GETs=${JSON.stringify(fixtureGets)}; completion events=${JSON.stringify(await page.evaluate(() => window.__tagSuggestionCompletionEvents))}`,
+            );
+            assert.equal(
+              await suggestions
+                .getByRole("button", {
+                  name: "Add Fixture tag 1 to Refresh sample 1",
+                  exact: true,
+                })
+                .isVisible(),
+              true,
+              "The current suggestion remains actionable while refreshing",
+            );
+            releaseHeldGet();
+            await suggestions
+              .getByRole("status")
+              .filter({ hasText: "Updating tag suggestions…" })
+              .waitFor({ state: "hidden" });
+
+            holdSuggestionsGet(nextBatch);
+            const decisionRefresh = page.waitForRequest(
+              (request) => {
+                const url = new URL(request.url());
+                return (
+                  url.pathname === "/api/v1/ai/suggestions" &&
+                  request.method() === "GET"
+                );
+              },
+              { timeout: 10000 },
+            );
+            await suggestions
+              .getByRole("button", {
+                name: "Add Fixture tag 1 to Refresh sample 1",
+                exact: true,
+              })
+              .click();
+            await decisionRefresh;
+            await heldGet;
+            await suggestions
+              .getByRole("status")
+              .filter({ hasText: "Updating tag suggestions…" })
+              .waitFor();
+            await suggestions
+              .getByRole("status")
+              .filter({ hasText: "Fixture tag 1 added to Refresh sample 1." })
+              .waitFor();
+            assert.equal(
+              await suggestions.locator(".tag-suggestion-card").count(),
+              29,
+              "Removing a reviewed suggestion must keep the remaining cards visible",
+            );
+            assert.equal(
+              await suggestions
+                .getByRole("heading", {
+                  name: "No tag suggestions to review",
+                  exact: true,
+                })
+                .count(),
+              0,
+              "The next batch must not appear empty while loading",
+            );
+            releaseHeldGet();
+            await suggestions
+              .getByRole("button", {
+                name: "Add Queued tag to Queued suggestion sample",
+                exact: true,
+              })
+              .waitFor();
+            await suggestions
+              .getByRole("status")
+              .filter({ hasText: "Fixture tag 1 added to Refresh sample 1." })
+              .waitFor();
+            assert.equal(
+              await suggestions.locator(".tag-suggestion-card").count(),
+              1,
+              "Reviewing a suggestion explicitly loads the queued next batch",
+            );
+            assert.equal(
+              await suggestions
+                .getByRole("heading", {
+                  name: "No tag suggestions to review",
+                  exact: true,
+                })
+                .count(),
+              0,
+              "A queued batch must not appear falsely empty after review",
+            );
+            assert.equal(
+              getCount,
+              3,
+              `Reviewing a card must explicitly fetch the next suggestions batch; GETs=${JSON.stringify(fixtureGets)}; completion events=${JSON.stringify(await page.evaluate(() => window.__tagSuggestionCompletionEvents))}`,
+            );
+            await waitForWorkspaceApiIdle("suggestion freshness fixture");
+          } catch (error) {
+            freshnessError = error;
+          } finally {
+            releaseHeldGet();
+            try {
+              while (pendingFixtureRoutes.size)
+                await Promise.allSettled([...pendingFixtureRoutes]);
+              await waitForWorkspaceApiIdle("suggestion fixture teardown");
+            } catch (error) {
+              fixtureTeardownError = error;
+            }
+            try {
+              await page.unroute("**/api/v1/ai/suggestions**", fixtureRoute);
+            } catch (error) {
+              fixtureTeardownError = fixtureTeardownError
+                ? new AggregateError(
+                    [fixtureTeardownError, error],
+                    "Suggestion fixture teardown failed",
+                  )
+                : error;
+            }
+          }
+          const fixtureFailures = [
+            freshnessError,
+            fixtureTeardownError,
+            ...fixtureRouteErrors,
+          ].filter(Boolean);
+          if (fixtureFailures.length === 1) throw fixtureFailures[0];
+          if (fixtureFailures.length)
+            throw new AggregateError(
+              fixtureFailures,
+              "Suggestions freshness fixture failed",
+            );
+          assert.deepEqual(errors, []);
+          console.log(
+            `${name} ${width} ${theme}: background refresh keeps existing suggestions visible and explicit review loads the next batch`,
+          );
+        }
+        console.log(
+          `${name} ${width} ${theme}: tag navigation, contextual review, source opening, explicit tag approval, focus, accessibility and overflow passed`,
+        );
         const semanticQuery =
           "recover stored information after restoring a protected safety copy";
         await waitForStableAiIndex();
         await waitForSemanticResult(semanticQuery, note.id);
-        if (width < 1024)
-          await settings
-            .getByRole("button", { name: "Back from Settings", exact: true })
-            .click();
-        else await page.keyboard.press("Escape");
+        await waitForWorkspaceApiIdle("before search navigation");
+        const recentSearchResponsePromise = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            url.pathname === "/api/v1/search" &&
+            response.request().method() === "GET" &&
+            url.searchParams.get("mode") === "suggest" &&
+            url.searchParams.get("strategy") === "keyword" &&
+            url.searchParams.get("q") === ""
+          );
+        });
         await (
           await nav()
         )
@@ -308,9 +1185,31 @@ try {
           .first()
           .click();
         const search = await surface("Search");
-        await search
-          .getByRole("checkbox", { name: "Search by meaning", exact: true })
-          .check();
+        const recentSearchResponse = await recentSearchResponsePromise;
+        assert.equal(recentSearchResponse.status(), 200);
+        await waitForWorkspaceApiIdle("recent search settled");
+        const searchInput = search.getByRole("combobox", {
+          name: "Search everything",
+          exact: true,
+        });
+        const keywordSearchResponsePromise = page.waitForResponse(
+          (response) => {
+            const url = new URL(response.url());
+            return (
+              url.pathname === "/api/v1/search" &&
+              response.request().method() === "GET" &&
+              url.searchParams.get("mode") === "suggest" &&
+              url.searchParams.get("strategy") === "keyword" &&
+              url.searchParams.get("q") === semanticQuery
+            );
+          },
+        );
+        await searchInput.fill(semanticQuery);
+        const keywordSearchResponse = await keywordSearchResponsePromise;
+        assert.equal(keywordSearchResponse.status(), 200);
+        await waitForWorkspaceApiIdle(
+          "keyword search settled before enabling meaning search",
+        );
         const semanticResponsePromise = page.waitForResponse((response) => {
           const url = new URL(response.url());
           return (
@@ -321,8 +1220,8 @@ try {
           );
         });
         await search
-          .getByRole("combobox", { name: "Search everything", exact: true })
-          .fill(semanticQuery);
+          .getByRole("checkbox", { name: "Search by meaning", exact: true })
+          .check();
         let semanticResponse;
         try {
           semanticResponse = await semanticResponsePromise;
@@ -358,7 +1257,10 @@ try {
           await search.getByText("Related matches", { exact: true }).count(),
           `The UI did not label the verified semantic response as related matches; response=${JSON.stringify({ strategyUsed: semanticPayload.strategyUsed, itemIds: semanticItemIds })}; AI status=${JSON.stringify(aiStatus)}`,
         );
+        await waitForWorkspaceApiIdle("search settled before opening result");
         await search.getByRole("option").filter({ hasText: title }).click();
+        await page.locator('[aria-label="Note content"]').waitFor();
+        await waitForWorkspaceApiIdle("after semantic result selection");
         assert.deepEqual(errors, []);
         console.log(
           `${name} ${width} ${theme}: aliases, approval, semantic results, focus, accessibility and overflow passed`,
@@ -386,23 +1288,25 @@ try {
             }
             await route.continue();
           });
+          await waitForWorkspaceApiIdle("before keyword-fallback navigation");
           await page.goto(`${base}/overview`, {
             waitUntil: "domcontentloaded",
           });
-          await (
-            await nav()
-          )
-            .getByRole("button", { name: "Settings", exact: true })
-            .click();
-          const errorSettings = await surface("Settings");
-          await errorSettings
-            .getByRole("tab", { name: "System", exact: true })
-            .click();
-          if (width < 1024)
-            await errorSettings
-              .getByRole("button", { name: "Back from Settings", exact: true })
-              .click();
-          else await page.keyboard.press("Escape");
+          await waitForWorkspaceApiIdle(
+            "overview settled before fallback search",
+          );
+          const fallbackRecentSearchResponsePromise = page.waitForResponse(
+            (response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/search" &&
+                response.request().method() === "GET" &&
+                url.searchParams.get("mode") === "suggest" &&
+                url.searchParams.get("strategy") === "keyword" &&
+                url.searchParams.get("q") === ""
+              );
+            },
+          );
           await (
             await nav()
           )
@@ -410,10 +1314,37 @@ try {
             .first()
             .click();
           const fallbackSearch = await surface("Search");
+          const fallbackRecentSearchResponse =
+            await fallbackRecentSearchResponsePromise;
+          assert.equal(fallbackRecentSearchResponse.status(), 200);
+          await waitForWorkspaceApiIdle("recent fallback search settled");
+          const fallbackInput = fallbackSearch.getByRole("combobox", {
+            name: "Search everything",
+            exact: true,
+          });
+          const fallbackKeywordResponsePromise = page.waitForResponse(
+            (response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/search" &&
+                response.request().method() === "GET" &&
+                url.searchParams.get("mode") === "suggest" &&
+                url.searchParams.get("strategy") === "keyword" &&
+                url.searchParams.get("q") === fallbackQuery
+              );
+            },
+          );
+          await fallbackInput.fill(fallbackQuery);
+          const fallbackKeywordResponse = await fallbackKeywordResponsePromise;
+          assert.equal(fallbackKeywordResponse.status(), 200);
+          await waitForWorkspaceApiIdle(
+            "keyword fallback query settled before enabling meaning search",
+          );
           const fallbackResponsePromise = page.waitForResponse((response) => {
             const url = new URL(response.url());
             return (
               url.pathname === "/api/v1/search" &&
+              response.request().method() === "GET" &&
               url.searchParams.get("mode") === "suggest" &&
               url.searchParams.get("strategy") === "semantic" &&
               url.searchParams.get("q") === fallbackQuery
@@ -422,9 +1353,6 @@ try {
           await fallbackSearch
             .getByRole("checkbox", { name: "Search by meaning", exact: true })
             .check();
-          await fallbackSearch
-            .getByRole("combobox", { name: "Search everything", exact: true })
-            .fill(fallbackQuery);
           const fallbackResponse = await fallbackResponsePromise;
           const fallbackResult = await fallbackResponse.json();
           assert.equal(fallbackResponse.status(), 200);
@@ -445,10 +1373,15 @@ try {
             .filter({ hasText: title })
             .waitFor();
           await audit(fallbackSearch, "keyword-fallback");
+          await waitForWorkspaceApiIdle(
+            "fallback search settled before opening result",
+          );
           await fallbackSearch
             .getByRole("option")
             .filter({ hasText: title })
             .click();
+          await page.locator('[aria-label="Note content"]').waitFor();
+          await waitForWorkspaceApiIdle("after keyword-fallback selection");
           assert.deepEqual(errors, []);
           console.log(
             `${name} ${width} ${theme}: deterministic keyword fallback presentation passed`,
@@ -461,9 +1394,17 @@ try {
               body: JSON.stringify({ error: "Synthetic suggestions failure" }),
             }),
           );
-          await page.goto(`${base}/overview`, {
+          await waitForWorkspaceApiIdle("before suggestion-error navigation");
+          await page.goto(`${base}/tag-suggestions`, {
             waitUntil: "domcontentloaded",
           });
+          const errorSuggestions = page.locator(".tag-suggestions-panel");
+          await errorSuggestions
+            .getByText("Could not load tag suggestions.", { exact: false })
+            .waitFor();
+          await waitForWorkspaceApiIdle(
+            "suggestion error settled before settings",
+          );
           await (
             await nav()
           )
@@ -473,32 +1414,63 @@ try {
           await errorSettingsAgain
             .getByRole("tab", { name: "System", exact: true })
             .click();
-          const errorLocal = errorSettingsAgain.locator(".local-ai-settings"),
-            errorToggle = errorLocal.getByRole("checkbox", {
-              name: "Enable smart features",
-              exact: true,
-            });
-          await errorLocal
-            .getByText("Could not load tag suggestions.", { exact: false })
-            .waitFor();
+          await waitForWorkspaceApiIdle(
+            "smart feature status loaded after suggestion error",
+          );
+          const localAiSettings =
+            errorSettingsAgain.locator(".local-ai-settings");
+          const errorToggle = localAiSettings.getByRole("checkbox", {
+            name: "Enable smart features",
+            exact: true,
+          });
+          await errorToggle.waitFor({ state: "visible" });
+          await localAiSettings
+            .getByText("Loading smart feature settings…", { exact: true })
+            .waitFor({ state: "hidden" });
+          await localAiSettings
+            .getByRole("alert")
+            .filter({ hasText: "Could not load smart features." })
+            .waitFor({ state: "hidden" });
+          await page.waitForFunction(
+            (checkbox) => !checkbox.disabled,
+            await errorToggle.elementHandle(),
+          );
+          assert.equal(
+            await localAiSettings
+              .getByRole("button", { name: /^Add .+ to .+$/ })
+              .count(),
+            0,
+            "Tag suggestions must be reviewed outside System settings",
+          );
           assert.equal(
             await errorToggle.isDisabled(),
             false,
-            "Suggestion-list failure must not disable the smart-feature toggle",
+            "Tag-suggestion loading failure must not disable the smart-feature toggle",
           );
+          await waitForWorkspaceApiIdle("tag-suggestion error state");
           assert.deepEqual(errors, []);
           console.log(
-            `${name} ${width} ${theme}: suggestion failure leaves smart-feature toggle usable`,
+            `${name} ${width} ${theme}: tag-suggestion failure leaves smart-feature toggle usable`,
           );
         }
+        if (name === "chromium" && width === 320 && theme === "light")
+          await runLiveSuggestionsRefresh();
       } finally {
-        await context.close();
-        await api(`tags/${tag.id}`, "DELETE");
-        const current = await api(`notes/${note.id}`);
-        await api(`notes/${note.id}`, "DELETE", { revision: current.revision });
+        try {
+          await context.close();
+        } finally {
+          await cleanupFixture();
+        }
       }
     }
 } finally {
-  await browser.close();
-  await owner.dispose();
+  try {
+    await browser.close();
+  } finally {
+    try {
+      await api("settings", "PATCH", { theme: originalTheme });
+    } finally {
+      await owner.dispose();
+    }
+  }
 }

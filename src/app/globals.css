@@ -625,6 +625,9 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tag-nav-row > button:first-child .tag-dot {
+  margin-inline: 5px;
+}
 .tag-nav-row:hover,
 .tag-nav-row.active {
   background: var(--muted);
@@ -1606,6 +1609,11 @@ button:disabled {
 .mobile-navigation .tag-nav-row > button:first-child {
   min-height: 44px;
   font-size: 15px;
+  padding-inline: 12px;
+  gap: 12px;
+}
+.mobile-navigation .tag-nav-row > button:first-child .tag-dot {
+  margin-inline: 6px;
 }
 .mobile-navigation .tag-menu {
   opacity: 1;

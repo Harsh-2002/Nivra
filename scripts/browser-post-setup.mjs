@@ -286,11 +286,18 @@ for (const [engine, launcher] of Object.entries(engines).filter(
         const page = await context.newPage();
         const pageStartedAt = Date.now();
         const requestStarts = new WeakMap();
+        const workspaceDataRequests = new Set();
+        let settledTagGets = 0;
         const requestEvents = [];
         let phase = "initial tag view";
         const errors = [];
         const requestFailures = [];
         const requestPath = (request) => new URL(request.url()).pathname;
+        const isWorkspaceDataRequest = (request) =>
+          request.method() === "GET" &&
+          ["/api/v1/overview", "/api/v1/status", "/api/v1/tags"].includes(
+            requestPath(request),
+          );
         const relevantRequest = (request) =>
           [
             "/api/v1/tags",
@@ -307,6 +314,8 @@ for (const [engine, launcher] of Object.entries(engines).filter(
           }),
         );
         page.on("request", (request) => {
+          if (isWorkspaceDataRequest(request))
+            workspaceDataRequests.add(request);
           if (!relevantRequest(request)) return;
           const startedAt = Date.now();
           requestStarts.set(request, startedAt);
@@ -319,6 +328,12 @@ for (const [engine, launcher] of Object.entries(engines).filter(
           });
         });
         page.on("requestfinished", (request) => {
+          workspaceDataRequests.delete(request);
+          if (
+            request.method() === "GET" &&
+            requestPath(request) === "/api/v1/tags"
+          )
+            settledTagGets++;
           const startedAt = requestStarts.get(request);
           if (startedAt === undefined) return;
           requestEvents.push({
@@ -331,6 +346,7 @@ for (const [engine, launcher] of Object.entries(engines).filter(
           });
         });
         page.on("requestfailed", (request) => {
+          workspaceDataRequests.delete(request);
           const failedAt = Date.now();
           const startedAt = requestStarts.get(request);
           const failure = {
@@ -374,6 +390,46 @@ for (const [engine, launcher] of Object.entries(engines).filter(
           (tag) => tag.name === name,
         );
         assert.deepEqual(tag.aliases, ["sqlite database", "queries indexes"]);
+        const waitForWorkspaceData = async (step, minSettledTagGets) => {
+          await page
+            .locator(".overview-grid[data-card-count]")
+            .waitFor({ state: "visible" });
+          await page
+            .locator(".tag-navigation .tag-nav-row")
+            .filter({ hasText: name })
+            .waitFor({ state: "attached" });
+          const dataPaths = [
+            "/api/v1/overview",
+            "/api/v1/status",
+            "/api/v1/tags",
+          ];
+          const deadline = Date.now() + 15_000;
+          let idleSince;
+          while (Date.now() < deadline) {
+            if (
+              workspaceDataRequests.size === 0 &&
+              settledTagGets >= minSettledTagGets
+            ) {
+              idleSince ??= Date.now();
+              if (Date.now() - idleSince >= 250) {
+                assert.deepEqual(
+                  requestFailures.filter(
+                    (failure) =>
+                      failure.method === "GET" &&
+                      dataPaths.includes(failure.url),
+                  ),
+                  [],
+                  `${step}: workspace-data GETs must settle successfully`,
+                );
+                return;
+              }
+            } else idleSince = undefined;
+            await page.waitForTimeout(25);
+          }
+          throw new Error(
+            `${step}: workspace data did not settle (pending ${[...workspaceDataRequests].map(requestPath).join(", ") || "none"}; tag GETs settled ${settledTagGets}/${minSettledTagGets})`,
+          );
+        };
         await inspect(page, `${engine}-${width}-${theme}-tags`);
         phase = "continue to install";
         await page
@@ -407,6 +463,7 @@ for (const [engine, launcher] of Object.entries(engines).filter(
         await page
           .getByRole("button", { name: "Finish setup", exact: true })
           .waitFor();
+        const tagGetsBeforeFinish = settledTagGets;
         const completionBeforeReload = waitForApiResponse(page, "completions");
         try {
           phase = "finish setup action";
@@ -419,11 +476,20 @@ for (const [engine, launcher] of Object.entries(engines).filter(
             200,
             `${engine} ${width} ${theme}: authenticated SSE before reload`,
           );
+          await waitForWorkspaceData(
+            "workspace data before reload",
+            tagGetsBeforeFinish + 1,
+          );
+          const tagGetsBeforeReload = settledTagGets;
           const completionAfterReload = waitForApiResponse(page, "completions");
           const statusAfterReload = waitForApiResponse(page, "status");
           phase = "workspace reload";
           await page.reload();
           await page.locator(".workspace").waitFor();
+          await waitForWorkspaceData(
+            "workspace data after reload",
+            tagGetsBeforeReload + 1,
+          );
           assert.equal(
             (await completionAfterReload).status(),
             200,

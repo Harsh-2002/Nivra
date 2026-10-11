@@ -27,7 +27,7 @@ jobs:
       - run: npm run verify:api
       - run: npm test
       - run: npm run build
-      - name: Verify sidebar tag actions across browser engines
+      - name: Verify tag actions, smart features and live Overview
         run: |
           npx playwright install --with-deps chromium firefox webkit
           export NIVRA_DATA_DIR="$(mktemp -d)"
@@ -46,6 +46,7 @@ jobs:
             NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-tag-actions.mjs
             NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-local-ai.mjs
           done
+          node scripts/browser-overview.mjs
       - name: Verify guided onboarding and installation instructions
         run: |
           export NIVRA_DATA_DIR="$(mktemp -d)"

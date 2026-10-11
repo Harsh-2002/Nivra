@@ -31,6 +31,7 @@ if ((await api("status")).setup) {
   await chmod(process.env.NIVRA_BROWSER_SESSION, 0o600);
 }
 assert.match((await api("status")).owner?.name ?? "", /review|audit|test/i);
+const originalTheme = (await api("settings")).theme;
 const engines = { chromium, firefox, webkit };
 const engine = process.env.NIVRA_AUDIT_ENGINE ?? "chromium";
 assert.ok(engines[engine], "Supported browser engine required");
@@ -40,6 +41,10 @@ try {
     .split(",")
     .map(Number)) {
     for (const colorScheme of ["light", "dark"]) {
+      const updatedSettings = await api("settings", "PATCH", {
+        theme: colorScheme,
+      });
+      assert.equal(updatedSettings.theme, colorScheme);
       const context = await browser.newContext({
         storageState: process.env.NIVRA_BROWSER_SESSION,
         viewport: { width, height: 900 },
@@ -111,6 +116,19 @@ try {
       }
       try {
         await page.goto(`${base}/overview`, { waitUntil: "domcontentloaded" });
+        await page.waitForFunction(
+          (expectedTheme) =>
+            document.documentElement.classList.contains("dark") ===
+            (expectedTheme === "dark"),
+          colorScheme,
+        );
+        assert.equal(
+          await page.evaluate(() =>
+            document.documentElement.classList.contains("dark"),
+          ),
+          colorScheme === "dark",
+          `${engine} ${width} ${colorScheme}: rendered theme must match the test case`,
+        );
         await menu("Delete tag");
         await (
           await onlyDialog("alertdialog")
@@ -198,6 +216,13 @@ try {
     }
   }
 } finally {
-  await browser.close();
-  await owner.dispose();
+  try {
+    await browser.close();
+  } finally {
+    try {
+      await api("settings", "PATCH", { theme: originalTheme });
+    } finally {
+      await owner.dispose();
+    }
+  }
 }
