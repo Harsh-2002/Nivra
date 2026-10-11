@@ -56,3 +56,5 @@ next-env.d.ts
 /public/reader/
 
 /public/icons/launch/
+
+/models/

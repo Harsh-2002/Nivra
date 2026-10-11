@@ -50,3 +50,6 @@ if (!existsSync(path.join(root, "generated/agent-markdown-worker.mjs")))
   throw new Error(
     "The agent Markdown worker is missing from the shipping artifact.",
   );
+
+if (!existsSync(path.join(root, "generated/ai-worker.cjs")))
+  throw new Error("The local AI worker is missing from the shipping artifact.");

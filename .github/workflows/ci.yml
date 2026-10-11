@@ -1,10 +1,12 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, feature/local-ai]
   pull_request:
 permissions:
   contents: read
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
 jobs:
   verify:
     runs-on: ubuntu-24.04
@@ -17,6 +19,7 @@ jobs:
       - name: Install video preview dependency
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: npm ci
+      - run: npm run ai:assets
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
@@ -44,7 +47,25 @@ jobs:
           done
       - name: Validate image-based Compose configuration
         run: docker compose config --quiet
+  containers:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
       - name: Build and verify the source container
         run: |
           docker build -t nivra:ci .
+          docker image inspect nivra:ci --format 'Image bytes: {{.Size}}'
           node scripts/smoke-container.mjs nivra:ci
+          docker run --rm --network none --cpus 1 --memory 1536m --memory-swap 1536m --read-only --tmpfs /tmp --entrypoint node nivra:ci scripts/smoke-ai-runtime.mjs

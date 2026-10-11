@@ -76,6 +76,7 @@ Requires **Node.js 24** and npm. From a cloned checkout:
 
 ```sh
 npm ci
+npm run ai:assets # Optional for local AI development; Docker bundles the model
 npm run dev
 ```
 

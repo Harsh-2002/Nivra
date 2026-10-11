@@ -49,3 +49,14 @@ await writeFile(
   "generated/agent-markdown-trace.json",
   JSON.stringify([...fileList]),
 );
+
+await build({
+  entryPoints: ["scripts/ai-worker.ts"],
+  outfile: "generated/ai-worker.cjs",
+  bundle: true,
+  platform: "node",
+  target: "node24",
+  format: "cjs",
+  external: ["onnxruntime-node", "@huggingface/tokenizers"],
+  logLevel: "warning",
+});

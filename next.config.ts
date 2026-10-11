@@ -30,6 +30,8 @@ const config: NextConfig = {
     "@better-auth/cimd",
     "@better-auth/api-key",
     "better-sqlite3",
+    "onnxruntime-node",
+    "@huggingface/tokenizers",
     "tesseract.js",
     "unpdf",
     "sharp",
@@ -38,6 +40,10 @@ const config: NextConfig = {
   outputFileTracingIncludes: {
     "/*": [
       "./migrations/**/*",
+      "./generated/ai-worker.cjs",
+      "./node_modules/onnxruntime-node/**/*",
+      "./node_modules/onnxruntime-common/**/*",
+      "./node_modules/@huggingface/tokenizers/**/*",
       "./generated/processing-worker.cjs",
       "./generated/thumbnail-worker.cjs",
       ...new Set(

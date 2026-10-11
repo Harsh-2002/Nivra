@@ -2,7 +2,7 @@
 
 Nivra's own source is MIT licensed. Dependencies retain their original notices and licenses.
 
-- Node.js: MIT, with bundled third-party notices. The runtime image retains its full license at `/usr/share/licenses/node/LICENSE`. The Dockerfile verifies the license hash for the pinned Node release on both architectures; update that hash when changing the Node base image. ARM64's source-built Alpine base obtains the same license from the corresponding [upstream release](https://github.com/nodejs/node/blob/v24.21.0/LICENSE).
+- Node.js: MIT, with bundled third-party notices. The Debian runtime retains the full license at `/usr/share/licenses/node/LICENSE`. Both architectures verify the license hash for the pinned Node release; update it when changing the base image.
 
 - BlockNote core, React, shadcn, code-block, and diagram-block and server-util packages: MPL-2.0. No XL packages are used. Modifications to covered upstream source remain subject to its license; Nivra's custom blocks are maintained separately.
 - Excalidraw: MIT. Its bundled fonts retain their upstream font licenses. Generated assets are copied from the installed package rather than fetched from a CDN.
@@ -20,3 +20,5 @@ See the LICENSE files in installed packages and upstream distributions for full 
 - Official Model Context Protocol TypeScript server/client SDKs and `jose`: MIT. Better Auth MCP, client-metadata and API-key plugins retain Better Auth’s package licenses. `y-prosemirror` is MIT licensed and supplies the headless Markdown parser’s ProseMirror peer integration.
 
 - `@dnd-kit/react` and `@dnd-kit/dom`: MIT. Task boards use their pointer and keyboard drag controls; the pinned packages retain their upstream notices.
+
+- Snowflake Arctic Embed XS q8 weights and tokenizer configuration: Apache-2.0, pinned to revision `d8c86521100d3556476a063fc2342036d45c106f`. The Docker model pack includes LICENSE, NOTICE and checksums. ONNX Runtime Node: MIT, CPU binaries only. `@huggingface/tokenizers`: Apache-2.0. Models load locally; no inference-time downloads or external inference services.

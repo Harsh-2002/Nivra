@@ -104,7 +104,27 @@ for (const encrypted of [false, true]) {
       ).status,
       201,
     );
-    docker("exec", name, "node", "backup-cli.cjs", "list");
+    const backup = JSON.parse(
+      docker("exec", name, "node", "backup-cli.cjs", "create"),
+    );
+    assert.ok(backup.id, "Backup did not return an identifier");
+    docker("exec", name, "node", "backup-cli.cjs", "verify", backup.id);
+    docker(
+      "exec",
+      name,
+      "node",
+      "backup-cli.cjs",
+      "restore",
+      backup.id,
+      "/tmp/nivra-restored",
+    );
+    docker(
+      "exec",
+      name,
+      "node",
+      "-e",
+      "const c=require('@napi-rs/canvas').createCanvas(400,100),x=c.getContext('2d');x.fillStyle='white';x.fillRect(0,0,400,100);x.fillStyle='black';x.font='30px DejaVu Sans';x.fillText('NIVRA OFFLINE TEST',10,60);require('sharp')(c.toBuffer('image/png')).metadata().then(m=>{if(m.width!==400)throw Error('Native image smoke failed')})",
+    );
     docker("exec", name, "ffmpeg", "-version");
     docker("rm", "-f", name);
     run();
