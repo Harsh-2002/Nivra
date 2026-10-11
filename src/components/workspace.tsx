@@ -148,6 +148,15 @@ export function Workspace({
   const [opening, setOpening] = useState(false);
   const [sidebar, setSidebar] = useState(true);
   const [drawer, setDrawer] = useState(false);
+  const navigationAction = useRef<(() => void) | null>(null);
+  function afterNavigation(action: () => void) {
+    if (!drawer) {
+      action();
+      return;
+    }
+    navigationAction.current = action;
+    setDrawer(false);
+  }
   const [settingsOpen, setSettingsOpen] = useState(false);
   const globalSearch = useRef<SearchHandle>(null);
   const capture = useRef<CaptureHandle>(null);
@@ -707,7 +716,7 @@ export function Workspace({
             variant="ghost"
             size="icon"
             aria-label="Create tag"
-            onClick={() => setTagDialog({ name: "" })}
+            onClick={() => afterNavigation(() => setTagDialog({ name: "" }))}
           >
             <Plus size={14} />
           </Button>
@@ -722,7 +731,7 @@ export function Workspace({
                 <span className="tag-dot" data-color={item.color} />
                 <span>{item.name}</span>
               </button>
-              <DropdownMenu>
+              <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
                   <button
                     aria-label={`Actions for ${item.name}`}
@@ -732,11 +741,15 @@ export function Workspace({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
-                  <DropdownMenuItem onSelect={() => setTagDialog(item)}>
+                  <DropdownMenuItem
+                    onSelect={() => afterNavigation(() => setTagDialog(item))}
+                  >
                     <Pencil size={14} />
                     Edit tag
                   </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void deleteTag(item)}>
+                  <DropdownMenuItem
+                    onSelect={() => afterNavigation(() => void deleteTag(item))}
+                  >
                     <Trash2 size={14} />
                     Delete tag
                   </DropdownMenuItem>
@@ -747,7 +760,7 @@ export function Workspace({
           {!tags.length && (
             <button
               className="empty-tags"
-              onClick={() => setTagDialog({ name: "" })}
+              onClick={() => afterNavigation(() => setTagDialog({ name: "" }))}
             >
               Give your ideas a little order.
               <br />
@@ -841,14 +854,22 @@ export function Workspace({
           side="left"
           className="mobile-navigation"
           onCloseAutoFocus={(event) => {
-            if (document.querySelector('[role="dialog"][data-state="open"]'))
-              return;
             event.preventDefault();
+            const action = navigationAction.current;
+            navigationAction.current = null;
+            if (
+              !action &&
+              document.querySelector(
+                '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+              )
+            )
+              return;
             document
               .querySelector<HTMLElement>(
                 '.workspace button[aria-label="Open navigation"]',
               )
               ?.focus({ preventScroll: true });
+            if (action) requestAnimationFrame(action);
           }}
         >
           <SheetTitle className="sr-only">Navigation</SheetTitle>
@@ -1288,7 +1309,17 @@ export function Workspace({
           if (!open) setTagDialog(null);
         }}
       >
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            if (window.innerWidth >= 1024) return;
+            event.preventDefault();
+            document
+              .querySelector<HTMLElement>(
+                '.workspace button[aria-label="Open navigation"]',
+              )
+              ?.focus({ preventScroll: true });
+          }}
+        >
           <DialogTitle>
             {tagDialog?.id ? "Edit tag" : "Create a tag"}
           </DialogTitle>

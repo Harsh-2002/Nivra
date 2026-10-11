@@ -24,6 +24,24 @@ jobs:
       - run: npm run verify:api
       - run: npm test
       - run: npm run build
+      - name: Verify sidebar tag actions across browser engines
+        run: |
+          npx playwright install --with-deps chromium firefox webkit
+          export NIVRA_DATA_DIR="$(mktemp -d)"
+          export NIVRA_PUBLIC_URL=http://localhost:3015
+          export NIVRA_BROWSER_SESSION="$RUNNER_TEMP/tag-actions-session.json"
+          export NIVRA_AUDIT_WIDTHS=320,768,1440
+          npm run start -- --port 3015 > "$RUNNER_TEMP/tag-actions-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://localhost:3015/health > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://localhost:3015/health > /dev/null
+          for browser in chromium firefox webkit; do
+            NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-tag-actions.mjs
+          done
       - name: Validate image-based Compose configuration
         run: docker compose config --quiet
       - name: Build and verify the source container
