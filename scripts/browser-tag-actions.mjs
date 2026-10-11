@@ -12,7 +12,7 @@ const owner = await request.newContext({
   ...(existsSync(process.env.NIVRA_BROWSER_SESSION)
     ? { storageState: process.env.NIVRA_BROWSER_SESSION }
     : {}),
-  extraHTTPHeaders: { origin: base },
+  extraHTTPHeaders: { origin: base, "content-type": "application/json" },
 });
 async function api(path, method = "GET", data) {
   const response = await owner.fetch(`/api/v1/${path}`, { method, data });
@@ -172,6 +172,10 @@ try {
         console.log(
           `${engine} ${width} ${colorScheme}: tag create/edit/cancel/delete/focus/content preservation passed`,
         );
+      } catch (error) {
+        console.error(`${engine} ${width} ${colorScheme}: UI interaction failed`);
+        console.error(error);
+        throw error;
       } finally {
         await context.close();
         const remaining = await api("tags");
