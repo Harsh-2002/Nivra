@@ -41,11 +41,11 @@ export async function readLimited(
   }
   return result;
 }
-export async function json(request: Request) {
+export async function json(request: Request, optional = false) {
   try {
-    return JSON.parse(
-      new TextDecoder().decode(await readLimited(request, 8 * 1024 * 1024)),
-    );
+    const bytes = await readLimited(request, 8 * 1024 * 1024);
+    if (optional && !bytes.length) return undefined;
+    return JSON.parse(new TextDecoder().decode(bytes));
   } catch (error) {
     if (error instanceof HttpError) throw error;
     throw new HttpError(400, "Invalid request data.");

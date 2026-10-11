@@ -345,7 +345,7 @@ async function handleWorkspaceInternal(
             headers: { "content-type": request.headers.get("content-type")! },
             body: new Uint8Array(bytes),
           }).formData();
-        } else if (request.body) input = await json(request);
+        } else if (request.body) input = await json(request, true);
       }
       const result = await executeContent({
         ownerId: owner.id,

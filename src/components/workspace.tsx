@@ -148,6 +148,8 @@ export function Workspace({
   const [opening, setOpening] = useState(false);
   const [sidebar, setSidebar] = useState(true);
   const [drawer, setDrawer] = useState(false);
+  const [navigationContent, setNavigationContent] =
+    useState<HTMLDivElement | null>(null);
   const navigationAction = useRef<(() => void) | null>(null);
   function afterNavigation(action: () => void) {
     if (!drawer) {
@@ -740,7 +742,10 @@ export function Workspace({
                     <MoreHorizontal size={14} />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
+                <DropdownMenuContent
+                  align="start"
+                  portalContainer={drawer ? navigationContent : undefined}
+                >
                   <DropdownMenuItem
                     onSelect={() => afterNavigation(() => setTagDialog(item))}
                   >
@@ -851,6 +856,7 @@ export function Workspace({
       {sidebar && <aside className="desktop-navigation">{navigation}</aside>}
       <Sheet open={drawer} onOpenChange={setDrawer}>
         <SheetContent
+          ref={setNavigationContent}
           side="left"
           className="mobile-navigation"
           onCloseAutoFocus={(event) => {

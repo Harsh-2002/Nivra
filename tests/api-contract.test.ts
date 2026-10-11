@@ -6,6 +6,31 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { test } from "node:test";
 
+test("empty streamed JSON bodies are optional only at content boundaries", async () => {
+  const { json, HttpError } = await import("../src/lib/server/http");
+  const request = (text = "", length?: number) =>
+    new Request("http://localhost:3000/api/v1/tags/test", {
+      method: "DELETE",
+      body: new TextEncoder().encode(text),
+      headers: length === undefined ? {} : { "content-length": String(length) },
+    });
+  assert.ok(request().body);
+  assert.equal(await json(request(), true), undefined);
+  await assert.rejects(
+    json(request()),
+    (error: unknown) => error instanceof HttpError && error.status === 400,
+  );
+  await assert.rejects(
+    json(request(" "), true),
+    (error: unknown) => error instanceof HttpError && error.status === 400,
+  );
+  await assert.rejects(
+    json(request("", 8 * 1024 * 1024 + 1), true),
+    (error: unknown) => error instanceof HttpError && error.status === 413,
+  );
+  assert.deepEqual(await json(request("{}"), true), {});
+});
+
 test("versioned media migration preserves content, history and published attachment references", async () => {
   const db = new Database(":memory:");
   try {
@@ -115,7 +140,12 @@ test("actual v1 routes enforce schemas, scoped credentials, pagination, conflict
           ...(token ? { authorization: "Bearer " + token } : { cookie }),
           ...headers,
         },
-        body: input === undefined ? undefined : JSON.stringify(input),
+        body:
+          input === undefined
+            ? method !== "GET"
+              ? new Uint8Array()
+              : undefined
+            : JSON.stringify(input),
       }),
       { params: Promise.resolve({ path: route.split("?")[0].split("/") }) },
     );
@@ -138,6 +168,16 @@ test("actual v1 routes enforce schemas, scoped credentials, pagination, conflict
       .join("; ");
     await body(setup);
     assert.ok(cookie);
+    const emptyBodyTag = await body(
+      await call("tags", "POST", {
+        name: "Empty body deletion",
+        color: "gray",
+      }),
+      201,
+    );
+    await body(await call("tags/" + emptyBodyTag.id, "DELETE"));
+    assert.equal((await call("tags/" + emptyBodyTag.id)).status, 404);
+    assert.equal((await call("notes", "POST")).status, 400);
     assert.equal(
       new Set(apiOperations.map((value) => value.method + value.path)).size,
       apiOperations.length,
