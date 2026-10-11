@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { EmbeddingWorker } from "../src/lib/server/ai/runtime";
 test("persistent local AI uses normalized deterministic embeddings and shuts down", async () => {
   await access("models/arctic/onnx/model_int8.onnx");
+  const data = await mkdtemp(path.join(tmpdir(), "nivra-ai-runtime-data-"));
+  process.env.NIVRA_DATA_DIR = data;
   const worker = new EmbeddingWorker();
   try {
     await worker.start();
@@ -35,6 +37,7 @@ test("persistent local AI uses normalized deterministic embeddings and shuts dow
     await assert.rejects(worker.encode("x".repeat(20_001)), /limit/);
   } finally {
     await worker.stop();
+    await rm(data, { recursive: true, force: true });
   }
 });
 test("missing or corrupt local model assets fail closed without downloads", async () => {
@@ -84,6 +87,7 @@ test("a crashed or stalled child rejects inference and supports a fresh restart"
       script,
       "process.send({type:'ready',rss:100});process.on('message',()=>{});",
     );
+    await worker.start();
     await assert.rejects(
       worker.encode("Timeout fixture", false, 100),
       /timed out/,

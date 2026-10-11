@@ -14,7 +14,7 @@ export function parseSearch(input: string) {
         const value = quoted || plain;
         if (
           key.toLowerCase() === "type" &&
-          /^(notes?|journals?|tasks?|bookmarks?|artifacts?|events?|forms?)$/i.test(
+          /^(notes?|journals?|tasks?|bookmarks?|artifacts?|events?|forms?|responses?)$/i.test(
             value,
           )
         ) {

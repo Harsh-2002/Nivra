@@ -75,8 +75,8 @@ Nivra is built with Next.js, TypeScript, shadcn/ui, Tailwind CSS, BlockNote, SQL
 Requires **Node.js 24** and npm. From a cloned checkout:
 
 ```sh
-npm ci
-npm run ai:assets # Optional for local AI development; Docker bundles the model
+ONNXRUNTIME_NODE_INSTALL=skip npm ci
+npm run ai:assets # Prepare the pinned model for AI tests; Docker bundles it
 npm run dev
 ```
 

@@ -14,7 +14,7 @@ export const taggedTypes = [
   "event",
   "form",
 ] as const;
-export type TaggedType = (typeof taggedTypes)[number];
+export type TaggedType = (typeof taggedTypes)[number] | "response";
 const tables = {
   note: "notes",
   task: "tasks",
@@ -22,18 +22,27 @@ const tables = {
   artifact: "artifacts",
   event: "calendar_events",
   form: "forms",
+  response: "form_responses",
 } as const;
 export function itemTags(type: TaggedType, id: string): Tag[] {
   return sqlite()
     .prepare(
-      `SELECT t.id,t.name,t.color FROM tags t JOIN ${type}_tags it ON it.tag_id=t.id WHERE it.${type}_id=? ORDER BY t.name`,
+      `SELECT t.id,t.name,t.color,t.aliases FROM tags t JOIN ${type}_tags it ON it.tag_id=t.id WHERE it.${type}_id=? ORDER BY t.name`,
     )
-    .all(id) as Tag[];
+    .all(id)
+    .map((row) => {
+      const tag = row as Tag & { aliases: string };
+      const { aliases, ...rest } = tag;
+      const words = JSON.parse(aliases) as string[];
+      return { ...rest, ...(words.length ? { aliases: words } : {}) };
+    });
 }
 export function itemTagState(owner: string, type: TaggedType, id: string) {
   const row = sqlite()
     .prepare(
-      `SELECT revision FROM ${tables[type]} WHERE id=? AND owner_id=? AND trashed_at IS NULL`,
+      type === "response"
+        ? "SELECT r.revision FROM form_responses r JOIN forms f ON f.id=r.form_id WHERE r.id=? AND f.owner_id=? AND r.trashed_at IS NULL AND f.trashed_at IS NULL"
+        : `SELECT revision FROM ${tables[type]} WHERE id=? AND owner_id=? AND trashed_at IS NULL`,
     )
     .get(id, owner) as { revision: number } | undefined;
   if (!row) throw new HttpError(404, "This item was not found.");
@@ -65,8 +74,10 @@ export function assignItemTags(
       );
       for (const tag of unique) insert.run(id, tag);
       d.prepare(
-        `UPDATE ${tables[type]} SET revision=revision+1,updated_at=? WHERE id=? AND owner_id=?`,
-      ).run(Date.now(), id, owner);
+        type === "response"
+          ? "UPDATE form_responses SET revision=revision+1 WHERE id=?"
+          : `UPDATE ${tables[type]} SET revision=revision+1,updated_at=? WHERE id=? AND owner_id=?`,
+      ).run(...(type === "response" ? [id] : [Date.now(), id, owner]));
       completionEvent(
         owner,
         "content",
@@ -80,15 +91,13 @@ export function assignItemTags(
 export function importItemTags(
   type: TaggedType,
   id: string,
-  tags: Pick<Tag, "name" | "color">[],
+  tags: Pick<Tag, "name" | "color" | "aliases">[],
 ) {
   const d = sqlite();
   for (const tag of tags) {
-    d.prepare("INSERT OR IGNORE INTO tags(id,name,color) VALUES(?,?,?)").run(
-      randomUUID(),
-      tag.name,
-      tag.color,
-    );
+    d.prepare(
+      "INSERT OR IGNORE INTO tags(id,name,color,aliases) VALUES(?,?,?,?)",
+    ).run(randomUUID(), tag.name, tag.color, JSON.stringify(tag.aliases ?? []));
     const stored = d
       .prepare("SELECT id FROM tags WHERE name=? COLLATE NOCASE")
       .get(tag.name) as { id: string };
@@ -128,32 +137,43 @@ function collectionItems(
     const search = ftsQuery(query);
     if (query.trim() && !search) return { items: [], next: null };
     const values: (string | number)[] = [];
-    const types = tag ? taggedTypes : (["note", "bookmark", "form"] as const);
+    const types = tag
+      ? [...taggedTypes, "response" as const]
+      : (["note", "bookmark", "form"] as const);
     const readers = new Map<string, Database.Statement>();
     const unions = types.map((type) => {
       const table = tables[type];
+      const timestamp = type === "response" ? "i.created_at" : "i.updated_at";
+      const authorization =
+        type === "response"
+          ? "EXISTS(SELECT 1 FROM forms f WHERE f.id=i.form_id AND f.owner_id=? AND f.trashed_at IS NULL)"
+          : "i.owner_id=?";
       const fts = type === "event" ? "events_fts" : `${table}_fts`;
       const excerpt =
         type === "note"
           ? "substr(i.text,1,180)"
           : type === "bookmark" || type === "form"
             ? "substr(i.description,1,180)"
-            : "''";
+            : type === "response"
+              ? "substr(i.search_text,1,180)"
+              : "''";
       const title =
         type === "artifact"
           ? "coalesce(nullif(i.name,''),nullif(i.title,''),'Untitled')"
-          : "i.title";
+          : type === "response"
+            ? "(SELECT title FROM forms WHERE id=i.form_id)||' — response'"
+            : "i.title";
       if (tag) values.push(tag);
       values.push(owner);
       if (search) values.push(search);
-      const predicate = `${tag ? `i.id IN(SELECT ${type}_id FROM ${type}_tags WHERE tag_id=?) AND` : "i.favorite=1 AND"} i.owner_id=? AND i.trashed_at IS NULL ${type === "note" ? "AND i.kind='note'" : ""} ${search ? `AND i.rowid IN (SELECT rowid FROM ${fts} WHERE ${fts} MATCH ?)` : ""}`;
+      const predicate = `${tag ? `i.id IN(SELECT ${type}_id FROM ${type}_tags WHERE tag_id=?) AND` : "i.favorite=1 AND"} ${authorization} AND i.trashed_at IS NULL ${type === "note" ? "AND i.kind='note'" : ""} ${search ? `AND i.rowid IN (SELECT rowid FROM ${fts} WHERE ${fts} MATCH ?)` : ""}`;
       readers.set(
         type,
         d.prepare(
-          `SELECT '${type}' AS type,i.id,${title} AS title,${excerpt} AS excerpt,i.updated_at AS updatedAt,${type === "note" ? "i.daily_date" : "NULL"} AS dailyDate,${type === "note" || type === "bookmark" || type === "form" ? "i.favorite" : "0"} AS favorite,${type === "task" ? "i.completed_at IS NOT NULL" : "0"} AS completed FROM ${table} i WHERE i.id=? AND i.owner_id=? AND i.trashed_at IS NULL`,
+          `SELECT '${type}' AS type,i.id,${title} AS title,${excerpt} AS excerpt,${timestamp} AS updatedAt,${type === "note" ? "i.daily_date" : "NULL"} AS dailyDate,${type === "note" || type === "bookmark" || type === "form" ? "i.favorite" : "0"} AS favorite,${type === "task" ? "i.completed_at IS NOT NULL" : "0"} AS completed,${type === "response" ? "i.form_id" : "NULL"} AS formId FROM ${table} i WHERE i.id=? AND ${authorization} AND i.trashed_at IS NULL`,
         ),
       );
-      return `SELECT '${type}' AS type,i.id,i.updated_at AS updatedAt FROM ${table} i INDEXED BY ${tag ? `${table}_search_order_idx` : `${table}_favorites_order_idx`} WHERE ${predicate}`;
+      return `SELECT '${type}' AS type,i.id,${timestamp} AS updatedAt FROM ${table} i ${type === "response" ? "" : `INDEXED BY ${tag ? `${table}_search_order_idx` : `${table}_favorites_order_idx`}`} WHERE ${predicate}`;
     });
     const candidates = d
       .prepare(
@@ -166,7 +186,7 @@ function collectionItems(
     );
     const selected = rows.slice(0, limit);
     const linked = new Map<string, Tag[]>();
-    for (const type of taggedTypes) {
+    for (const type of [...taggedTypes, "response" as const]) {
       const ids = selected
         .filter((row) => row.type === type)
         .map((row) => row.id);
@@ -184,6 +204,7 @@ function collectionItems(
     return {
       items: selected.map((row) => ({
         ...row,
+        ...(row.type !== "response" ? { formId: undefined } : {}),
         favorite: Boolean(row.favorite),
         completed: Boolean(row.completed),
         tags: linked.get(`${row.type}:${row.id}`) || [],

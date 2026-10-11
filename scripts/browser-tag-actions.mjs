@@ -26,6 +26,7 @@ if ((await api("status")).setup) {
     username: "tag_actions_test",
     password: `Tag-${randomUUID()}`,
   });
+  await api("settings", "PATCH", { onboardingStep: "complete" });
   await owner.storageState({ path: process.env.NIVRA_BROWSER_SESSION });
   await chmod(process.env.NIVRA_BROWSER_SESSION, 0o600);
 }

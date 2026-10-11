@@ -52,6 +52,13 @@ import {
 import { completionEvent } from "./jobs";
 import { storageOperation } from "./storage-operations";
 import { systemApi } from "./system-api";
+import {
+  aiStatus,
+  configureAi,
+  listSuggestions,
+  decideSuggestion,
+} from "./ai/service";
+import { apiInputs } from "./api-schemas";
 
 type Attachment = {
   id: string;
@@ -72,12 +79,18 @@ const recovery = () =>
     .match(/.{1,8}/g)!
     .join("-");
 const settings = () => {
-  const row = sqlite().prepare("SELECT theme FROM instance WHERE id=1").get();
+  const row = sqlite()
+    .prepare("SELECT theme,onboarding_step FROM instance WHERE id=1")
+    .get() as {
+    theme: string;
+    onboarding_step: "tags" | "install" | "complete";
+  };
   const owner = sqlite()
     .prepare("SELECT two_factor_enabled FROM user LIMIT 1")
     .get() as { two_factor_enabled: number } | undefined;
   return {
-    ...(row as { theme: string }),
+    theme: row.theme,
+    onboardingStep: row.onboarding_step,
     hasPassword: !!sqlite()
       .prepare(
         "SELECT 1 FROM account WHERE provider_id='credential' AND password IS NOT NULL",
@@ -234,7 +247,9 @@ async function handleWorkspaceInternal(
               now,
             );
           database
-            .prepare("UPDATE instance SET recovery_hash=?,theme=? WHERE id=1")
+            .prepare(
+              "UPDATE instance SET recovery_hash=?,theme=?,onboarding_step='tags' WHERE id=1",
+            )
             .run(recoveryHash(code), input.theme);
         })
         .immediate();
@@ -363,6 +378,44 @@ async function handleWorkspaceInternal(
         ? result.response
         : response(result.data, result.status);
     }
+    if (area === "ai") {
+      if (principal)
+        throw new HttpError(403, "Only the owner can manage local AI.");
+      if (!id && method === "GET") return response(aiStatus(owner.id));
+      if (!id && method === "PATCH") {
+        const input = z
+          .object({
+            enabled: z.boolean(),
+            revision: z.number().int().positive(),
+          })
+          .strict()
+          .parse(await json(request));
+        return response(
+          await configureAi(owner.id, input.enabled, input.revision),
+        );
+      }
+      if (id === "suggestions" && method === "GET" && !action)
+        return response(listSuggestions(owner.id));
+      if (
+        id === "suggestions" &&
+        action &&
+        method === "POST" &&
+        ["accept", "reject"].includes(path[3])
+      ) {
+        throttle(`ai-decision:${owner.id}`);
+        z.object({})
+          .strict()
+          .parse(await json(request));
+        return response(
+          decideSuggestion(
+            owner.id,
+            z.string().uuid().parse(action),
+            path[3] === "accept" ? "accepted" : "rejected",
+          ),
+        );
+      }
+      throw new HttpError(404, "This AI operation was not found.");
+    }
     if (area === "system") return await systemApi(request, owner.id, path);
     if (area === "ai-consent" && method === "GET" && !id) {
       const client = z
@@ -408,15 +461,12 @@ async function handleWorkspaceInternal(
     if (area === "settings") {
       if (method === "GET") return response(settings());
       if (method === "PATCH") {
-        const input = z
-          .object({
-            theme: z.enum(["light", "dark", "system"]),
-          })
-          .strict()
-          .parse(await json(request));
+        const input = apiInputs.settingsUpdate.parse(await json(request));
         database
-          .prepare("UPDATE instance SET theme=? WHERE id=1")
-          .run(input.theme);
+          .prepare(
+            "UPDATE instance SET theme=coalesce(?,theme), onboarding_step=coalesce(?,onboarding_step) WHERE id=1",
+          )
+          .run(input.theme ?? null, input.onboardingStep ?? null);
         return response(settings());
       }
       if (id === "recovery" && method === "POST") {
@@ -511,7 +561,7 @@ export async function handleWorkspace(
   const run = () => handleWorkspaceInternal(request, context, principal);
   const result = await (installationExists() &&
   request.method !== "GET" &&
-  !["system", "setup", "setup-passkey"].includes(path[0])
+  !["system", "ai", "setup", "setup-passkey"].includes(path[0])
     ? storageOperation(run)
     : run());
   if (

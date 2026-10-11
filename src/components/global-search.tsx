@@ -19,10 +19,12 @@ import {
   SlidersHorizontal,
   ClipboardList,
 } from "lucide-react";
+import { Checkbox } from "./ui/checkbox";
+import { Label } from "./ui/label";
 import { Button } from "./ui/button";
 import { SearchText } from "./search-text";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { apiItems } from "@/lib/client";
+import { api } from "@/lib/client";
 import type { SearchResult } from "@/lib/types";
 import { DialogTitle, DialogDescription } from "./ui/dialog";
 import {
@@ -70,9 +72,36 @@ export function GlobalSearch({
     setOpen(false);
   };
   const [query, setQuery] = useState("");
+  const [semantic, setSemantic] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiStatusError, setAiStatusError] = useState(false);
+  const [strategyUsed, setStrategyUsed] = useState("keyword");
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    void api<{ enabled: boolean }>("ai", { signal: controller.signal })
+      .then((value) => {
+        if (!controller.signal.aborted) {
+          setAiStatusError(false);
+          setAiEnabled(value.enabled);
+          if (!value.enabled) setSemantic(false);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setAiEnabled(false);
+          setSemantic(false);
+          setAiStatusError(true);
+        }
+      });
+    return () => controller.abort();
+  }, [open]);
   const [completionVersion, setCompletionVersion] = useState(0);
   useCompletion(undefined, () => {
     if (open) setCompletionVersion((version) => version + 1);
+  });
+  useCompletion("ai", () => {
+    if (open && semantic) setCompletionVersion((version) => version + 1);
   });
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,15 +116,17 @@ export function GlobalSearch({
       () => {
         setLoading(true);
         setError("");
-        void apiItems<SearchResult>(
-          `search?mode=suggest&q=${encodeURIComponent(query)}`,
+        void api<{ items: SearchResult[]; strategyUsed?: string }>(
+          `search?mode=suggest&strategy=${semantic ? "semantic" : "keyword"}&q=${encodeURIComponent(query)}`,
           {
             signal: controller.signal,
           },
         )
-          .then((items) => {
+          .then((page) => {
+            const items = page.items;
             if (!controller.signal.aborted) {
               setResults(items);
+              setStrategyUsed(page.strategyUsed ?? "keyword");
               setSelection((current) =>
                 items.some((item) => `${item.type}-${item.id}` === current)
                   ? current
@@ -118,7 +149,7 @@ export function GlobalSearch({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [open, query, completionVersion]);
+  }, [open, query, semantic, completionVersion]);
   const run = async (action: () => Promise<boolean>, focus: string) => {
     if (busy) return;
     setBusy(true);
@@ -189,6 +220,34 @@ export function GlobalSearch({
             setError("");
           }}
         />
+        {aiEnabled && (
+          <div className="search-semantic-control">
+            <Label>
+              <Checkbox
+                checked={semantic}
+                onCheckedChange={(value) => {
+                  setSemantic(value === true);
+                  setLoading(true);
+                }}
+              />
+              Search by meaning
+            </Label>
+            {semantic &&
+              query.trim() &&
+              !loading &&
+              strategyUsed === "keyword" && (
+                <span role="status">
+                  Keyword results · local AI unavailable
+                </span>
+              )}
+          </div>
+        )}
+        {aiStatusError && (
+          <p className="search-ai-availability" role="status">
+            Could not check meaning-search availability. Keyword search is
+            unchanged.
+          </p>
+        )}
         <div className="search-results-viewport">
           <div className="search-status">
             {loading && !results.length ? (
@@ -213,7 +272,13 @@ export function GlobalSearch({
           <CommandList label="Search results" aria-busy={loading}>
             {!error && !!results.length && (
               <CommandGroup
-                heading={query.trim() ? "Search results" : "Recent items"}
+                heading={
+                  query.trim()
+                    ? strategyUsed === "semantic"
+                      ? "Related matches"
+                      : "Search results"
+                    : "Recent items"
+                }
               >
                 {results.map((result) => {
                   const Icon =
@@ -227,7 +292,8 @@ export function GlobalSearch({
                             : Layers
                           : result.type === "event"
                             ? CalendarDays
-                            : result.type === "form"
+                            : result.type === "form" ||
+                                result.type === "response"
                               ? ClipboardList
                               : Bookmark;
                   return (
@@ -246,7 +312,8 @@ export function GlobalSearch({
                               ? 'input[aria-label="Search tasks"]'
                               : result.type === "artifact"
                                 ? 'input[aria-label="Search artifacts"]'
-                                : result.type === "form"
+                                : result.type === "form" ||
+                                    result.type === "response"
                                   ? 'input[placeholder="Untitled form"]'
                                   : 'input[aria-label="Search bookmarks"]',
                         )
@@ -281,7 +348,9 @@ export function GlobalSearch({
                                 ? "Event"
                                 : result.type === "form"
                                   ? "Form"
-                                  : "Bookmark"}
+                                  : result.type === "response"
+                                    ? "Response"
+                                    : "Bookmark"}
                         {result.completed ? " · done" : ""}
                       </span>
                     </CommandItem>

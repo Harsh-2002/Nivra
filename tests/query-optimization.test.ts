@@ -92,7 +92,12 @@ test("query index upgrade preserves content and indexed literal bookmark matchin
     for (const [table, rows] of snapshots)
       assert.deepEqual(
         d.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
-        rows,
+        table === "tags"
+          ? (rows as Record<string, unknown>[]).map((row) => ({
+              ...row,
+              aliases: "[]",
+            }))
+          : rows,
         table,
       );
     globalDb.nivraSqlite = d;

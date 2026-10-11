@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { sqlite } from "./db";
+import { queueSemanticWork, canIndexLocally, stopAi } from "./ai/indexer";
 
-export type JobKind = "artifact" | "bookmark" | "thumbnail";
+export type JobKind = "artifact" | "bookmark" | "thumbnail" | "semantic";
 export type Job = {
   id: string;
   owner_id: string;
@@ -9,8 +10,13 @@ export type Job = {
   target_id: string;
   attempts: number;
   lease_token: string;
+  generation?: number | null;
 };
-export type JobContext = { job: Job; commit: (write: () => string) => boolean };
+export type JobContext = {
+  job: Job;
+  commit: (write: () => string) => boolean;
+  signal?: AbortSignal;
+};
 export const maxAttempts = 3;
 const leaseMs = 120_000;
 const state = globalThis as unknown as {
@@ -18,25 +24,45 @@ const state = globalThis as unknown as {
     timer?: ReturnType<typeof setInterval>;
     active: Set<Promise<void>>;
     activeKinds?: Map<Promise<void>, JobKind>;
+    activeJobs?: Map<Promise<void>, { job: Job; controller: AbortController }>;
     stopped: boolean;
   };
 };
 const runner = (state.nivraJobs ||= { active: new Set(), stopped: false });
+const activeJobs = (runner.activeJobs ||= new Map<
+  Promise<void>,
+  { job: Job; controller: AbortController }
+>());
 const activeKinds = (runner.activeKinds ||= new Map());
 
 export function enqueueJob(owner: string, kind: JobKind, target: string) {
   const now = Date.now();
   sqlite()
     .prepare(
-      `INSERT INTO background_jobs(id,owner_id,kind,target_id,available_at,created_at) VALUES(?,?,?,?,?,?)
-    ON CONFLICT(kind,target_id) DO UPDATE SET state='queued',attempts=0,available_at=excluded.available_at,lease_token=NULL,lease_until=NULL
+      `INSERT INTO background_jobs(id,owner_id,kind,target_id,available_at,created_at,generation) VALUES(?,?,?,?,?,?,?)
+    ON CONFLICT(kind,target_id) DO UPDATE SET state='queued',attempts=0,available_at=excluded.available_at,lease_token=NULL,lease_until=NULL,generation=excluded.generation
     WHERE background_jobs.state IN ('done','failed')`,
     )
-    .run(randomUUID(), owner, kind, target, now, now);
+    .run(
+      randomUUID(),
+      owner,
+      kind,
+      target,
+      now,
+      now,
+      kind === "semantic"
+        ? ((
+            sqlite()
+              .prepare("SELECT generation FROM ai_content WHERE source_key=?")
+              .get(target) as { generation: number } | undefined
+          )?.generation ?? null)
+        : null,
+    );
 }
 export function completionEvent(
   owner: string,
-  kind: Exclude<JobKind, "thumbnail"> | "backup" | "content",
+  kind:
+    Exclude<JobKind, "thumbnail" | "semantic"> | "backup" | "content" | "ai",
   target: string,
   status: string,
 ) {
@@ -54,14 +80,16 @@ export function completionEvent(
 export function claimJob(
   now = Date.now(),
   preferredKind?: JobKind,
+  allowSemantic = true,
 ): Job | undefined {
   return sqlite()
     .transaction(() => {
       const row = sqlite()
         .prepare(
-          "SELECT * FROM background_jobs WHERE (state='queued' AND available_at<=?) OR (state='running' AND lease_until<=?) ORDER BY CASE WHEN kind='thumbnail' THEN 0 WHEN kind=? THEN 1 ELSE 2 END,available_at,created_at LIMIT 1",
+          "SELECT * FROM background_jobs WHERE (? OR kind<>'semantic') AND ((state='queued' AND available_at<=?) OR (state='running' AND lease_until<=?)) ORDER BY CASE WHEN kind='thumbnail' THEN 0 WHEN kind=? THEN 1 ELSE 2 END,available_at,created_at LIMIT 1",
         )
-        .get(now, now, preferredKind ?? null) as Job | undefined;
+        .get(Number(allowSemantic), now, now, preferredKind ?? null) as
+        Job | undefined;
       if (!row) return;
       const token = randomUUID();
       sqlite()
@@ -104,7 +132,13 @@ export function commitJob(job: Job, write: () => string) {
           : undefined;
       completionEvent(
         job.owner_id,
-        formFile ? "content" : job.kind === "thumbnail" ? "artifact" : job.kind,
+        formFile
+          ? "content"
+          : job.kind === "semantic"
+            ? "ai"
+            : job.kind === "thumbnail"
+              ? "artifact"
+              : job.kind,
         formFile ? formFile.formId : job.target_id,
         formFile ? "forms" : status,
       );
@@ -112,7 +146,7 @@ export function commitJob(job: Job, write: () => string) {
     })
     .immediate();
 }
-async function execute(job: Job) {
+async function execute(job: Job, signal: AbortSignal) {
   const heartbeat = setInterval(() => {
     sqlite()
       .prepare(
@@ -122,23 +156,39 @@ async function execute(job: Job) {
   }, 30_000);
   heartbeat.unref();
   try {
-    if (job.attempts > maxAttempts) throw new Error("Job retry limit reached.");
+    if (job.kind !== "semantic" && job.attempts > maxAttempts)
+      throw new Error("Job retry limit reached.");
     const context = {
       job,
+      signal,
       commit: (write: () => string) => commitJob(job, write),
     };
-    await (
-      await import("./storage-operations")
-    ).storageOperation(async () => {
-      if (job.kind === "artifact")
-        await (await import("./artifact-processing")).processArtifact(context);
-      else if (job.kind === "thumbnail")
-        await (await import("./artifact-thumbnails")).processThumbnail(context);
-      else await (await import("./bookmarks")).processBookmark(context);
-    });
+    if (job.kind === "semantic")
+      await (await import("./ai/indexer")).processSemantic(context);
+    else if (job.kind === "artifact")
+      await (await import("./artifact-processing")).processArtifact(context);
+    else
+      await (
+        await import("./storage-operations")
+      ).storageOperation(async () => {
+        if (job.kind === "thumbnail")
+          await (
+            await import("./artifact-thumbnails")
+          ).processThumbnail(context);
+        else await (await import("./bookmarks")).processBookmark(context);
+      });
   } catch {
+    if (signal.aborted) {
+      sqlite()
+        .prepare(
+          "UPDATE background_jobs SET state='queued',available_at=?,lease_token=NULL,lease_until=NULL WHERE id=? AND lease_token=?",
+        )
+        .run(Date.now(), job.id, job.lease_token);
+      return;
+    }
     if (job.attempts >= maxAttempts) {
       commitJob(job, () => {
+        if (job.kind === "semantic") return "failed";
         if (job.kind === "artifact")
           sqlite()
             .prepare(
@@ -177,18 +227,22 @@ async function execute(job: Job) {
 }
 export function wakeJobs() {
   if (runner.stopped) return;
+  queueSemanticWork();
   while (runner.active.size < 2) {
     const preferred = [...activeKinds.values()].includes("bookmark")
       ? "artifact"
       : "bookmark";
-    const job = claimJob(Date.now(), preferred);
+    const job = claimJob(Date.now(), preferred, canIndexLocally());
     if (!job) break;
-    const work = execute(job).finally(() => {
+    const controller = new AbortController();
+    const work = execute(job, controller.signal).finally(() => {
       runner.active.delete(work);
       activeKinds.delete(work);
+      activeJobs.delete(work);
     });
     runner.active.add(work);
     activeKinds.set(work, job.kind);
+    activeJobs.set(work, { job, controller });
   }
 }
 export function startJobWorker() {
@@ -215,5 +269,19 @@ export async function stopJobWorker() {
   runner.stopped = true;
   clearInterval(runner.timer);
   runner.timer = undefined;
-  await Promise.all([...runner.active]);
+  for (const entry of activeJobs.values()) entry.controller.abort();
+  await stopAi();
+  await Promise.race([
+    Promise.allSettled([...runner.active]),
+    new Promise((resolve) => {
+      const timer = setTimeout(resolve, 5000);
+      timer.unref();
+    }),
+  ]);
+  for (const { job } of activeJobs.values())
+    sqlite()
+      .prepare(
+        "UPDATE background_jobs SET state='queued',lease_token=NULL,lease_until=NULL,available_at=? WHERE id=? AND state='running' AND lease_token=?",
+      )
+      .run(Date.now(), job.id, job.lease_token);
 }

@@ -159,6 +159,7 @@ test("passkey-first setup keeps cancelled and unverified accounts uncreated, pre
     assert.equal(status.owner.username, "owner+passkey@example.com");
     assert.deepEqual(status.methods, { password: false, passkey: true });
     assert.equal(status.settings.hasPassword, false);
+    assert.equal(status.settings.onboardingStep, "tags");
     assert.equal(
       (
         await call("/api/auth/passkey/verify-registration", {

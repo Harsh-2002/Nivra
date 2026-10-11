@@ -29,6 +29,7 @@ if (status.setup) {
     username: "formsreview",
     password: `Forms-${randomUUID()}`,
   });
+  await api("settings", { onboardingStep: "complete" }, "PATCH");
   if (sessionFile) {
     await owner.storageState({ path: sessionFile });
     await chmod(sessionFile, 0o600);

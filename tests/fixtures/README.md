@@ -7,3 +7,5 @@ The media fixtures are generated locally, without a sourced clip: a two-second 4
 The files are excluded from the standalone shipping artifact. Tests assert original-byte preservation, bounded extraction/search behavior, safe file serving and real playback of the supported media fixtures in the scoped browser run.
 
 `passkey.ts` simulates a WebAuthn authenticator with ephemeral EC keys. Its SHA-256 digests cover the RP ID and serialized client data as required by WebAuthn, never passwords. `restored-storage.ts` checks relocated backup storage in a fresh process; its file identifier arrives as an argument rather than generated JavaScript.
+
+`local-ai-frozen.json` preserves ten synthetic examples and recorded Arctic XS similarities from the frozen evaluation. It checks the conservative suggestion filter and protected hybrid ranking for regressions; it is not a new accuracy benchmark or evidence of human acceptance.

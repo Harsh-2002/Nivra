@@ -1,12 +1,24 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { RefreshCw } from "lucide-react";
 import { useTheme } from "next-themes";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/client";
 import type { Owner, Settings } from "@/lib/types";
+import {
+  getPwaInstallServerSnapshot,
+  getPwaInstallSnapshot,
+  subscribePwaInstall,
+} from "@/lib/onboarding";
 import { LaunchScreen } from "./launch-screen";
 import { AuthScreen, Mark } from "./auth-screen";
+import { WorkspaceOnboarding } from "./workspace-onboarding";
 import { Button } from "./ui/button";
 import type { WorkspaceView } from "@/lib/workspace-routes";
 const Workspace = dynamic(
@@ -32,6 +44,11 @@ export function Nivra({
   const signingOut = useRef(false);
   const { setTheme } = useTheme();
   const setThemeRef = useRef(setTheme);
+  const install = useSyncExternalStore(
+    subscribePwaInstall,
+    getPwaInstallSnapshot,
+    getPwaInstallServerSnapshot,
+  );
   useEffect(() => {
     setThemeRef.current = setTheme;
   }, [setTheme]);
@@ -42,8 +59,10 @@ export function Nivra({
       const result = await api<NonNullable<typeof status>>("status");
       setStatus(result);
       if (result.settings) setThemeRef.current(result.settings.theme);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     }
   }, []);
   useEffect(() => {
@@ -63,6 +82,18 @@ export function Nivra({
           Try again
         </Button>
       </main>
+    );
+  if (
+    status.owner &&
+    status.settings?.onboardingStep &&
+    status.settings.onboardingStep !== "complete"
+  )
+    return (
+      <WorkspaceOnboarding
+        initialStep={status.settings?.onboardingStep ?? "tags"}
+        install={install}
+        onComplete={refresh}
+      />
     );
   return status.owner ? (
     <Workspace

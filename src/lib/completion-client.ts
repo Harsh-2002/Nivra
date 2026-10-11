@@ -3,11 +3,15 @@ import { useEffect, useRef } from "react";
 import { api } from "./client";
 import { sectionCache } from "./section-cache";
 export type Completion = {
-  kind?: "artifact" | "bookmark" | "backup" | "content";
+  kind?: "artifact" | "bookmark" | "backup" | "content" | "ai";
   target?: string;
   status?: string;
 };
 function dispatch(detail: Completion) {
+  if (detail.kind === "ai") {
+    window.dispatchEvent(new CustomEvent("nivra:ai-completion", { detail }));
+    return;
+  }
   if (!detail.kind || detail.kind === "content") sectionCache.clear();
   else sectionCache.clear("artifacts:", "bookmarks:", "overview");
   window.dispatchEvent(new CustomEvent("nivra:completion", { detail }));
@@ -62,7 +66,7 @@ export function useCompletionStream(onRevoked: () => void) {
         try {
           const detail = JSON.parse((event as MessageEvent).data) as Completion;
           if (
-            ["artifact", "bookmark", "backup", "content"].includes(
+            ["artifact", "bookmark", "backup", "content", "ai"].includes(
               detail.kind || "",
             )
           )
@@ -114,6 +118,11 @@ export function useCompletion(
         handler.current(detail);
     };
     window.addEventListener("nivra:completion", listener);
-    return () => window.removeEventListener("nivra:completion", listener);
+    if (kind === "ai") window.addEventListener("nivra:ai-completion", listener);
+    return () => {
+      window.removeEventListener("nivra:completion", listener);
+      if (kind === "ai")
+        window.removeEventListener("nivra:ai-completion", listener);
+    };
   }, [kind]);
 }

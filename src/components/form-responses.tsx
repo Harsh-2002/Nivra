@@ -7,6 +7,7 @@ import { api, downloadRequest } from "@/lib/client";
 import type { FormAnswers, FormDefinition, FormField } from "@/lib/forms";
 import { displayField } from "@/lib/forms";
 import { useCompletion } from "@/lib/completion-client";
+import { ItemTagPicker } from "./item-tag-picker";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { LoadingState } from "./loading-state";
@@ -329,6 +330,14 @@ export function FormResponses({
                 Submissions
               </Button>
               <div className="flex flex-wrap gap-2">
+                <ItemTagPicker
+                  type="response"
+                  id={detail.id}
+                  title="Submission"
+                  disabled={busy}
+                  compact={false}
+                  onChanged={() => load()}
+                />
                 <Button
                   variant="outline"
                   disabled={busy}

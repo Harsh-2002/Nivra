@@ -1,3 +1,4 @@
+import { apiInputs } from "./api-schemas";
 import { formApiInputs } from "./form-api-schemas";
 import { formFile } from "./form-uploads";
 import { getForm } from "./forms";
@@ -196,8 +197,9 @@ add(
 );
 add(
   "search",
-  "Search content with bounded results and fuzzy fallback.",
+  "Find content; semantic mode returns related matches when local AI is enabled.",
   z.object({
+    strategy: z.enum(["keyword", "semantic"]).default("keyword"),
     query: z
       .string()
       .min(1)
@@ -210,7 +212,7 @@ add(
   async (i, c) =>
     (
       (await c.call(
-        `search?mode=suggest&q=${encodeURIComponent(String(i.query))}`,
+        `search?mode=suggest&strategy=${i.strategy}&q=${encodeURIComponent(String(i.query))}`,
       )) as { items: { type: string; dailyDate?: string | null }[] }
     ).items.map((row) => ({
       ...row,
@@ -734,12 +736,18 @@ add(
   "create_tag",
   "Create a tag.",
   z.object({
+    aliases: apiInputs.tagCreate.shape.aliases,
     name: z.string().trim().min(1).max(50),
     color: z.enum(tagColors).default("gray"),
     ...creationKey,
   }),
   true,
-  async (i, c) => c.call("tags", "POST", { name: i.name, color: i.color }),
+  async (i, c) =>
+    c.call("tags", "POST", {
+      name: i.name,
+      color: i.color,
+      ...(i.aliases ? { aliases: i.aliases } : {}),
+    }),
 );
 add(
   "update_tag",
@@ -748,6 +756,7 @@ add(
     id,
     name: z.string().trim().min(1).max(50).optional(),
     color: z.enum(tagColors).optional(),
+    aliases: apiInputs.tagCreate.shape.aliases,
   }),
   true,
   async ({ id, ...i }, c) => {
@@ -788,7 +797,7 @@ add(
   "Replace an item's tags.",
   z.object({
     id,
-    type: z.enum([...kind.options, "form"]),
+    type: z.enum([...kind.options, "form", "response"]),
     revision,
     tags: z.array(id).max(100),
   }),
@@ -806,7 +815,7 @@ add(
 add(
   "item_tags",
   "Read an item's tags and revision.",
-  z.object({ id, type: z.enum([...kind.options, "form"]) }),
+  z.object({ id, type: z.enum([...kind.options, "form", "response"]) }),
   false,
   async (i, c) =>
     c.call(`item-tags/${i.type === "journal" ? "note" : i.type}/${i.id}`),

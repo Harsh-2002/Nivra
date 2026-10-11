@@ -11,6 +11,7 @@ const backup = z.object({
 });
 const settings = z.object({
   theme: z.enum(["light", "dark", "system"]),
+  onboardingStep: z.enum(["tags", "install", "complete"]),
   hasPassword: z.boolean(),
   uploadLimit: count,
   twoFactorEnabled: z.boolean(),

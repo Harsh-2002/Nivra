@@ -63,6 +63,7 @@ const item = z
       "artifact",
       "event",
       "form",
+      "response",
     ]),
   })
   .passthrough();

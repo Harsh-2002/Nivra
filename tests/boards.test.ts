@@ -231,7 +231,11 @@ test("task boards preserve canonical tasks, ordering, recurrence, ownership and 
           "[5]",
         );
         const tag = randomUUID();
-        db.prepare("INSERT INTO tags VALUES(?,?,?)").run(tag, "Work", "gray");
+        db.prepare("INSERT INTO tags(id,name,color) VALUES(?,?,?)").run(
+          tag,
+          "Work",
+          "gray",
+        );
         db.prepare("INSERT INTO task_tags VALUES(?,?)").run(task.id, tag);
         const done = moveTask(owner, task.id, {
           revision: task.revision,

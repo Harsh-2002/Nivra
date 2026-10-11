@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 const child = fork("generated/ai-worker.cjs", [], {
   execArgv: ["--max-old-space-size=128"],
@@ -9,7 +10,9 @@ let peak = 0;
 const messages = [];
 let wake;
 child.on("message", (message) => {
-  if (message.rss) peak = Math.max(peak, message.rss);
+  if (typeof message.rss === "number") peak = Math.max(peak, message.rss);
+  if (typeof message.peakRss === "number")
+    peak = Math.max(peak, message.peakRss);
   messages.push(message);
   wake?.();
 });
@@ -54,6 +57,17 @@ try {
     previous = embedding;
     samples.push(performance.now() - start);
   }
+  const searchStarted = performance.now();
+  child.send({
+    type: "search",
+    id: "db",
+    owner: "absent-synthetic-owner",
+    text: "SQLite backup",
+    deadline: Date.now() + 3000,
+  });
+  const { candidates } = await next("result", "db");
+  assert.deepEqual(candidates, []);
+  const encryptedSearchMs = performance.now() - searchStarted;
   samples.sort((a, b) => a - b);
   assert.ok(peak < 512 * 1024 * 1024);
   console.log(
@@ -61,9 +75,12 @@ try {
       runtime: process.version,
       architecture: process.arch,
       coldMs,
+      encryptedSearchMs,
       warmP50Ms: samples[5],
       warmP95Ms: samples[11],
       peakRssMiB: peak / 1024 / 1024,
+      aggregateContainerPeakMiB:
+        readFileSync("/sys/fs/cgroup/memory.peak", "utf8").trim() / 1024 / 1024,
     }),
   );
 } finally {

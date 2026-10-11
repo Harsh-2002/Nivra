@@ -126,13 +126,38 @@ try {
         .getByRole("button", { name: "Make it yours", exact: true })
         .click();
       await page
-        .getByRole("button", { name: "Start using Nivra", exact: true })
+        .getByRole("button", { name: "Continue", exact: true })
         .waitFor();
     }
   }
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page
-    .getByRole("button", { name: "Start using Nivra", exact: true })
-    .click();
+    .getByRole("heading", { name: "Choose your starting tags", exact: true })
+    .waitFor();
+  for (const step of ["tags", "install"]) {
+    for (const width of [320, 390, 768, 1440])
+      for (const theme of ["light", "dark"]) {
+        await page.setViewportSize({
+          width,
+          height: width === 320 ? 568 : 900,
+        });
+        await page.emulateMedia({ colorScheme: theme });
+        await inspect(page, step, width, theme);
+      }
+    await page
+      .getByRole("button", {
+        name: step === "tags" ? "Skip tag setup" : "Finish setup",
+        exact: true,
+      })
+      .click();
+    if (step === "tags")
+      await page
+        .getByRole("heading", {
+          name: "Install Nivra on this device",
+          exact: true,
+        })
+        .waitFor();
+  }
   await page.locator(".workspace").waitFor();
   assert.equal(
     results.filter((r) => r.violations.length || r.overflow).length,

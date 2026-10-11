@@ -33,6 +33,7 @@ import { notify } from "@/lib/feedback";
 import { Mark } from "./auth-screen";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 import {
   Dialog,
   DialogContent,
@@ -182,6 +183,8 @@ export function Workspace({
     id?: string;
     name: string;
     color?: TagColor;
+    aliases?: string[];
+    aliasesInput?: string;
   } | null>(null);
   const [tagBusy, setTagBusy] = useState(false);
   const confirm = useConfirm();
@@ -554,9 +557,14 @@ export function Workspace({
     }
   }
   async function selectResult(result: SearchResult) {
-    if (result.type === "form") {
+    if (result.type === "form" || result.type === "response") {
       if (!(await filter("forms"))) return false;
-      const url = new URL(`/forms/${result.id}/build`, window.location.href);
+      const url = new URL(
+        result.type === "response"
+          ? `/forms/${result.formId}/responses/${result.id}`
+          : `/forms/${result.id}/build`,
+        window.location.href,
+      );
       window.history.replaceState(null, "", url);
       acceptedUrl.current = url.href;
       window.dispatchEvent(new Event("nivra:forms-route"));
@@ -636,6 +644,14 @@ export function Workspace({
         body: JSON.stringify({
           name: tagDialog.name,
           color: tagDialog.color || "gray",
+          aliases: (
+            tagDialog.aliasesInput ??
+            tagDialog.aliases?.join(",") ??
+            ""
+          )
+            .split(",")
+            .map((word) => word.trim())
+            .filter(Boolean),
         }),
       });
       setTagDialog(null);
@@ -1369,6 +1385,34 @@ export function Workspace({
               }
               placeholder="e.g. Personal, Projects, Reading"
             />
+            <div className="field">
+              <Label htmlFor="tag-aliases">
+                Matching words{" "}
+                <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="tag-aliases"
+                aria-describedby="tag-aliases-hint"
+                maxLength={830}
+                value={
+                  tagDialog?.aliasesInput ??
+                  tagDialog?.aliases?.join(", ") ??
+                  ""
+                }
+                placeholder="e.g. SQLite, queries, indexes"
+                onChange={(event) =>
+                  setTagDialog((previous) =>
+                    previous
+                      ? { ...previous, aliasesInput: event.target.value }
+                      : previous,
+                  )
+                }
+              />
+              <p className="field-hint" id="tag-aliases-hint">
+                Up to 10 words or phrases, separated by commas. Helps local AI
+                recognize this tag.
+              </p>
+            </div>
             <TagColorPicker
               value={tagDialog?.color || "gray"}
               onChange={(color) =>
@@ -1387,6 +1431,7 @@ export function Workspace({
       <GlobalSearch ref={globalSearch} onSelect={selectResult} />
       <QuickCapture ref={capture} onCaptured={captured} />
       <SettingsPanel
+        onSelect={selectResult}
         open={settingsOpen}
         onOpen={() => setSettingsOpen(true)}
         onClose={() => setSettingsOpen(false)}

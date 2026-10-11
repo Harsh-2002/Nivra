@@ -42,7 +42,11 @@ assert.equal(
   "Layout Review Owner",
 );
 assert.ok(
-  (await api.patch("/api/v1/settings", { data: { theme: "system" } })).ok(),
+  (
+    await api.patch("/api/v1/settings", {
+      data: { theme: "system", onboardingStep: "complete" },
+    })
+  ).ok(),
 );
 for (const item of (await (await api.get("/api/v1/artifacts?limit=100")).json())
   .items) {

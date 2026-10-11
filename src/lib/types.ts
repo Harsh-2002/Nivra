@@ -48,8 +48,10 @@ export type Note = {
 };
 export type NoteSummary = Omit<Note, "document">;
 export type TaggedItem = {
+  formId?: string;
   id: string;
-  type: "note" | "task" | "bookmark" | "artifact" | "event" | "form";
+  type:
+    "note" | "task" | "bookmark" | "artifact" | "event" | "form" | "response";
   title: string;
   excerpt: string;
   updatedAt: number;
@@ -59,12 +61,14 @@ export type TaggedItem = {
   tags: Tag[];
 };
 export type Tag = {
+  aliases?: string[];
   id: string;
   name: string;
   color: import("./tags").TagColor;
 };
 export type Settings = {
   theme: "light" | "dark" | "system";
+  onboardingStep: "tags" | "install" | "complete";
   uploadLimit: number;
   twoFactorEnabled?: boolean;
   hasPassword?: boolean;
@@ -97,9 +101,11 @@ export type Bookmark = {
   noteTitle: string | null;
 };
 export type SearchResult = {
+  formId?: string;
   dailyDate?: string | null;
   id: string;
-  type: "note" | "task" | "bookmark" | "artifact" | "event" | "form";
+  type:
+    "note" | "task" | "bookmark" | "artifact" | "event" | "form" | "response";
   title: string;
   excerpt: string;
   artifactKind?: "text" | "image" | "file";

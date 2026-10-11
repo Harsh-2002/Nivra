@@ -4,7 +4,7 @@ import path from "node:path";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { InferenceSession, Tensor } from "onnxruntime-node";
 import manifest from "./model-manifest.json";
-export const modelVersion = `${manifest.id}:${manifest.revision}`;
+export { modelVersion } from "./model";
 export async function loadEmbedding(directory: string) {
   const json = async (file: string) =>
     JSON.parse(await readFile(path.join(directory, file), "utf8"));

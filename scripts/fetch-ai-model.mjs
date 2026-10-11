@@ -1,6 +1,29 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
+const maxAssetBytes = 32 * 1024 * 1024;
+async function readBounded(response) {
+  if (!response.body) throw new Error("Model build asset unavailable.");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (size + value.byteLength > maxAssetBytes)
+        throw new Error("Model build asset exceeds the 32 MiB limit.");
+      size += value.byteLength;
+      chunks.push(Buffer.from(value));
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, size);
+}
 const manifest = JSON.parse(
   await readFile("src/lib/server/ai/model-manifest.json", "utf8"),
 );
@@ -15,8 +38,8 @@ for (const [file, expected] of Object.entries(manifest.files)) {
     { signal: AbortSignal.timeout(120_000) },
   );
   if (!response.ok) throw new Error(`Model build asset unavailable: ${file}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > 32 * 1024 * 1024 || hash(bytes) !== expected)
+  const bytes = await readBounded(response);
+  if (hash(bytes) !== expected)
     throw new Error(`Model build asset checksum mismatch: ${file}`);
   await mkdir(path.dirname(target), { recursive: true });
   const temporary = `${target}.tmp`;

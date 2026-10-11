@@ -1,0 +1,1303 @@
+{
+  "provenance": "Recorded Arctic outputs and conservative decisions from the frozen independently authored synthetic final evaluation. This fixture tests filtering, not a new quality estimate.",
+  "revision": "d8c86521100d3556476a063fc2342036d45c106f",
+  "vocabulary": [
+    {
+      "id": "databases",
+      "name": "databases",
+      "aliases": [
+        "database databases sql sqlite transaction",
+        "transactions indexes index query queries",
+        "rows wal postgres postgresql"
+      ]
+    },
+    {
+      "id": "operations",
+      "name": "operations",
+      "aliases": [
+        "incident incidents outage outages deployment",
+        "deployments monitoring readiness reliability production",
+        "rollback alert alerts"
+      ]
+    },
+    {
+      "id": "kubernetes",
+      "name": "kubernetes",
+      "aliases": [
+        "kubernetes kubectl pod pods ingress",
+        "pvc configmap imagepullbackoff orchestration"
+      ]
+    },
+    {
+      "id": "networking",
+      "name": "networking",
+      "aliases": [
+        "network networking dns proxy firewall",
+        "ipv6 ipv4 connectivity router routing",
+        "dhcp tcp udp certificate certificates"
+      ]
+    },
+    {
+      "id": "security",
+      "name": "security",
+      "aliases": [
+        "security authentication authorization privacy encryption",
+        "credential credentials passkey password passwords",
+        "csrf tamper vulnerability vulnerabilities permissions"
+      ]
+    },
+    {
+      "id": "backups",
+      "name": "backups",
+      "aliases": [
+        "backup backups restore restoration recovery",
+        "retention archive archives"
+      ]
+    },
+    {
+      "id": "storage",
+      "name": "storage",
+      "aliases": [
+        "storage volume volumes bucket buckets",
+        "disk disks attachments s3 filesystem"
+      ]
+    },
+    {
+      "id": "programming",
+      "name": "programming",
+      "aliases": [
+        "programming code algorithm algorithms runtime",
+        "function functions typescript javascript python",
+        "compiler tests testing idempotency"
+      ]
+    },
+    {
+      "id": "performance",
+      "name": "performance",
+      "aliases": [
+        "latency memory cpu profiling throughput",
+        "performance slow leak bottleneck efficient",
+        "efficiency p95 rss"
+      ]
+    },
+    {
+      "id": "search",
+      "name": "search",
+      "aliases": [
+        "search retrieval ranking relevance indexing",
+        "fts semantic keywords query"
+      ]
+    },
+    {
+      "id": "wellbeing",
+      "name": "wellbeing",
+      "aliases": [
+        "feelings stress anxious anxiety sleep",
+        "slept exhausted rest burnout worried",
+        "loneliness wellbeing therapy"
+      ]
+    },
+    {
+      "id": "family",
+      "name": "family",
+      "aliases": [
+        "family parents parent relatives children",
+        "child mother father sister brother",
+        "daughter son grandmother grandfather caregiving"
+      ]
+    },
+    {
+      "id": "travel",
+      "name": "travel",
+      "aliases": [
+        "travel trip trips train trains",
+        "flight flights tickets itinerary accommodation",
+        "hotel passport museum luggage"
+      ]
+    },
+    {
+      "id": "home",
+      "name": "home",
+      "aliases": [
+        "household appliance appliances repair repairs",
+        "tap washer kitchen plumbing cleaning",
+        "laundry bedroom roof insulation"
+      ]
+    },
+    {
+      "id": "finance",
+      "name": "finance",
+      "aliases": [
+        "finance expense expenses budget invoice",
+        "invoices insurance payment payments money",
+        "cost costs paid bill bills",
+        "total receipt"
+      ]
+    },
+    {
+      "id": "community",
+      "name": "community",
+      "aliases": [
+        "community neighbors neighbours volunteer volunteers",
+        "donation donations fundraiser gathering gatherings",
+        "neighborhood neighbourhood"
+      ]
+    },
+    {
+      "id": "gardening",
+      "name": "gardening",
+      "aliases": [
+        "gardening garden plants plant seedlings",
+        "seed seeds compost watering raised",
+        "bed soil planting"
+      ]
+    },
+    {
+      "id": "education",
+      "name": "education",
+      "aliases": [
+        "education learning class classes course",
+        "courses workshop workshops teaching lesson",
+        "lessons lecturer exam study studying",
+        "homework"
+      ]
+    },
+    {
+      "id": "cooking",
+      "name": "cooking",
+      "aliases": [
+        "cooking recipe recipes ingredients food",
+        "preparation soup lentils simmer bake",
+        "baking oven onion tomatoes meal",
+        "meals"
+      ]
+    },
+    {
+      "id": "fitness",
+      "name": "fitness",
+      "aliases": [
+        "fitness exercise training running swimming",
+        "swim workout workouts jog jogging",
+        "gym cycling physical activity"
+      ]
+    },
+    {
+      "id": "shopping",
+      "name": "shopping",
+      "aliases": [
+        "shopping purchase purchases order orders",
+        "returns goods supplies refund replacement",
+        "shipment parcel buy buying"
+      ]
+    },
+    {
+      "id": "photography",
+      "name": "photography",
+      "aliases": [
+        "photography photograph photographs photos camera",
+        "exposure images album albums picture",
+        "pictures lens tripod"
+      ]
+    },
+    {
+      "id": "energy",
+      "name": "energy",
+      "aliases": [
+        "electricity solar heating energy inverter",
+        "panels meter grid watt watts",
+        "power insulation"
+      ]
+    },
+    {
+      "id": "music",
+      "name": "music",
+      "aliases": [
+        "music instrument instruments concert guitar",
+        "piano strings trumpet rhythm song",
+        "songs practice tune"
+      ]
+    },
+    {
+      "id": "nature",
+      "name": "nature",
+      "aliases": [
+        "nature wildlife bird birds insect",
+        "insects landscape weather forest river",
+        "mountain mountains animal animals outdoors",
+        "outdoor beach"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "f001",
+      "text": "WAL growth after importer run\nDuring Tuesday’s import, the WAL grew faster than the daily dashboard refresh could recycle it. I checked the process list and found importer PID 614 still writing the final batch, so I left the database alone instead of forcing a checkpoint. Once the process exits, run `PRAGMA wal_checkpoint(TRUNCATE)` during the quiet window and note the before-and-after file size in the runbook. The scheduled report query still completes normally, so there is no reason to restart the application. If the file remains large the next morning, compare the import duration with the prior week before changing retention settings.",
+      "scores": [
+        {
+          "name": "backups",
+          "score": 0.6491860682706703
+        },
+        {
+          "name": "performance",
+          "score": 0.636552575603467
+        },
+        {
+          "name": "shopping",
+          "score": 0.6347797746466504
+        },
+        {
+          "name": "search",
+          "score": 0.6184725832307694
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.6088632092473891
+        },
+        {
+          "name": "programming",
+          "score": 0.5989217546142986
+        },
+        {
+          "name": "finance",
+          "score": 0.5923487252995576
+        },
+        {
+          "name": "operations",
+          "score": 0.5911664874340183
+        },
+        {
+          "name": "databases",
+          "score": 0.5882946439364627
+        },
+        {
+          "name": "storage",
+          "score": 0.5866183635234865
+        },
+        {
+          "name": "fitness",
+          "score": 0.567554925316937
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.5562069453582685
+        },
+        {
+          "name": "security",
+          "score": 0.553763283414437
+        },
+        {
+          "name": "home",
+          "score": 0.5528266785904499
+        },
+        {
+          "name": "travel",
+          "score": 0.552328157339952
+        },
+        {
+          "name": "gardening",
+          "score": 0.5364310682446987
+        },
+        {
+          "name": "education",
+          "score": 0.5330788168460765
+        },
+        {
+          "name": "community",
+          "score": 0.5263782560744671
+        },
+        {
+          "name": "family",
+          "score": 0.5127841318350121
+        },
+        {
+          "name": "cooking",
+          "score": 0.509163783925842
+        },
+        {
+          "name": "nature",
+          "score": 0.5055528433178244
+        },
+        {
+          "name": "music",
+          "score": 0.4958736587436933
+        },
+        {
+          "name": "networking",
+          "score": 0.4945240269384054
+        },
+        {
+          "name": "photography",
+          "score": 0.48992897649951345
+        },
+        {
+          "name": "energy",
+          "score": 0.4749978420561122
+        }
+      ],
+      "expected": ["databases"]
+    },
+    {
+      "id": "f002",
+      "text": "Rotate sandbox webhook secret after tabletop\nBefore Friday, replace the staging webhook secret. Leave the production credential unchanged until a separate window is scheduled.",
+      "scores": [
+        {
+          "name": "security",
+          "score": 0.6888240999347155
+        },
+        {
+          "name": "shopping",
+          "score": 0.6684782172780942
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.6635069580770001
+        },
+        {
+          "name": "operations",
+          "score": 0.6472402665833038
+        },
+        {
+          "name": "backups",
+          "score": 0.6449075329352455
+        },
+        {
+          "name": "search",
+          "score": 0.6331517370794346
+        },
+        {
+          "name": "storage",
+          "score": 0.6322045719747966
+        },
+        {
+          "name": "programming",
+          "score": 0.6319580993185226
+        },
+        {
+          "name": "travel",
+          "score": 0.6257255332880338
+        },
+        {
+          "name": "education",
+          "score": 0.624355074843987
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.6130452201458981
+        },
+        {
+          "name": "home",
+          "score": 0.6127866984433216
+        },
+        {
+          "name": "nature",
+          "score": 0.607485893999692
+        },
+        {
+          "name": "family",
+          "score": 0.6037487774633691
+        },
+        {
+          "name": "networking",
+          "score": 0.600064963142117
+        },
+        {
+          "name": "fitness",
+          "score": 0.5975655206578332
+        },
+        {
+          "name": "gardening",
+          "score": 0.596905150760464
+        },
+        {
+          "name": "cooking",
+          "score": 0.5967611161884163
+        },
+        {
+          "name": "photography",
+          "score": 0.595034009552525
+        },
+        {
+          "name": "performance",
+          "score": 0.5928161671868775
+        },
+        {
+          "name": "community",
+          "score": 0.5901989558141009
+        },
+        {
+          "name": "music",
+          "score": 0.5792457157980775
+        },
+        {
+          "name": "finance",
+          "score": 0.5671584473539887
+        },
+        {
+          "name": "databases",
+          "score": 0.5644212581148664
+        },
+        {
+          "name": "energy",
+          "score": 0.5626136860974326
+        }
+      ],
+      "expected": []
+    },
+    {
+      "id": "f003",
+      "text": "A steadier bedtime helped this week\nFor five nights I left my phone charging in the hall instead of beside the bed. I read a few pages of a mystery novel and turned the lamp off before I felt drowsy, rather than checking the clock. I averaged about seven and a half hours of sleep and felt clearer during the morning commute. The change was small enough to repeat even on the late grocery night. I am keeping the notebook by the kettle so I can jot down whether the routine still feels easy next week; I do not want to turn it into another strict scorecard.",
+      "scores": [
+        {
+          "name": "wellbeing",
+          "score": 0.7193344769943754
+        },
+        {
+          "name": "shopping",
+          "score": 0.7123407424111452
+        },
+        {
+          "name": "travel",
+          "score": 0.6788174451676277
+        },
+        {
+          "name": "education",
+          "score": 0.6783564995449374
+        },
+        {
+          "name": "energy",
+          "score": 0.6652945524623395
+        },
+        {
+          "name": "home",
+          "score": 0.65601529443508
+        },
+        {
+          "name": "performance",
+          "score": 0.6540983512576233
+        },
+        {
+          "name": "programming",
+          "score": 0.6511940407749452
+        },
+        {
+          "name": "search",
+          "score": 0.6508728302313818
+        },
+        {
+          "name": "gardening",
+          "score": 0.6459999698089953
+        },
+        {
+          "name": "community",
+          "score": 0.6458087268511395
+        },
+        {
+          "name": "family",
+          "score": 0.6456041352981837
+        },
+        {
+          "name": "nature",
+          "score": 0.645263216540927
+        },
+        {
+          "name": "photography",
+          "score": 0.6450337282047596
+        },
+        {
+          "name": "security",
+          "score": 0.6447333624575278
+        },
+        {
+          "name": "finance",
+          "score": 0.6428088563009307
+        },
+        {
+          "name": "fitness",
+          "score": 0.6389206613719416
+        },
+        {
+          "name": "backups",
+          "score": 0.6381736885096263
+        },
+        {
+          "name": "music",
+          "score": 0.6242168214501664
+        },
+        {
+          "name": "operations",
+          "score": 0.6120668107970539
+        },
+        {
+          "name": "databases",
+          "score": 0.6071754157982374
+        },
+        {
+          "name": "storage",
+          "score": 0.5923678202821661
+        },
+        {
+          "name": "cooking",
+          "score": 0.5904827742768136
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.587303941249508
+        },
+        {
+          "name": "networking",
+          "score": 0.537602175488822
+        }
+      ],
+      "expected": []
+    },
+    {
+      "id": "f005",
+      "text": "Courtyard seed swap\nThe south courtyard table will be open on October 24 from 10 a.m. until noon, with a rain plan under the covered walkway. Neighbors can bring labeled seed packets and take a few varieties for a home plot or balcony box. The organizer asks people to note the plant name and collection year on each envelope so new gardeners can tell what they are planting. Treated seeds should stay at home, and anyone without packets is still welcome to take a starter envelope. A jar for extra labels and pencils will sit beside the sign-in sheet. I added the event to the block calendar so the courtyard doors can be unlocked.",
+      "scores": [
+        {
+          "name": "gardening",
+          "score": 0.6645510220622054
+        },
+        {
+          "name": "community",
+          "score": 0.6272160702079093
+        },
+        {
+          "name": "nature",
+          "score": 0.5901912571715008
+        },
+        {
+          "name": "shopping",
+          "score": 0.583191470819087
+        },
+        {
+          "name": "family",
+          "score": 0.5585959629031394
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.5553595180202255
+        },
+        {
+          "name": "education",
+          "score": 0.5402899107467214
+        },
+        {
+          "name": "photography",
+          "score": 0.5378607446198296
+        },
+        {
+          "name": "search",
+          "score": 0.5371967819356976
+        },
+        {
+          "name": "travel",
+          "score": 0.5308779772023872
+        },
+        {
+          "name": "cooking",
+          "score": 0.5289283485207132
+        },
+        {
+          "name": "music",
+          "score": 0.5272751757530021
+        },
+        {
+          "name": "home",
+          "score": 0.5245733133136155
+        },
+        {
+          "name": "storage",
+          "score": 0.5173800285507658
+        },
+        {
+          "name": "backups",
+          "score": 0.508769919761754
+        },
+        {
+          "name": "security",
+          "score": 0.5041962477165006
+        },
+        {
+          "name": "operations",
+          "score": 0.5014048219058734
+        },
+        {
+          "name": "fitness",
+          "score": 0.49638093225834584
+        },
+        {
+          "name": "databases",
+          "score": 0.49561498702664447
+        },
+        {
+          "name": "finance",
+          "score": 0.4930314141189339
+        },
+        {
+          "name": "programming",
+          "score": 0.49090049489858095
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.48620603530609474
+        },
+        {
+          "name": "networking",
+          "score": 0.48597389871563135
+        },
+        {
+          "name": "energy",
+          "score": 0.47551088054586044
+        },
+        {
+          "name": "performance",
+          "score": 0.4729488160827796
+        }
+      ],
+      "expected": ["gardening"]
+    },
+    {
+      "id": "f007",
+      "text": "Access request for Willow Lane pickup\nPlease set up a temporary ramp and keep the litter-pickup route step-free; the gravel path is too uneven for my rolling cart.",
+      "scores": [
+        {
+          "name": "shopping",
+          "score": 0.6935266383711479
+        },
+        {
+          "name": "community",
+          "score": 0.6923811861853028
+        },
+        {
+          "name": "gardening",
+          "score": 0.6773273644010386
+        },
+        {
+          "name": "search",
+          "score": 0.6575662904261672
+        },
+        {
+          "name": "education",
+          "score": 0.6525610720351769
+        },
+        {
+          "name": "travel",
+          "score": 0.6498289176530905
+        },
+        {
+          "name": "backups",
+          "score": 0.6462722422703348
+        },
+        {
+          "name": "home",
+          "score": 0.6337576926047399
+        },
+        {
+          "name": "photography",
+          "score": 0.6335353994001336
+        },
+        {
+          "name": "storage",
+          "score": 0.6250945609666282
+        },
+        {
+          "name": "music",
+          "score": 0.6198993123938147
+        },
+        {
+          "name": "security",
+          "score": 0.6186841412731788
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.6181109264519036
+        },
+        {
+          "name": "nature",
+          "score": 0.61645037733566
+        },
+        {
+          "name": "programming",
+          "score": 0.6158356620222369
+        },
+        {
+          "name": "fitness",
+          "score": 0.6139347085182066
+        },
+        {
+          "name": "networking",
+          "score": 0.6126538665516973
+        },
+        {
+          "name": "family",
+          "score": 0.6070650856587492
+        },
+        {
+          "name": "finance",
+          "score": 0.6035053045529636
+        },
+        {
+          "name": "cooking",
+          "score": 0.5969605133700618
+        },
+        {
+          "name": "databases",
+          "score": 0.5957163042416216
+        },
+        {
+          "name": "operations",
+          "score": 0.5838846501864217
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.5705648994445279
+        },
+        {
+          "name": "performance",
+          "score": 0.5602111557095215
+        },
+        {
+          "name": "energy",
+          "score": 0.5395353662635947
+        }
+      ],
+      "expected": []
+    },
+    {
+      "id": "f008",
+      "text": "Supplier rebate reconciliation CSV\nThe file `q3_rebate_batch_17.csv` contains supplier credits from the October reconciliation. Invoice WN-204 is still listed at its gross amount of $486.20, although the supplier portal shows a $32.00 rebate tied to that purchase. The other rows in this batch have already been matched to their credit notes, so this one line is the outstanding exception. I left the original figures intact and added a review flag rather than editing the total directly. The finance volunteer can confirm the rebate date against the remittance summary before closing the batch. Keep the source CSV with the month-end packet for audit.",
+      "scores": [
+        {
+          "name": "finance",
+          "score": 0.6525052814415129
+        },
+        {
+          "name": "shopping",
+          "score": 0.6516586298947854
+        },
+        {
+          "name": "backups",
+          "score": 0.5861673040841793
+        },
+        {
+          "name": "community",
+          "score": 0.5480920731163701
+        },
+        {
+          "name": "home",
+          "score": 0.5449264633565242
+        },
+        {
+          "name": "search",
+          "score": 0.534303423351152
+        },
+        {
+          "name": "security",
+          "score": 0.5298226315648573
+        },
+        {
+          "name": "travel",
+          "score": 0.5199255845232822
+        },
+        {
+          "name": "family",
+          "score": 0.5198613472869967
+        },
+        {
+          "name": "storage",
+          "score": 0.517077419687568
+        },
+        {
+          "name": "programming",
+          "score": 0.5166617947681273
+        },
+        {
+          "name": "databases",
+          "score": 0.5146878108425991
+        },
+        {
+          "name": "education",
+          "score": 0.5107166329891923
+        },
+        {
+          "name": "energy",
+          "score": 0.5038276015099447
+        },
+        {
+          "name": "cooking",
+          "score": 0.5011297931333323
+        },
+        {
+          "name": "performance",
+          "score": 0.5007508515748047
+        },
+        {
+          "name": "networking",
+          "score": 0.49756362338183097
+        },
+        {
+          "name": "operations",
+          "score": 0.4947955620047424
+        },
+        {
+          "name": "gardening",
+          "score": 0.4785197718911417
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.4707984939184523
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.4677284375681085
+        },
+        {
+          "name": "photography",
+          "score": 0.4574289501468943
+        },
+        {
+          "name": "fitness",
+          "score": 0.4400938736128382
+        },
+        {
+          "name": "music",
+          "score": 0.40603326728426564
+        },
+        {
+          "name": "nature",
+          "score": 0.37951304342610925
+        }
+      ],
+      "expected": ["finance"]
+    },
+    {
+      "id": "f009",
+      "text": "Coast Cove rail and ferry notes\nTake the 08:12 regional train to Bell Quay, then the 10:05 ferry. The return boat is reservation-only; keep the paper ticket.",
+      "scores": [
+        {
+          "name": "travel",
+          "score": 0.6411146323752611
+        },
+        {
+          "name": "shopping",
+          "score": 0.5840371947109032
+        },
+        {
+          "name": "education",
+          "score": 0.5596681459959355
+        },
+        {
+          "name": "search",
+          "score": 0.5465620289170454
+        },
+        {
+          "name": "backups",
+          "score": 0.5248682229400399
+        },
+        {
+          "name": "finance",
+          "score": 0.5176260071833271
+        },
+        {
+          "name": "fitness",
+          "score": 0.5143284379151353
+        },
+        {
+          "name": "community",
+          "score": 0.513150597451272
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.5078246981501713
+        },
+        {
+          "name": "databases",
+          "score": 0.5034371732340622
+        },
+        {
+          "name": "music",
+          "score": 0.4972108803452854
+        },
+        {
+          "name": "family",
+          "score": 0.4952368063626408
+        },
+        {
+          "name": "photography",
+          "score": 0.49087846514169436
+        },
+        {
+          "name": "performance",
+          "score": 0.48591009602381285
+        },
+        {
+          "name": "networking",
+          "score": 0.4771924192693932
+        },
+        {
+          "name": "security",
+          "score": 0.4756975207163687
+        },
+        {
+          "name": "gardening",
+          "score": 0.46723420290955486
+        },
+        {
+          "name": "nature",
+          "score": 0.4651277363121194
+        },
+        {
+          "name": "storage",
+          "score": 0.45906088448278526
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.4552470864875964
+        },
+        {
+          "name": "energy",
+          "score": 0.45330518043000184
+        },
+        {
+          "name": "operations",
+          "score": 0.44860597294101495
+        },
+        {
+          "name": "cooking",
+          "score": 0.448432089765241
+        },
+        {
+          "name": "programming",
+          "score": 0.4156323503906814
+        },
+        {
+          "name": "home",
+          "score": 0.40791552746897486
+        }
+      ],
+      "expected": ["travel"]
+    },
+    {
+      "id": "f010",
+      "text": "Recipe card scan: lentil stew\nOCR: “Rinse 1 c red lent1ls. Add 3 c stock, cumin + onion. Slow c00k 4 hrs LOW; stir lemon at end.”",
+      "scores": [
+        {
+          "name": "cooking",
+          "score": 0.7036460573376984
+        },
+        {
+          "name": "shopping",
+          "score": 0.6761222998972598
+        },
+        {
+          "name": "search",
+          "score": 0.6543285525987093
+        },
+        {
+          "name": "programming",
+          "score": 0.629958318239342
+        },
+        {
+          "name": "security",
+          "score": 0.6160755818589974
+        },
+        {
+          "name": "photography",
+          "score": 0.6140234008310055
+        },
+        {
+          "name": "home",
+          "score": 0.6138327322076191
+        },
+        {
+          "name": "storage",
+          "score": 0.6067100182593061
+        },
+        {
+          "name": "performance",
+          "score": 0.6021405232926004
+        },
+        {
+          "name": "education",
+          "score": 0.5997920302461331
+        },
+        {
+          "name": "gardening",
+          "score": 0.592383470985244
+        },
+        {
+          "name": "backups",
+          "score": 0.5918067400699752
+        },
+        {
+          "name": "finance",
+          "score": 0.5873599404153457
+        },
+        {
+          "name": "databases",
+          "score": 0.5871954202763615
+        },
+        {
+          "name": "networking",
+          "score": 0.5756272034115197
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.5694231859259462
+        },
+        {
+          "name": "family",
+          "score": 0.5683782917558713
+        },
+        {
+          "name": "operations",
+          "score": 0.5546452648242391
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.554608099966856
+        },
+        {
+          "name": "fitness",
+          "score": 0.5512621070724157
+        },
+        {
+          "name": "community",
+          "score": 0.548686110431609
+        },
+        {
+          "name": "travel",
+          "score": 0.5480068979217478
+        },
+        {
+          "name": "energy",
+          "score": 0.5342666930325741
+        },
+        {
+          "name": "music",
+          "score": 0.529617569699336
+        },
+        {
+          "name": "nature",
+          "score": 0.5016301460776083
+        }
+      ],
+      "expected": ["cooking"]
+    },
+    {
+      "id": "f011",
+      "text": "Edge certificate window and api-blue\nThe certificate on edge-router-3 expires Tuesday, and the renewal is booked for the 21:00 change window. I will stage the replacement chain and confirm the hostname before switching traffic, then ask the health-check owner to verify the new certificate from outside the office network. api-blue serves a small portion of requests during the change, so it must remain running until the owner confirms traffic has drained. The dashboard alert should clear on its own after the new chain is picked up. I recorded the rollback file beside the change ticket in case the certificate check fails.",
+      "scores": [
+        {
+          "name": "networking",
+          "score": 0.6061563411710631
+        },
+        {
+          "name": "operations",
+          "score": 0.6021739578079375
+        },
+        {
+          "name": "security",
+          "score": 0.59599879895575
+        },
+        {
+          "name": "backups",
+          "score": 0.5942270322432057
+        },
+        {
+          "name": "shopping",
+          "score": 0.5833434400324936
+        },
+        {
+          "name": "search",
+          "score": 0.578542466586428
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.565380638052486
+        },
+        {
+          "name": "home",
+          "score": 0.5382108428976115
+        },
+        {
+          "name": "programming",
+          "score": 0.5288618743602297
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.5257949992524455
+        },
+        {
+          "name": "travel",
+          "score": 0.5204982918843579
+        },
+        {
+          "name": "community",
+          "score": 0.5080710921065998
+        },
+        {
+          "name": "storage",
+          "score": 0.5069015362004153
+        },
+        {
+          "name": "education",
+          "score": 0.5037861065397857
+        },
+        {
+          "name": "fitness",
+          "score": 0.49990165857624314
+        },
+        {
+          "name": "databases",
+          "score": 0.49412965812979653
+        },
+        {
+          "name": "nature",
+          "score": 0.49129618135611686
+        },
+        {
+          "name": "finance",
+          "score": 0.4847121973405568
+        },
+        {
+          "name": "photography",
+          "score": 0.483181015261368
+        },
+        {
+          "name": "music",
+          "score": 0.4705609300293298
+        },
+        {
+          "name": "cooking",
+          "score": 0.4615764318266276
+        },
+        {
+          "name": "performance",
+          "score": 0.460745110308277
+        },
+        {
+          "name": "family",
+          "score": 0.459677710042098
+        },
+        {
+          "name": "energy",
+          "score": 0.4562692089595371
+        },
+        {
+          "name": "gardening",
+          "score": 0.4444716609180488
+        }
+      ],
+      "expected": ["networking"]
+    },
+    {
+      "id": "f014",
+      "text": "Slow-cooker lentil stew for busy evenings\nhttps://example.invalid/red-lentil-stew — Rinse red lentils, soften onion first, and add lemon after cooking.",
+      "scores": [
+        {
+          "name": "cooking",
+          "score": 0.7324945963121217
+        },
+        {
+          "name": "shopping",
+          "score": 0.6620889722827648
+        },
+        {
+          "name": "home",
+          "score": 0.658351869045165
+        },
+        {
+          "name": "family",
+          "score": 0.6309953959503244
+        },
+        {
+          "name": "search",
+          "score": 0.6050117723223861
+        },
+        {
+          "name": "photography",
+          "score": 0.6045608859478683
+        },
+        {
+          "name": "gardening",
+          "score": 0.6039109679413738
+        },
+        {
+          "name": "education",
+          "score": 0.5904147881775201
+        },
+        {
+          "name": "backups",
+          "score": 0.5889948953931617
+        },
+        {
+          "name": "community",
+          "score": 0.5829856114344902
+        },
+        {
+          "name": "storage",
+          "score": 0.5812989556849995
+        },
+        {
+          "name": "wellbeing",
+          "score": 0.5755083155768538
+        },
+        {
+          "name": "networking",
+          "score": 0.5728167645257853
+        },
+        {
+          "name": "kubernetes",
+          "score": 0.5687253993396905
+        },
+        {
+          "name": "programming",
+          "score": 0.5666603119121902
+        },
+        {
+          "name": "music",
+          "score": 0.5631556424970499
+        },
+        {
+          "name": "performance",
+          "score": 0.562795704206799
+        },
+        {
+          "name": "operations",
+          "score": 0.5573071919226026
+        },
+        {
+          "name": "security",
+          "score": 0.5570282904099728
+        },
+        {
+          "name": "databases",
+          "score": 0.5558863015674029
+        },
+        {
+          "name": "finance",
+          "score": 0.5498288898618995
+        },
+        {
+          "name": "travel",
+          "score": 0.540877565721388
+        },
+        {
+          "name": "nature",
+          "score": 0.5326820541276421
+        },
+        {
+          "name": "energy",
+          "score": 0.5324872492777771
+        },
+        {
+          "name": "fitness",
+          "score": 0.5250078234101077
+        }
+      ],
+      "expected": ["cooking"]
+    }
+  ]
+}

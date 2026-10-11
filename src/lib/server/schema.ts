@@ -1,5 +1,6 @@
 import {
   sqliteTable,
+  blob,
   text,
   integer,
   real,
@@ -161,6 +162,10 @@ export const tags = sqliteTable("tags", {
   id: text("id").primaryKey(),
   name: text("name").notNull().unique(),
   color: text("color").notNull().default("gray"),
+  aliases: text("aliases", { mode: "json" })
+    .$type<string[]>()
+    .notNull()
+    .default([]),
 });
 export const noteTags = sqliteTable(
   "note_tags",
@@ -193,6 +198,10 @@ export const instance = sqliteTable("instance", {
   recoveryHash: text("recovery_hash"),
   theme: text("theme").notNull().default("system"),
   uploadLimit: integer("upload_limit").notNull().default(26214400),
+  onboardingStep: text("onboarding_step")
+    .$type<"tags" | "install" | "complete">()
+    .notNull()
+    .default("complete"),
 });
 
 export const publications = sqliteTable("publications", {
@@ -296,11 +305,14 @@ export const noteLinks = sqliteTable(
 );
 
 export const backgroundJobs = sqliteTable("background_jobs", {
+  generation: integer("generation"),
   id: text("id").primaryKey(),
   ownerId: text("owner_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  kind: text("kind").$type<"artifact" | "bookmark" | "thumbnail">().notNull(),
+  kind: text("kind")
+    .$type<"artifact" | "bookmark" | "thumbnail" | "semantic">()
+    .notNull(),
   targetId: text("target_id").notNull(),
   state: text("state")
     .$type<"queued" | "running" | "done" | "failed">()
@@ -318,7 +330,7 @@ export const completionEvents = sqliteTable("completion_events", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   kind: text("kind")
-    .$type<"artifact" | "bookmark" | "backup" | "content">()
+    .$type<"artifact" | "bookmark" | "backup" | "content" | "ai">()
     .notNull(),
   targetId: text("target_id").notNull(),
   status: text("status").notNull(),
@@ -695,4 +707,111 @@ export const formTags = sqliteTable("form_tags", {
   tagId: text("tag_id")
     .notNull()
     .references(() => tags.id, { onDelete: "cascade" }),
+});
+
+export const aiConfiguration = sqliteTable("ai_configuration", {
+  publicNextAt: integer("public_next_at").notNull().default(0),
+  chunkCount: integer("chunk_count").notNull().default(0),
+  id: integer("id").primaryKey(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  revision: integer("revision").notNull().default(1),
+  vocabularyGeneration: integer("vocabulary_generation").notNull().default(1),
+  indexGeneration: integer("index_generation").notNull().default(1),
+});
+export const aiContent = sqliteTable("ai_content", {
+  pending: integer("pending", { mode: "boolean" }).notNull().default(true),
+  sourceKey: text("source_key").primaryKey(),
+  ownerId: text("owner_id").references(() => user.id, { onDelete: "cascade" }),
+  itemKind: text("item_kind"),
+  itemId: text("item_id"),
+  vocabularyGeneration: integer("vocabulary_generation").notNull().default(0),
+  generation: integer("generation").notNull().default(1),
+  state: text("state").notNull().default("pending"),
+  fingerprint: text("fingerprint"),
+  modelVersion: text("model_version"),
+  indexedGeneration: integer("indexed_generation"),
+  retryAfter: integer("retry_after").notNull().default(0),
+  failures: integer("failures").notNull().default(0),
+});
+export const aiChunks = sqliteTable(
+  "ai_chunks",
+  {
+    sourceKey: text("source_key")
+      .notNull()
+      .references(() => aiContent.sourceKey, { onDelete: "cascade" }),
+    ordinal: integer("ordinal").notNull(),
+    generation: integer("generation").notNull(),
+    modelVersion: text("model_version").notNull(),
+    title: text("title").notNull(),
+    text: text("text").notNull(),
+    dimensions: integer("dimensions").notNull().default(384),
+    modality: text("modality").notNull().default("text"),
+    embedding: blob("embedding", { mode: "buffer" }).notNull(),
+  },
+  (t) => [
+    primaryKey({
+      columns: [t.sourceKey, t.modelVersion, t.modality, t.ordinal],
+    }),
+  ],
+);
+export const aiSuggestions = sqliteTable("ai_suggestions", {
+  sourceKey: text("source_key")
+    .primaryKey()
+    .references(() => aiContent.sourceKey, { onDelete: "cascade" }),
+  id: text("id").notNull().unique(),
+  generation: integer("generation").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  score: real("score").notNull(),
+  modelVersion: text("model_version").notNull(),
+  vocabularyGeneration: integer("vocabulary_generation").notNull(),
+  tagId: text("tag_id")
+    .notNull()
+    .references(() => tags.id, { onDelete: "cascade" }),
+  createdAt: integer("created_at").notNull(),
+});
+export const responseTags = sqliteTable(
+  "response_tags",
+  {
+    responseId: text("response_id")
+      .notNull()
+      .references(() => formResponses.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.responseId, t.tagId] })],
+);
+
+export const aiDecisions = sqliteTable(
+  "ai_decisions",
+  {
+    sourceKey: text("source_key")
+      .notNull()
+      .references(() => aiContent.sourceKey, { onDelete: "cascade" }),
+    fingerprint: text("fingerprint").notNull(),
+    tagId: text("tag_id").notNull(),
+    tagFingerprint: text("tag_fingerprint").notNull(),
+    proposalId: text("proposal_id").unique(),
+    decision: text("decision").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({
+      columns: [
+        t.sourceKey,
+        t.fingerprint,
+        t.tagId,
+        t.tagFingerprint,
+        t.decision,
+      ],
+    }),
+  ],
+);
+export const aiExtractions = sqliteTable("ai_extractions", {
+  sourceKey: text("source_key")
+    .primaryKey()
+    .references(() => aiContent.sourceKey, { onDelete: "cascade" }),
+  storageKey: text("storage_key").notNull(),
+  text: text("text").notNull().default(""),
+  status: text("status").notNull(),
 });

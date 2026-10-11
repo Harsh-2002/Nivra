@@ -20,7 +20,7 @@ FROM base AS build
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 ENV NIVRA_DATA_DIR=/tmp/nivra-build-data
-RUN npm run build && node scripts/prune-ai-runtime.mjs
+RUN npm run build && node scripts/collect-third-party-notices.mjs && node scripts/prune-ai-runtime.mjs
 
 FROM dependencies AS runtime-binary
 RUN strip --strip-unneeded /usr/local/bin/node

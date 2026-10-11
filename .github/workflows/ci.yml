@@ -44,7 +44,22 @@ jobs:
           curl --fail --silent http://localhost:3015/health > /dev/null
           for browser in chromium firefox webkit; do
             NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-tag-actions.mjs
+            NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-local-ai.mjs
           done
+      - name: Verify guided onboarding and installation instructions
+        run: |
+          export NIVRA_DATA_DIR="$(mktemp -d)"
+          export NIVRA_PUBLIC_URL=http://localhost:3016
+          export NIVRA_BROWSER_SESSION="$RUNNER_TEMP/onboarding-session.json"
+          npm run start -- --port 3016 > "$RUNNER_TEMP/onboarding-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://localhost:3016/health > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://localhost:3016/health > /dev/null
+          node scripts/browser-post-setup.mjs
       - name: Validate image-based Compose configuration
         run: docker compose config --quiet
   containers:
@@ -68,4 +83,15 @@ jobs:
           docker build -t nivra:ci .
           docker image inspect nivra:ci --format 'Image bytes: {{.Size}}'
           node scripts/smoke-container.mjs nivra:ci
-          docker run --rm --network none --cpus 1 --memory 1536m --memory-swap 1536m --read-only --tmpfs /tmp --entrypoint node nivra:ci scripts/smoke-ai-runtime.mjs
+          docker run --rm --network none --cpus 1 --memory 1536m --memory-swap 1536m --read-only --tmpfs /tmp -e NIVRA_DATA_DIR=/tmp/ai-smoke --entrypoint node nivra:ci scripts/smoke-ai-runtime.mjs
+
+      - name: Measure encrypted retrieval under the runtime resource limits
+        run: |
+          docker build --target build -t nivra:ci-build .
+          exporter=$(docker create --entrypoint node nivra:ci-build scripts/build-ai-benchmark.mjs)
+          trap 'docker rm -f "$exporter" >/dev/null 2>&1 || true' EXIT
+          docker start --attach "$exporter"
+          docker cp "$exporter:/tmp/nivra-ai-benchmark.mjs" "$RUNNER_TEMP/benchmark-ai.mjs"
+          for chunks_per_item in 100 1; do
+            docker run --rm --network none --cpus 1 --memory 1536m --memory-swap 1536m --read-only --tmpfs /tmp -v "$RUNNER_TEMP/benchmark-ai.mjs:/app/scripts/benchmark-ai.mjs:ro" --entrypoint node nivra:ci scripts/benchmark-ai.mjs 1000,10000,100000 "$chunks_per_item"
+          done

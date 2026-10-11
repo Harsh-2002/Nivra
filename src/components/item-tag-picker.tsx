@@ -16,7 +16,7 @@ export function ItemTagPicker({
   compact = true,
   onChanged,
 }: {
-  type: "task" | "bookmark" | "artifact" | "event" | "form";
+  type: "task" | "bookmark" | "artifact" | "event" | "form" | "response";
   id: string;
   title: string;
   disabled?: boolean;

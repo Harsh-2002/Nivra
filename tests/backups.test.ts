@@ -63,6 +63,16 @@ test("encrypted full-instance backups preserve accounts, search, tasks, bookmark
       Date.now(),
     );
   database
+    .prepare(
+      "UPDATE ai_content SET owner_id=?,item_kind='note',item_id=?,state='indexed',pending=0,indexed_generation=generation,model_version='backup-fixture' WHERE source_key=?",
+    )
+    .run(owner, note, "note:" + note);
+  database
+    .prepare(
+      "INSERT INTO ai_chunks(source_key,ordinal,generation,model_version,title,text,embedding) VALUES(?,0,1,'backup-fixture','Private derived title','AI_PRIVATE_BACKUP_SENTINEL',?)",
+    )
+    .run("note:" + note, Buffer.alloc(1536));
+  database
     .prepare("INSERT INTO attachments VALUES(?,?,?,?,?,?,?)")
     .run(
       file,
@@ -281,6 +291,28 @@ test("encrypted full-instance backups preserve accounts, search, tasks, bookmark
         restored.pragma("cipher='chacha20'");
         restored.pragma(`key='${deriveKey(key, "sqlite").toString("hex")}'`);
         try {
+          assert.equal(
+            (
+              restored
+                .prepare(
+                  "SELECT length(embedding) AS n FROM ai_chunks WHERE source_key=?",
+                )
+                .get("note:" + note) as { n: number }
+            ).n,
+            1536,
+          );
+          assert.equal(
+            dbBytes.includes(Buffer.from("AI_PRIVATE_BACKUP_SENTINEL")),
+            false,
+          );
+          assert.equal(
+            (
+              restored
+                .prepare("SELECT chunk_count FROM ai_configuration")
+                .get() as { chunk_count: number }
+            ).chunk_count,
+            1,
+          );
           assert.equal(
             (
               restored

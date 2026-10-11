@@ -1,18 +1,34 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-export type RuntimeResources = { rss: number; peakRss: number };
+export type RuntimeResources = {
+  rss: number;
+  peakRss: number;
+  cpuUserUs?: number;
+  cpuSystemUs?: number;
+};
+export type VectorCandidate = { key: string; sourceKey: string; score: number };
 export class EmbeddingWorker {
   private child?: ChildProcess;
   private pending?: {
     id: string;
-    resolve: (value: Float32Array) => void;
+    resolve: (data: Record<string, unknown>) => void;
     reject: (error: Error) => void;
     timer: ReturnType<typeof setTimeout>;
   };
   private ready?: Promise<void>;
   resources: RuntimeResources = { rss: 0, peakRss: 0 };
-  constructor(private directory = process.cwd()) {}
+  constructor(
+    private directory = process.cwd(),
+    private lockFile?: string,
+  ) {}
+  get running() {
+    return Boolean(
+      this.child?.connected &&
+      this.child.exitCode === null &&
+      this.child.signalCode === null,
+    );
+  }
   start() {
     if (this.ready) return this.ready;
     this.resources.rss = 0;
@@ -22,7 +38,16 @@ export class EmbeddingWorker {
         [],
         {
           cwd: this.directory,
-          execArgv: ["--max-old-space-size=128"],
+          execPath: this.lockFile ? "/usr/bin/flock" : process.execPath,
+          execArgv: this.lockFile
+            ? [
+                "-n",
+                "-F",
+                this.lockFile,
+                process.execPath,
+                "--max-old-space-size=128",
+              ]
+            : ["--max-old-space-size=128"],
           stdio: ["ignore", "ignore", "ignore", "ipc"],
           env: { ...process.env, ORT_DISABLE_TELEMETRY: "1" },
         },
@@ -33,16 +58,20 @@ export class EmbeddingWorker {
       }, 30_000);
       child.on("message", (message: unknown) => {
         if (!message || typeof message !== "object") return;
-        const data = message as {
-          type: string;
-          id?: string;
-          embedding?: unknown;
-          rss?: number;
-        };
+        const data = message as Record<string, unknown>;
         if (typeof data.rss === "number") {
           this.resources.rss = data.rss;
           this.resources.peakRss = Math.max(this.resources.peakRss, data.rss);
         }
+        if (typeof data.peakRss === "number")
+          this.resources.peakRss = Math.max(
+            this.resources.peakRss,
+            data.peakRss,
+          );
+        if (typeof data.cpuUserUs === "number")
+          this.resources.cpuUserUs = data.cpuUserUs;
+        if (typeof data.cpuSystemUs === "number")
+          this.resources.cpuSystemUs = data.cpuSystemUs;
         if (data.type === "ready") {
           clearTimeout(timer);
           resolve();
@@ -58,15 +87,7 @@ export class EmbeddingWorker {
         if (data.type === "result" || data.type === "failed") {
           clearTimeout(pending.timer);
           this.pending = undefined;
-          if (
-            data.type === "result" &&
-            Array.isArray(data.embedding) &&
-            data.embedding.length === 384 &&
-            data.embedding.every(
-              (n) => typeof n === "number" && Number.isFinite(n),
-            )
-          )
-            pending.resolve(Float32Array.from(data.embedding));
+          if (data.type === "result") pending.resolve(data);
           else pending.reject(new Error("Local AI inference failed."));
         }
       });
@@ -88,22 +109,47 @@ export class EmbeddingWorker {
     });
     return this.ready;
   }
-  async encode(text: string, query = false, deadline = 3000) {
-    if (text.length > 20_000)
+  private async request(payload: Record<string, unknown>, deadline: number) {
+    if (typeof payload.text !== "string" || payload.text.length > 20_000)
       throw new Error("Local AI text exceeds the inference limit.");
-    await this.start();
+    if (Date.now() >= deadline)
+      throw new Error("Local AI inference timed out.");
+    let initializationTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.start(),
+        new Promise<never>((_, reject) => {
+          initializationTimer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  "Local AI initialization exceeded the query deadline.",
+                ),
+              ),
+            Math.max(1, deadline - Date.now()),
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(initializationTimer);
+    }
+    if (Date.now() >= deadline)
+      throw new Error("Local AI inference timed out.");
     if (this.pending) throw new Error("Local AI worker is busy.");
-    return new Promise<Float32Array>((resolve, reject) => {
-      const id = randomUUID();
-      const timer = setTimeout(() => {
-        if (this.pending?.id === id) {
-          this.pending = undefined;
-          reject(new Error("Local AI inference timed out."));
-          this.child?.kill("SIGKILL");
-        }
-      }, deadline);
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const id = randomUUID(),
+        timer = setTimeout(
+          () => {
+            if (this.pending?.id === id) {
+              this.pending = undefined;
+              reject(new Error("Local AI inference timed out."));
+              this.child?.kill("SIGKILL");
+            }
+          },
+          Math.max(1, deadline - Date.now()),
+        );
       this.pending = { id, resolve, reject, timer };
-      this.child!.send({ type: "encode", id, text, query }, (error) => {
+      this.child!.send({ ...payload, id, deadline }, (error) => {
         if (error && this.pending?.id === id) {
           clearTimeout(timer);
           this.pending = undefined;
@@ -111,6 +157,45 @@ export class EmbeddingWorker {
         }
       });
     });
+  }
+  async encode(text: string, query = false, timeout = 30_000) {
+    const data = await this.request(
+      { type: "encode", text, query },
+      Date.now() + timeout,
+    );
+    if (
+      !Array.isArray(data.embedding) ||
+      data.embedding.length !== 384 ||
+      !data.embedding.every((n) => typeof n === "number" && Number.isFinite(n))
+    )
+      throw new Error("Invalid local embedding.");
+    return Float32Array.from(data.embedding);
+  }
+  async search(
+    owner: string,
+    text: string,
+    deadline: number,
+    filterType = "",
+    tag = "",
+  ): Promise<VectorCandidate[]> {
+    const data = await this.request(
+      { type: "search", text, owner, filterType, tag },
+      deadline,
+    );
+    if (
+      !Array.isArray(data.candidates) ||
+      data.candidates.length > 30 ||
+      !data.candidates.every(
+        (c) =>
+          c &&
+          typeof c.key === "string" &&
+          typeof c.sourceKey === "string" &&
+          typeof c.score === "number" &&
+          Number.isFinite(c.score),
+      )
+    )
+      throw new Error("Invalid related matches.");
+    return data.candidates;
   }
   async stop() {
     const child = this.child;

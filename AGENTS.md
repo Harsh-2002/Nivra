@@ -15,20 +15,20 @@ Nivra is a single-owner, self-hosted notes, tasks, and bookmarks web app. Its st
 
 ### Documentation index
 
-| Document                                             | Purpose and authority                                                                                                                |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [README.md](README.md)                               | User quick start, Docker commands, supported environment variables, configuration and development setup.                             |
-| [AGENTS.md](AGENTS.md)                               | Repository instructions for agents, verification requirements and this documentation index.                                          |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Contributor workflow, calendar release policy, source builds, development upgrade exceptions, HTTP API examples and required checks. |
-| [PRODUCT.md](PRODUCT.md)                             | Confirmed product scope, requirements and deferred features; verify implementation in code and tests.                                |
-| [DESIGN.md](DESIGN.md)                               | Interface principles, tokens and responsive behavior.                                                                                |
-| [docs/architecture.md](docs/architecture.md)         | Implementation architecture, persistence, security, storage, Forms/public uploads, recovery and shared services.                     |
-| [docs/openapi.json](docs/openapi.json)               | Generated HTTP API contract from the shared operation registry and Zod schemas; never edit manually or serve publicly.               |
-| [docs/mcp.md](docs/mcp.md)                           | MCP authentication, permissions, content/Form tools, file transfers and supported client integration.                                |
-| [docs/testing.md](docs/testing.md)                   | Automated, browser, performance and storage verification procedures and limitations.                                                 |
-| [docs/third-party.md](docs/third-party.md)           | Third-party licensing and bundled asset notices.                                                                                     |
-| [tests/fixtures/README.md](tests/fixtures/README.md) | Synthetic fixture provenance, supported media coverage and shipping exclusions.                                                      |
-| [LICENSE](LICENSE)                                   | License for Nivra's own source.                                                                                                      |
+| Document                                             | Purpose and authority                                                                                                                                    |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [README.md](README.md)                               | User quick start, Docker commands, supported environment variables, configuration and development setup.                                                 |
+| [AGENTS.md](AGENTS.md)                               | Repository instructions for agents, verification requirements and this documentation index.                                                              |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Contributor workflow, calendar release policy, source builds, development upgrade exceptions, HTTP API examples and required checks.                     |
+| [PRODUCT.md](PRODUCT.md)                             | Confirmed product scope, requirements and deferred features; verify implementation in code and tests.                                                    |
+| [DESIGN.md](DESIGN.md)                               | Interface principles, tokens and responsive behavior.                                                                                                    |
+| [docs/architecture.md](docs/architecture.md)         | Implementation architecture, persistence, security, storage, Forms/public uploads, recovery, shared services and local AI lifecycle/resource boundaries. |
+| [docs/openapi.json](docs/openapi.json)               | Generated HTTP API contract from the shared operation registry and Zod schemas; never edit manually or serve publicly.                                   |
+| [docs/mcp.md](docs/mcp.md)                           | MCP authentication, permissions, content/Form tools, file transfers and supported client integration.                                                    |
+| [docs/testing.md](docs/testing.md)                   | Automated, browser, performance and storage verification procedures and limitations.                                                                     |
+| [docs/third-party.md](docs/third-party.md)           | Third-party licensing and bundled asset notices.                                                                                                         |
+| [tests/fixtures/README.md](tests/fixtures/README.md) | Synthetic fixture provenance, supported media coverage and shipping exclusions.                                                                          |
+| [LICENSE](LICENSE)                                   | License for Nivra's own source.                                                                                                                          |
 
 Keep this index current whenever documentation is added, moved, removed or changes purpose. Update the existing authoritative document rather than adding overlapping guides. Private, ignored `HANDOFF.md` is local continuation context, not published product documentation or proof of verification.
 
@@ -39,7 +39,8 @@ Inspect the relevant implementation and `git status --short` before making chang
 Use npm and Node.js 24. Keep `package-lock.json` committed.
 
 ```sh
-npm ci
+ONNXRUNTIME_NODE_INSTALL=skip npm ci
+npm run ai:assets
 npm run dev
 npm run typecheck
 npm run lint

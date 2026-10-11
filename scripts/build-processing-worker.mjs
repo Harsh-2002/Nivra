@@ -57,6 +57,11 @@ await build({
   platform: "node",
   target: "node24",
   format: "cjs",
-  external: ["onnxruntime-node", "@huggingface/tokenizers"],
+  external: [
+    "onnxruntime-node",
+    "@huggingface/tokenizers",
+    "better-sqlite3",
+    "drizzle-orm",
+  ],
   logLevel: "warning",
 });

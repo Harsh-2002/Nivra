@@ -273,9 +273,9 @@ export function AuthScreen({
           <div
             className="setup-progress"
             role="group"
-            aria-label={`Setup step ${step === 0 ? setupStage + 1 : step + 3} of 5`}
+            aria-label={`Setup step ${step === 0 ? setupStage + 1 : step + 3} of 7`}
           >
-            {[0, 1, 2, 3, 4].map((i) => (
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
               <span
                 key={i}
                 className={

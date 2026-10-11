@@ -201,7 +201,7 @@ export function ItemCollection({
                       ? SquareCheckBig
                       : item.type === "bookmark"
                         ? Bookmark
-                        : item.type === "form"
+                        : item.type === "form" || item.type === "response"
                           ? ClipboardList
                           : Layers;
                 const label =
@@ -217,7 +217,9 @@ export function ItemCollection({
                           ? "Event"
                           : item.type === "form"
                             ? "Form"
-                            : "Artifact";
+                            : item.type === "response"
+                              ? "Form response"
+                              : "Artifact";
                 return (
                   <li key={`${item.type}:${item.id}`}>
                     <button

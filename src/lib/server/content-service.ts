@@ -63,6 +63,7 @@ import { taskStages } from "../boards";
 import { authorizeContentPath, type AgentPrincipal } from "./agent-access";
 import { agentCounts } from "./agent-counts";
 import { agentSearch } from "./agent-search";
+import { relatedSearch } from "./ai/search";
 import { operationFor } from "./api-contract";
 import { offsetPagination } from "./api-pagination";
 import { retryable } from "./api-retries";
@@ -301,7 +302,7 @@ async function executeContentInternal(
   if (area === "jobs" && method === "GET" && id) {
     const job = database
       .prepare(
-        "SELECT id,kind,target_id AS targetId,state AS status,attempts,created_at AS createdAt FROM background_jobs WHERE id=? AND owner_id=?",
+        "SELECT id,kind,target_id AS targetId,state AS status,attempts,created_at AS createdAt FROM background_jobs WHERE id=? AND owner_id=? AND kind<>'semantic'",
       )
       .get(z.string().uuid().parse(id), ownerId);
     if (!job) throw new HttpError(404, "This job was not found.");
@@ -344,6 +345,14 @@ async function executeContentInternal(
     const purpose = z
       .enum(["workspace", "link"])
       .parse(query.get("purpose") ?? "workspace");
+    if (query.get("strategy") === "semantic" && purpose === "workspace") {
+      const found = await relatedSearch(ownerId, text);
+      if (found.strategyUsed === "semantic" || query.get("mode") === "suggest")
+        return result({
+          ...page.page(found.items.slice(page.offset), found.items.length),
+          strategyUsed: found.strategyUsed,
+        });
+    }
     if (query.get("mode") === "suggest")
       return result(page.page(searchWorkspace(ownerId, text, purpose)));
     const found = agentSearch(ownerId, {
@@ -351,7 +360,12 @@ async function executeContentInternal(
       limit: page.limit,
       offset: page.offset,
     });
-    return result(page.page(found.items, found.total));
+    return result({
+      ...page.page(found.items, found.total),
+      ...(query.get("strategy") === "semantic"
+        ? { strategyUsed: "keyword" }
+        : {}),
+    });
   }
   if (area === "trash") {
     const kinds = z.enum([
@@ -613,7 +627,7 @@ async function executeContentInternal(
     }
   }
   if (area === "item-tags" && id && action) {
-    const type = z.enum(taggedTypes).parse(id);
+    const type = z.enum([...taggedTypes, "response"]).parse(id);
     const itemId = z.string().uuid().parse(action);
     if (method === "GET") return result(itemTagState(owner.id, type, itemId));
     if (method === "PATCH") {
@@ -651,17 +665,24 @@ async function executeContentInternal(
       const page = offsetPagination(query, "tags");
       const rows = database
         .prepare(
-          "SELECT id,name,color FROM tags ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?",
+          "SELECT id,name,color,aliases FROM tags ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?",
         )
         .all(page.limit + 1, page.offset);
-      return result(page.page(rows));
+      return result(
+        page.page(
+          (rows as { aliases: string }[]).map((row) => ({
+            ...row,
+            aliases: JSON.parse(row.aliases),
+          })),
+        ),
+      );
     }
     if (method === "GET" && id) {
       const tag = database
-        .prepare("SELECT id,name,color FROM tags WHERE id=?")
-        .get(z.string().uuid().parse(id));
+        .prepare("SELECT id,name,color,aliases FROM tags WHERE id=?")
+        .get(z.string().uuid().parse(id)) as { aliases: string } | undefined;
       if (!tag) throw new HttpError(404, "This tag was not found.");
-      return result(tag);
+      return result({ ...tag, aliases: JSON.parse(tag.aliases) });
     }
     if (method === "POST" || method === "PATCH") {
       if (
@@ -669,18 +690,39 @@ async function executeContentInternal(
         !database.prepare("SELECT 1 FROM tags WHERE id=?").get(id)
       )
         throw new HttpError(404, "This tag was not found.");
-      const { name, color } = apiInputs.tagCreate.parse(payload);
+      const {
+        name,
+        color,
+        aliases: inputAliases,
+      } = apiInputs.tagCreate.parse(payload);
+      const aliases =
+        inputAliases === undefined && method === "PATCH"
+          ? (JSON.parse(
+              (
+                database
+                  .prepare("SELECT aliases FROM tags WHERE id=?")
+                  .get(id) as { aliases: string }
+              ).aliases,
+            ) as string[])
+          : [
+              ...new Map(
+                (inputAliases ?? []).map((word) => [
+                  word.normalize("NFKC").toLowerCase(),
+                  word.normalize("NFKC"),
+                ]),
+              ).values(),
+            ];
       if (method === "POST") {
         const tagId = randomUUID();
         database
-          .prepare("INSERT INTO tags(id,name,color) VALUES(?,?,?)")
-          .run(tagId, name, color);
-        return result({ id: tagId, name, color }, 201);
+          .prepare("INSERT INTO tags(id,name,color,aliases) VALUES(?,?,?,?)")
+          .run(tagId, name, color, JSON.stringify(aliases));
+        return result({ id: tagId, name, color, aliases }, 201);
       }
       database
-        .prepare("UPDATE tags SET name=?,color=? WHERE id=?")
-        .run(name, color, id);
-      return result({ id, name, color });
+        .prepare("UPDATE tags SET name=?,color=?,aliases=? WHERE id=?")
+        .run(name, color, JSON.stringify(aliases), id);
+      return result({ id, name, color, aliases });
     }
     if (method === "DELETE" && id) {
       database.prepare("DELETE FROM tags WHERE id=?").run(id);

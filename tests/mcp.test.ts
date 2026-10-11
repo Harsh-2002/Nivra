@@ -236,6 +236,272 @@ test("MCP shares content while isolating agent credentials and account administr
       assert.equal((await writeOnly.json()).error, "invalid_scope");
     });
     await t.test(
+      "MCP semantic search returns canonical content and preserves read-only access",
+      async () => {
+        const { enqueueJob, claimJob, commitJob } =
+          await import("../src/lib/server/jobs");
+        const { processSemantic, stopAi } =
+          await import("../src/lib/server/ai/indexer");
+        const id = randomUUID(),
+          key = "note:" + id,
+          formId = randomUUID(),
+          versionId = randomUUID(),
+          responseId = randomUUID(),
+          fileId = randomUUID(),
+          tagId = randomUUID();
+        const d = sqlite();
+        d.prepare(
+          "INSERT INTO notes(id,owner_id,title,document,text,created_at,updated_at) VALUES(?,?,'recovery-73.pdf SQLite backup','[]','Encrypted SQLite database backup restore verification.',1,1)",
+        ).run(id, owner);
+        d.prepare("UPDATE ai_configuration SET enabled=1").run();
+        try {
+          enqueueJob(owner, "semantic", key);
+          const job = claimJob();
+          assert.ok(job);
+          await processSemantic({
+            job,
+            commit: (write) => commitJob(job, write),
+          });
+          assert.equal(
+            (
+              d
+                .prepare("SELECT state FROM ai_content WHERE source_key=?")
+                .get(key) as { state: string }
+            ).state,
+            "indexed",
+          );
+          const reader = await connect(readKey);
+          const tools = (await reader.listTools()).tools;
+          assert.ok(tools.some((tool) => tool.name === "search"));
+          assert.ok(
+            !tools.some((tool) => /suggestion|configure_ai/.test(tool.name)),
+          );
+          const found = await call<{ id: string; title: string }[]>(
+            reader,
+            "search",
+            { query: "recover recovery-73.pdf", strategy: "semantic" },
+          );
+          assert.ok(found.some((row) => row.id === id));
+          assert.ok(!JSON.stringify(found).includes("embedding"));
+          await assert.rejects(
+            reader.callTool({
+              name: "create_note",
+              arguments: { title: "Denied" },
+            }),
+            /Insufficient scope/,
+          );
+          assert.ok(
+            !tools.some((tool) => tool.name === "assign_tags"),
+            "Read-only connections cannot change response tags",
+          );
+
+          const createdAt = Date.now();
+          const definition = JSON.stringify({
+            schemaVersion: 1,
+            title: "Private response form",
+            fields: [],
+          });
+          d.prepare(
+            "INSERT INTO forms(id,owner_id,title,definition,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+          ).run(
+            formId,
+            owner,
+            "Private feedback",
+            definition,
+            createdAt,
+            createdAt,
+          );
+          d.prepare(
+            "INSERT INTO form_versions(id,form_id,revision,definition,created_at) VALUES(?,?,1,?,?)",
+          ).run(versionId, formId, definition, createdAt);
+          d.prepare(
+            "INSERT INTO form_responses(id,form_id,version_id,answers,search_text,retry_key,request_hash,created_at) VALUES(?,?,?,'{}',?,?,?,?)",
+          ).run(
+            responseId,
+            formId,
+            versionId,
+            "Submitted privately without an incident.",
+            "retry-" + responseId,
+            "hash-" + responseId,
+            createdAt,
+          );
+          d.prepare(
+            "INSERT INTO form_files(id,form_id,response_id,field_id,filename,mime,size,storage_key,state,created_at) VALUES(?,?,?,'evidence','private-evidence.txt','text/plain',32,?,'attached',?)",
+          ).run(fileId, formId, responseId, fileId, createdAt);
+          d.prepare(
+            "INSERT INTO ai_extractions(source_key,storage_key,text,status) VALUES(?,?,?,'done')",
+          ).run(
+            "form-file:" + fileId,
+            fileId,
+            "Private upload contains tealquasar incident evidence.",
+          );
+          d.prepare(
+            "INSERT INTO tags(id,name,color) VALUES(?,'Private evidence','gray')",
+          ).run(tagId);
+          d.prepare(
+            "INSERT INTO response_tags(response_id,tag_id) VALUES(?,?)",
+          ).run(responseId, tagId);
+
+          const runtime = globalThis as unknown as {
+            nivraAi?: {
+              worker: {
+                search: (
+                  ownerId: string,
+                  text: string,
+                  deadline: number,
+                  filterType?: string,
+                  tag?: string,
+                ) => Promise<
+                  { key: string; sourceKey: string; score: number }[]
+                >;
+              };
+            };
+          };
+          assert.ok(runtime.nivraAi?.worker);
+          const worker = runtime.nivraAi.worker;
+          const originalSearch = worker.search;
+          worker.search = async (_ownerId, text) =>
+            text.includes("tealquasar")
+              ? [
+                  {
+                    key: "response:" + responseId,
+                    sourceKey: "form-file:" + fileId,
+                    score: 0.99,
+                  },
+                ]
+              : [];
+          try {
+            const privateMatches = await call<
+              {
+                id: string;
+                type: string;
+                title: string;
+                excerpt: string;
+                updatedAt: number;
+                formId: string;
+              }[]
+            >(reader, "search", {
+              query: "type:response tealquasar",
+              strategy: "semantic",
+            });
+            assert.deepEqual(privateMatches, [
+              {
+                id: responseId,
+                type: "response",
+                title: "Private feedback — response",
+                excerpt:
+                  "Private upload contains tealquasar incident evidence.",
+                updatedAt: createdAt,
+                formId,
+              },
+            ]);
+            assert.ok(
+              !JSON.stringify(privateMatches).match(
+                /embedding|sourceKey|score|vector/i,
+              ),
+            );
+
+            const tagged = await call<{
+              items: {
+                id: string;
+                type: string;
+                formId: string;
+                tags: { id: string }[];
+              }[];
+              nextOffset: number | null;
+            }>(reader, "tagged_items", { id: tagId, limit: 20 });
+            assert.deepEqual(tagged.items, [
+              {
+                id: responseId,
+                type: "response",
+                title: "Private feedback — response",
+                excerpt: "Submitted privately without an incident.",
+                updatedAt: createdAt,
+                dailyDate: null,
+                favorite: false,
+                completed: false,
+                formId,
+                tags: [{ id: tagId, name: "Private evidence", color: "gray" }],
+              },
+            ]);
+            assert.ok(
+              !JSON.stringify(tagged).match(
+                /embedding|sourceKey|score|vector/i,
+              ),
+            );
+
+            d.prepare("UPDATE form_responses SET trashed_at=? WHERE id=?").run(
+              Date.now(),
+              responseId,
+            );
+            const trashedSearch = await call<{ id: string; type: string }[]>(
+              reader,
+              "search",
+              {
+                query: "type:response tealquasar",
+                strategy: "semantic",
+              },
+            );
+            const trashedTagged = await call<{
+              items: { id: string; type: string }[];
+            }>(reader, "tagged_items", { id: tagId, limit: 20 });
+            assert.ok(!trashedSearch.some((row) => row.id === responseId));
+            assert.ok(
+              !trashedTagged.items.some((row) => row.id === responseId),
+            );
+
+            d.prepare(
+              "UPDATE form_responses SET trashed_at=NULL WHERE id=?",
+            ).run(responseId);
+            d.prepare("UPDATE forms SET trashed_at=? WHERE id=?").run(
+              Date.now(),
+              formId,
+            );
+            const trashedFormSearch = await call<
+              { id: string; type: string }[]
+            >(reader, "search", {
+              query: "type:response tealquasar",
+              strategy: "semantic",
+            });
+            const trashedFormTagged = await call<{
+              items: { id: string; type: string }[];
+            }>(reader, "tagged_items", { id: tagId, limit: 20 });
+            assert.ok(!trashedFormSearch.some((row) => row.id === responseId));
+            assert.ok(
+              !trashedFormTagged.items.some((row) => row.id === responseId),
+            );
+          } finally {
+            worker.search = originalSearch;
+          }
+
+          d.prepare("UPDATE notes SET trashed_at=1 WHERE id=?").run(id);
+          assert.ok(
+            !(
+              await call<{ id: string }[]>(reader, "search", {
+                query: "recovery-73.pdf",
+                strategy: "semantic",
+              })
+            ).some((row) => row.id === id),
+          );
+          d.prepare("UPDATE ai_configuration SET enabled=0").run();
+          d.prepare("UPDATE notes SET trashed_at=NULL WHERE id=?").run(id);
+          assert.ok(
+            (
+              await call<{ id: string }[]>(reader, "search", {
+                query: "recovery-73.pdf",
+                strategy: "semantic",
+              })
+            ).some((row) => row.id === id),
+          );
+        } finally {
+          d.prepare("UPDATE ai_configuration SET enabled=0").run();
+          await stopAi();
+          d.prepare("DELETE FROM forms WHERE id=?").run(formId);
+          d.prepare("DELETE FROM notes WHERE id=?").run(id);
+        }
+      },
+    );
+    await t.test(
       "Forms tools publish typed definitions, count submissions and enforce scopes",
       async () => {
         const question = randomUUID();

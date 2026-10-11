@@ -1,8 +1,9 @@
 # Testing and verification
 
-Use Node.js 24 and install dependencies with `npm ci`. Run:
+Use Node.js 24 and install CPU-only dependencies with `ONNXRUNTIME_NODE_INSTALL=skip npm ci`. Run:
 
 ```sh
+npm run ai:assets
 npm run typecheck
 npm run lint
 npm run format:check
@@ -45,3 +46,15 @@ Nivra uses S3-compatible object storage for files and optional backups; SQLite r
 Dispose only of the test resources. Never restore over a running installation or substitute an existing storage service for a disposable test target.
 
 Forms checks cover timezone-aware deadlines, daylight-saving day boundaries, expired submissions/uploads, derived Calendar entries and daily aggregates, public device themes, strict schemas, immutable versions, isolated anonymous submission/upload routes, safe retries, signature/quota/expiry handling, keyset paging while review/Trash changes, exact decimal aggregates, complete exports, private downloads, scope restrictions, tags/Favorites/search/Trash and encrypted backup restoration. `browser-forms.mjs` uses disposable port 3015 for public validation/uploads/retry behavior across Chromium, Firefox and WebKit, desktop/mobile and light/dark themes. `browser-form-owner.mjs` uses that server's saved synthetic owner session to exercise drag/keyboard/menu reordering, the closing-date picker, builder, preview, publication, summaries/review, deep links, Favorites, revision conflicts, two-tab SSE and completion refreshes during search changes. `browser-form-components.mjs` edits all 19 builder types and verifies settings, 44px controls, label gaps, saved data and reload persistence at phone, tablet and desktop widths in both themes. The owner/public matrices include small-phone and landscape viewports. All three scripts require disposable port 3015; owner/component checks use `NIVRA_BROWSER_SESSION` pointing to the saved synthetic session. Keep optional review captures and cookie files outside Git. Browser automation does not certify physical-device keyboard or assistive-technology behavior.
+
+## Local AI integration checks
+
+Prepare the pinned local pack with `npm run ai:assets`, then run `npm test` (including `ai-*.test.ts`). Tests use disposable encrypted directories: generation fencing, attachment/form-response visibility, worker crashes/deadlines/restarts, inter-process OS locks, approval/manual-tag merging, rejection history and read-only agent search. Missing/corrupt assets must fail closed. These are correctness checks, not evidence of user acceptance or new model-quality measurements.
+
+Container CI runs native AMD64 and ARM64 source images with network disabled for AI/OCR smoke checks, alongside existing authentication, encryption, media and backup recovery checks. Resource tests must distinguish small inference smoke measurements from full indexed retrieval, bound both cache and query time, and report fallback at capacity/deadline limits. Before release, review System AI controls, tag matching words and meaning-based search at mobile/desktop sizes in both themes, test private form responses/public pages/exports, and obtain human approval of representative owner-vocabulary suggestions. Never use a live data directory for these checks.
+
+`node --import tsx scripts/benchmark-ai.mts 1000,10000` creates and removes an encrypted synthetic database. The optional `1000,10000,100000` run measures the capacity boundary. Its final argument is chunks per item: `100` (default) or `1` to exercise distinct-item metadata. Replicated vectors test resources, not retrieval quality. Report cold deadline fallback, separate cache preparation, five warm query samples, child CPU/RSS, idle CPU and encrypted storage size; never treat cache preparation as part of a three-second HTTP query. Container CI runs both layouts on native AMD64/ARM64 with one CPU, 1.5 GiB aggregate memory and no network. Warm failures and worker RSS above 512 MiB fail the check. Keep JSON output outside Git.
+
+`scripts/browser-local-ai.mjs` uses the disposable port 3015 and synthetic `NIVRA_BROWSER_SESSION`. It checks alias editing, private approval, opt-in semantic navigation, WCAG checks, overflow and touch controls across Chromium, Firefox and WebKit in both themes. `NIVRA_AUDIT_WIDTHS` selects viewports and optional `NIVRA_AUDIT_OUTPUT` stores private captures. Inspect actual captures as well as automated assertions. The frozen synthetic fixture tests conservative filtering against recorded final-evaluation scores; it does not measure new model accuracy or human acceptance.
+
+`scripts/browser-post-setup.mjs` requires an empty disposable server on port 3016 and a private `NIVRA_BROWSER_SESSION` path. It completes password/encryption/recovery/configuration, verifies explicit starter/custom tag creation and duplicate handling, then checks saved progress and completion across Chromium, Firefox and WebKit at 320, 390, 768 and 1440 pixels in both themes. Separate platform cases verify iPhone, Android, desktop and standalone guidance plus a simulated browser install event. These checks do not certify physical-device installation. `onboarding-step.test.ts` verifies safe upgrade defaults, password/passkey setup, owner-only permissions and restart persistence; `onboarding-guidance.test.ts` covers interest recommendations, normalized aliases and platform/secure-context detection.

@@ -496,14 +496,11 @@ for (const method of ["GET", "PATCH"])
   add(
     "settings",
     method,
-    "Read or update owner appearance",
+    "Read or update owner appearance and setup progress",
     extraOutputs.settings,
     {
       access: "owner",
-      input:
-        method === "PATCH"
-          ? z.object({ theme: z.enum(["light", "dark", "system"]) }).strict()
-          : undefined,
+      input: method === "PATCH" ? apiInputs.settingsUpdate : undefined,
     },
   );
 add(
@@ -990,3 +987,70 @@ export function openApiDocument() {
     },
   };
 }
+
+const aiStatus = z
+  .object({
+    enabled: z.boolean(),
+    revision: z.number().int().positive(),
+    total: z.number().int().nonnegative(),
+    indexed: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+    capacity: z.number().int().nonnegative(),
+    chunkLimit: z.number().int().positive(),
+  })
+  .strict();
+add(
+  "ai",
+  "GET",
+  "Read private local AI settings and indexing coverage",
+  aiStatus,
+  { access: "owner" },
+);
+add("ai", "PATCH", "Enable or disable local AI", aiStatus, {
+  access: "owner",
+  input: z
+    .object({ enabled: z.boolean(), revision: z.number().int().positive() })
+    .strict(),
+});
+add(
+  "ai/suggestions",
+  "GET",
+  "Read up to 30 private existing-tag suggestions",
+  z
+    .object({
+      items: z.array(
+        z
+          .object({
+            id: idSchema,
+            itemId: idSchema,
+            type: z.enum([
+              "note",
+              "task",
+              "bookmark",
+              "artifact",
+              "event",
+              "form",
+              "response",
+            ]),
+            title: z.string(),
+            excerpt: z.string().max(240),
+            formId: idSchema.optional(),
+            tag: apiOutputs.tag,
+            createdAt: z.number().int().nonnegative(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
+  { access: "owner" },
+);
+for (const action of ["accept", "reject"])
+  add(
+    `ai/suggestions/{id}/${action}`,
+    "POST",
+    action === "accept"
+      ? "Merge an approved tag into current assignments"
+      : "Dismiss a private tag suggestion",
+    apiOutputs.ok,
+    { access: "owner", input: empty },
+  );

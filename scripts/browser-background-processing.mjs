@@ -21,6 +21,12 @@ export default async function review(page) {
       }),
     });
     if (!setup.ok) throw new Error("Synthetic setup failed.");
+    const settings = await fetch("/api/v1/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ onboardingStep: "complete" }),
+    });
+    if (!settings.ok) throw new Error("Synthetic onboarding failed.");
   });
   await page.reload();
   await page

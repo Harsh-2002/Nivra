@@ -233,6 +233,10 @@ export async function executeTransfer(
                   z.object({
                     name: z.string().trim().min(1).max(50),
                     color: z.enum(tagColors),
+                    aliases: z
+                      .array(z.string().trim().min(1).max(80))
+                      .max(10)
+                      .optional(),
                   }),
                 )
                 .max(100)
@@ -285,6 +289,10 @@ export async function executeTransfer(
                   z.object({
                     name: z.string().trim().min(1).max(50),
                     color: z.enum(tagColors),
+                    aliases: z
+                      .array(z.string().trim().min(1).max(80))
+                      .max(10)
+                      .optional(),
                   }),
                 )
                 .max(100)
@@ -342,6 +350,10 @@ export async function executeTransfer(
                   id: z.string().uuid(),
                   name: z.string().min(1).max(50),
                   color: z.enum(tagColors).default("gray"),
+                  aliases: z
+                    .array(z.string().trim().min(1).max(80))
+                    .max(10)
+                    .optional(),
                 }),
               ),
             }),
@@ -543,9 +555,14 @@ export async function executeTransfer(
             for (const tag of note.tags) {
               database
                 .prepare(
-                  "INSERT OR IGNORE INTO tags(id,name,color) VALUES(?,?,?)",
+                  "INSERT OR IGNORE INTO tags(id,name,color,aliases) VALUES(?,?,?,?)",
                 )
-                .run(randomUUID(), tag.name, tag.color);
+                .run(
+                  randomUUID(),
+                  tag.name,
+                  tag.color,
+                  JSON.stringify(tag.aliases ?? []),
+                );
               const existing = database
                 .prepare("SELECT id FROM tags WHERE name=? COLLATE NOCASE")
                 .get(tag.name) as { id: string };

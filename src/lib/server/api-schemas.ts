@@ -111,6 +111,7 @@ export const apiInputs = {
   tagCreate: z
     .object({
       name: z.string().trim().min(1).max(50),
+      aliases: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
       color: z.enum(tagColors).default("gray"),
     })
     .strict(),
@@ -161,6 +162,15 @@ export const apiInputs = {
     })
     .strict(),
   unsubscribe: z.object({ endpoint: z.string().url().max(4096) }).strict(),
+  settingsUpdate: z
+    .object({
+      theme: z.enum(["light", "dark", "system"]).optional(),
+      onboardingStep: z.enum(["tags", "install", "complete"]).optional(),
+    })
+    .strict()
+    .refine((value) => Object.keys(value).length > 0, {
+      message: "Provide at least one setting to change.",
+    }),
   accountPassword: credentials.omit({ username: true }),
   recovery: credentials
     .omit({ username: true })
@@ -240,6 +250,7 @@ export const apiQueries = {
     .extend({
       purpose: z.enum(["workspace", "link"]).default("workspace"),
       mode: z.enum(["full", "suggest"]).default("full"),
+      strategy: z.enum(["keyword", "semantic"]).default("keyword"),
     })
     .strict(),
   calendar: z
@@ -279,6 +290,7 @@ const summary = z
   })
   .passthrough();
 const tag = z.object({
+  aliases: z.array(z.string()).optional(),
   id: idSchema,
   name: z.string(),
   color: z.enum(tagColors),
@@ -360,6 +372,7 @@ export const apiOutputs = {
         "artifact",
         "event",
         "form",
+        "response",
       ]),
     })
     .passthrough(),

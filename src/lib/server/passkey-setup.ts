@@ -137,7 +137,9 @@ export function createPasskeyOwner(
           now,
         );
       sqlite()
-        .prepare("UPDATE instance SET recovery_hash=?,theme=? WHERE id=1")
+        .prepare(
+          "UPDATE instance SET recovery_hash=?,theme=?,onboarding_step='tags' WHERE id=1",
+        )
         .run(row.recovery_hash, row.theme);
     })
     .immediate();

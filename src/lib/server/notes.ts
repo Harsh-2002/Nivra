@@ -12,9 +12,15 @@ const columns =
 export function tagsFor(note: string): Tag[] {
   return sqlite()
     .prepare(
-      "SELECT t.id,t.name,t.color FROM tags t JOIN note_tags nt ON nt.tag_id=t.id WHERE nt.note_id=? ORDER BY t.name",
+      "SELECT t.id,t.name,t.color,t.aliases FROM tags t JOIN note_tags nt ON nt.tag_id=t.id WHERE nt.note_id=? ORDER BY t.name",
     )
-    .all(note) as Tag[];
+    .all(note)
+    .map((row) => {
+      const tag = row as Tag & { aliases: string };
+      const { aliases, ...rest } = tag;
+      const words = JSON.parse(aliases) as string[];
+      return { ...rest, ...(words.length ? { aliases: words } : {}) };
+    });
 }
 export function getNote(id: string): Note | undefined {
   const row = db().select().from(notes).where(eq(notes.id, id)).get();

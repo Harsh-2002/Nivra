@@ -13,6 +13,7 @@ const tags = z
     z.object({
       name: z.string().trim().min(1).max(50),
       color: z.enum(tagColors),
+      aliases: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
     }),
   )
   .max(100)
