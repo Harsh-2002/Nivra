@@ -1,5 +1,5 @@
 {
-  "applicationCommit": "b944c0bba485f56dcd612f1294624f49c75d18ac",
+  "applicationCommit": "Existing workflow captures: b944c0bba485f56dcd612f1294624f49c75d18ac; Smart Tags and semantic search preview captures: isolated local build from 2026-10-12. Per-image provenance follows.",
   "assets": [
     {
       "file": "board-dark-960.webp",
@@ -167,6 +167,90 @@
       "width": 780,
       "height": 1688,
       "origin": "Real Nivra application screenshot, captured 2026-10-10 from commit b944c0b. Authored demo content; unrelated private tags excluded. Native desktop (1440 × 900) or mobile (390 × 844) capture, downsampled for the website.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "semantic-search-dark-960.webp",
+      "width": 960,
+      "height": 600,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows the natural-language query 'How should I prepare seedlings for outdoors?' and real related-match results; lower-ranked unrelated notes remain visible. No production or real-user data. Native desktop capture: 1440 × 900, downsampled to 960 × 600.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "semantic-search-dark.webp",
+      "width": 1440,
+      "height": 900,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows the natural-language query 'How should I prepare seedlings for outdoors?' and real related-match results; lower-ranked unrelated notes remain visible. No production or real-user data. Native desktop capture: 1440 × 900.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "semantic-search-light-960.webp",
+      "width": 960,
+      "height": 600,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows the natural-language query 'How should I prepare seedlings for outdoors?' and real related-match results; lower-ranked unrelated notes remain visible. No production or real-user data. Native desktop capture: 1440 × 900, downsampled to 960 × 600.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "semantic-search-light.webp",
+      "width": 1440,
+      "height": 900,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows the natural-language query 'How should I prepare seedlings for outdoors?' and real related-match results; lower-ranked unrelated notes remain visible. No production or real-user data. Native desktop capture: 1440 × 900.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "semantic-search-mobile-dark.webp",
+      "width": 390,
+      "height": 844,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows the natural-language query 'How should I prepare seedlings for outdoors?' and real related-match results; lower-ranked unrelated notes remain visible. No production or real-user data. Native mobile viewport and capture: 390 × 844.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "semantic-search-mobile-light.webp",
+      "width": 390,
+      "height": 844,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows the natural-language query 'How should I prepare seedlings for outdoors?' and real related-match results; lower-ranked unrelated notes remain visible. No production or real-user data. Native mobile viewport and capture: 390 × 844.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "smart-tags-dark-960.webp",
+      "width": 960,
+      "height": 600,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows three remaining Garden tag suggestions after two false suggestions were dismissed through the normal UI; pre-review evidence is retained outside the website. No production or real-user data. Native desktop capture: 1440 × 900, downsampled to 960 × 600.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "smart-tags-dark.webp",
+      "width": 1440,
+      "height": 900,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows three remaining Garden tag suggestions after two false suggestions were dismissed through the normal UI; pre-review evidence is retained outside the website. No production or real-user data. Native desktop capture: 1440 × 900.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "smart-tags-light-960.webp",
+      "width": 960,
+      "height": 600,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows three remaining Garden tag suggestions after two false suggestions were dismissed through the normal UI; pre-review evidence is retained outside the website. No production or real-user data. Native desktop capture: 1440 × 900, downsampled to 960 × 600.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "smart-tags-light.webp",
+      "width": 1440,
+      "height": 900,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows three remaining Garden tag suggestions after two false suggestions were dismissed through the normal UI; pre-review evidence is retained outside the website. No production or real-user data. Native desktop capture: 1440 × 900.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "smart-tags-mobile-dark.webp",
+      "width": 390,
+      "height": 844,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows three remaining Garden tag suggestions after two false suggestions were dismissed through the normal UI; pre-review evidence is retained outside the website. No production or real-user data. Native mobile viewport and capture: 390 × 844.",
+      "content": "Curated demonstration content"
+    },
+    {
+      "file": "smart-tags-mobile-light.webp",
+      "width": 390,
+      "height": 844,
+      "origin": "Captured 2026-10-12 from an isolated local Nivra preview build using synthetic owner-authored content. Shows three remaining Garden tag suggestions after two false suggestions were dismissed through the normal UI; pre-review evidence is retained outside the website. No production or real-user data. Native mobile viewport and capture: 390 × 844.",
       "content": "Curated demonstration content"
     },
     {

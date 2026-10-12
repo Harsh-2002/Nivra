@@ -161,7 +161,7 @@ On narrower screens the lead and section headings step down, while body copy and
 
 ## Layout
 
-Content sits in a centered container capped at 1140px. The desktop page pairs columns for the introduction, ownership details, and setup; intermediate widths tighten the side gutters before content grids stack for mobile. Sections have measured separation, while controls stay compact.
+Content sits in a centered container capped at 1140px. The desktop page pairs columns for the introduction, ownership details, setup, and two compact feature panels; intermediate widths tighten the side gutters before content grids stack for mobile. Sections have measured separation, while controls stay compact.
 
 The implemented responsive breakpoints are 1000px, 760px, 600px, and 360px. The page begins with the Nivra wordmark and hero; theme control sits in the footer. At 760px the main two-column groups become single-column. At 600px screenshot frames use portrait captures; at 360px gutters and action gaps tighten again. The sidecar records the exact breakpoint values.
 
@@ -187,6 +187,7 @@ Controls and selected tabs have softly curved corners. Screenshot and installati
 ### Cards / Containers
 
 - **Screenshot frame:** Real application screenshots sit inside a thinly bordered, clipped frame with a quiet top bar and caption. Desktop images use the real 16:10 application capture; mobile selects the real portrait capture.
+- **Feature panels:** Two flat, bordered preview panels show optional Smart Tags and meaning-based search with real product captures using synthetic demonstration content. The panels pair short behavior-focused copy with theme-specific desktop and portrait mobile screenshots; each screenshot opens its full-size desktop image for inspection.
 - **Installation panel:** The Docker command block shares the framed surface language and allows horizontal scrolling when needed. Copy feedback is announced through a live status region.
 - **Shadow strategy:** Flat; see Elevation & Depth.
 
@@ -198,6 +199,10 @@ Controls and selected tabs have softly curved corners. Screenshot and installati
 ### Workflow Tabs
 
 Four tabs use a soft background and foreground ink when selected; inactive tabs stay transparent and muted. Left/Right arrows move between tabs, while Home and End jump to the first and last. Selecting a tab updates its corresponding copy and real screenshot.
+
+### Smart Tags and Semantic Search
+
+Two optional preview features appear after the core workflow demonstrations. Smart Tags presents suggestions from the owner's tag vocabulary, with review or automatic modes; semantic search helps locate related work by meaning. The copy stays concise and avoids accuracy or performance claims. Theme-specific screenshots use authored demonstration data, with portrait captures selected at phone widths.
 
 ## Do's and Don'ts
 

@@ -234,6 +234,14 @@
       "css": ".ds-workflow-tabs { display: flex; align-items: center; gap: 4px; max-width: 100%; padding-bottom: 14px; border-bottom: 1px solid var(--line); } .ds-workflow-tabs button { min-height: 44px; padding: 10px 20px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font: 520 14px Geist, sans-serif; white-space: nowrap; cursor: pointer; } .ds-workflow-tabs button:hover, .ds-workflow-tabs button[aria-selected=\"true\"] { background: var(--soft); color: var(--fg); } .ds-workflow-tabs button:focus-visible { outline: 2px solid var(--fg); outline-offset: 4px; } @media (max-width: 600px) { .ds-workflow-tabs { justify-content: space-between; gap: 0; padding-bottom: 12px; } .ds-workflow-tabs button { padding: 10px 12px; font-size: 13px; } } @media (max-width: 360px) { .ds-workflow-tabs button { padding-inline: 10px; } }"
     },
     {
+      "name": "Feature Proof Panels",
+      "kind": "card",
+      "refersTo": "framed-surface",
+      "description": "Two optional preview features are shown with concise behavior copy and real synthetic-data screenshots in light/dark and desktop/mobile variants.",
+      "html": "<section class=\"ds-connections\" aria-labelledby=\"ds-connections-title\"><h2 id=\"ds-connections-title\">Keep the thread.</h2><div class=\"ds-connections-grid\"><article><h3>Smart tagging</h3><p>Start with the tags you already use. Review suggestions or opt into automatic tagging.</p><img alt=\"Smart tag suggestion in Nivra with demonstration content\" /></article><article><h3>Semantic search</h3><p>Find related notes and files even when your search uses different words.</p><img alt=\"Semantic search results in Nivra with demonstration content\" /></article></div></section>",
+      "css": ".ds-connections { padding-top: 104px; } .ds-connections-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; } .ds-connections-grid article { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); } .ds-connections-grid img { width: 100%; margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; } @media (max-width: 760px) { .ds-connections-grid { grid-template-columns: 1fr; } }"
+    },
+    {
       "name": "Installation Panel",
       "kind": "card",
       "refersTo": "framed-surface",

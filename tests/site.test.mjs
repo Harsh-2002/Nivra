@@ -3,11 +3,21 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 const html = readFileSync("dist/index.html", "utf8");
 test("all local page assets exist under the project base", () => {
-  for (const match of html.matchAll(/(?:src|href)="(\/Nivra\/[^"?#]+)"/g)) {
+  for (const match of html.matchAll(
+    /(?:data-(?:desktop|mobile)-href|src|href)="(\/Nivra\/[^"?#]+)"/g,
+  )) {
     const path = decodeURIComponent(match[1]).slice("/Nivra/".length);
     assert.ok(existsSync(`dist/${path}`), `Missing asset ${path}`);
   }
-  for (const name of ["overview", "notes", "board", "calendar", "forms"])
+  for (const name of [
+    "overview",
+    "notes",
+    "board",
+    "calendar",
+    "forms",
+    "smart-tags",
+    "semantic-search",
+  ])
     for (const theme of ["light", "dark"])
       for (const variant of ["", "-960", "-mobile"]) {
         const filename =

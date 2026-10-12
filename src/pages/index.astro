@@ -33,6 +33,26 @@ const workflows = [
     alt: "Nivra form builder showing a feedback form with name, email, choice and written answer fields.",
   },
 ];
+const connectedFeatures = [
+  {
+    id: "smart-tags",
+    title: "Smart tagging",
+    copy:
+      "Start with the tags you already use. Match new work to your tags first. " +
+      "Review suggestions, or opt into automatic tagging for recurring topics.",
+    window: "Tags",
+    alt: "Nivra showing a suggested tag alongside the item it can organize.",
+  },
+  {
+    id: "semantic-search",
+    title: "Semantic search",
+    copy:
+      "Search by the idea you remember. Find related notes and files even when " +
+      "your words differ, including OCR and document text.",
+    window: "Search",
+    alt: "Nivra search results for a natural-language query, showing related workspace items.",
+  },
+];
 const command =
   "docker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/app/data \\\n  ghcr.io/harsh-2002/nivra:latest";
 ---
@@ -246,10 +266,73 @@ const command =
             </div>
           </div>
         ))}
-        <p class="product-footnote">
-          Notes, journals, tasks, bookmarks and files — connected by tags and
-          search.
-        </p>
+      </section>
+      <section
+        class="connections container"
+        id="connections"
+        aria-labelledby="connections-title"
+      >
+        <div class="connections-heading">
+          <h2 id="connections-title">Keep the thread.</h2>
+          <p>Optional features in preview, shown with demonstration content.</p>
+        </div>
+        <div class="connections-grid">
+          {connectedFeatures.map((feature) => (
+            <article class="connection-card">
+              <div class="connection-copy">
+                <h3>{feature.title}</h3>
+                <p>{feature.copy}</p>
+              </div>
+              <div class="app-window connection-window">
+                <div class="window-bar" aria-hidden="true">
+                  <span class="window-dots">
+                    <i></i>
+                    <i></i>
+                    <i></i>
+                  </span>
+                  <span class="window-label">Nivra / {feature.window}</span>
+                  <span class="window-spacer"></span>
+                </div>
+                {(["light", "dark"] as const).map((theme) => (
+                  <div class={`theme-image ${theme}-image`}>
+                    <a
+                      class="connection-image-link"
+                      href={asset(`screenshots/${feature.id}-${theme}.webp`)}
+                      data-desktop-href={asset(
+                        `screenshots/${feature.id}-${theme}.webp`,
+                      )}
+                      data-mobile-href={asset(
+                        `screenshots/${feature.id}-mobile-${theme}.webp`,
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Open full-size ${feature.title} screenshot`}
+                    >
+                      <picture>
+                        <source
+                          media="(max-width: 600px)"
+                          srcset={asset(
+                            `screenshots/${feature.id}-mobile-${theme}.webp`,
+                          )}
+                        />
+                        <img
+                          src={asset(`screenshots/${feature.id}-${theme}.webp`)}
+                          srcset={`${asset(`screenshots/${feature.id}-${theme}-960.webp`)} 960w, ${asset(`screenshots/${feature.id}-${theme}.webp`)} 1440w`}
+                          sizes="(max-width: 600px) calc(100vw - 72px), (max-width: 760px) calc(100vw - 80px), (max-width: 1000px) calc((100vw - 116px) / 2), (max-width: 1219px) calc((100vw - 200px) / 2), 510px"
+                          width="1440"
+                          height="900"
+                          loading="lazy"
+                          decoding="async"
+                          alt={feature.alt}
+                        />
+                      </picture>
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
       <section
         class="ownership container"
@@ -359,6 +442,18 @@ const command =
     </footer>
     <script>
       const root = document.documentElement;
+      const screenshotViewport = window.matchMedia("(max-width: 600px)");
+      const refreshScreenshotLinks = () => {
+        for (const link of document.querySelectorAll<HTMLAnchorElement>(
+          ".connection-image-link",
+        )) {
+          link.href = screenshotViewport.matches
+            ? (link.dataset.mobileHref ?? link.href)
+            : (link.dataset.desktopHref ?? link.href);
+        }
+      };
+      refreshScreenshotLinks();
+      screenshotViewport.addEventListener("change", refreshScreenshotLinks);
       const preference = window.matchMedia("(prefers-color-scheme: dark)");
       const isDark = () =>
         root.dataset.theme ? root.dataset.theme === "dark" : preference.matches;
