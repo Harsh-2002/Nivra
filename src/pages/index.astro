@@ -3,34 +3,170 @@ import "../styles/site.css";
 const base = import.meta.env.BASE_URL;
 const asset = (name: string) => `${base}${name}`;
 const repository = "https://github.com/Harsh-2002/Nivra";
-const workflows = [
+const workflowGroups = [
   {
-    id: "notes",
+    id: "write",
     label: "Write",
-    title: "Give an idea somewhere to grow.",
-    copy: "A quick thought, a daily journal, a page with room to think. Keep your writing, drawings and references together.",
-    alt: "Nivra note editor showing the field guide project brief, with headings and a reading shelf.",
+    features: [
+      {
+        id: "notes",
+        label: "Notes",
+        title: "Give an idea somewhere to grow.",
+        copy: "Keep thoughts, references and drawings together in notes you can return to.",
+        alt: "Nivra note editor showing a native pollinator field guide with seasonal care notes.",
+      },
+      {
+        id: "journals",
+        label: "Journals",
+        title: "Make room for a daily thought.",
+        copy: "Keep dated entries close to the notes, plans and moments they belong with.",
+        alt: "Nivra journal view showing dated entries and a selected daily reflection.",
+      },
+      {
+        id: "quick",
+        label: "Quick",
+        title: "Catch a thought before it goes.",
+        copy: "Capture a note, task, link or file without losing your place.",
+        alt: "Nivra Quick capture view with options for saving a note, task, link or file.",
+      },
+      {
+        id: "drawing",
+        label: "Drawings",
+        title: "Think on the page.",
+        copy: "Sketch ideas and keep diagrams beside the notes they explain.",
+        alt: "Nivra drawing canvas with a project diagram and drawing controls.",
+      },
+      {
+        id: "published-note",
+        label: "Published notes",
+        title: "Share a note when it is ready.",
+        copy: "Publish a focused page and give people a simple link to read it.",
+        alt: "A published Nivra note displayed as a clean public reading page.",
+      },
+    ],
   },
   {
-    id: "board",
+    id: "plan",
     label: "Plan",
-    title: "Put the next step in view.",
-    copy: "Turn a thought into a task. Move it across your board, give it a date, and find it on your calendar.",
-    alt: "Nivra Kanban board with real demonstration tasks in To do, In progress and Done.",
+    features: [
+      {
+        id: "tasks",
+        label: "Tasks",
+        title: "Keep the next step close.",
+        copy: "Capture tasks, set due dates and keep the open work easy to scan.",
+        alt: "Nivra tasks list with open tasks, due dates and completion controls.",
+      },
+      {
+        id: "kanban",
+        label: "Kanban",
+        title: "See work move forward.",
+        copy: "Arrange tasks on a simple board and move each one as work changes.",
+        alt: "Nivra Kanban board with demonstration tasks in To do, In progress and Done columns.",
+      },
+      {
+        id: "calendar",
+        label: "Calendar",
+        title: "Make a little room for what matters.",
+        copy: "See dated tasks and events together, with reminders to bring you back.",
+        alt: "Nivra calendar with dated tasks and events across the month.",
+      },
+    ],
   },
   {
-    id: "calendar",
-    label: "Make time",
-    title: "A little room for what matters.",
-    copy: "See your tasks and events in one calendar. Link a note to a plan, and let a reminder bring you back to it.",
-    alt: "Nivra October calendar showing writing sessions, tasks and a coastal walk.",
-  },
-  {
-    id: "forms",
+    id: "collect",
     label: "Collect",
-    title: "Make space for other perspectives.",
-    copy: "Build a simple form, share it publicly, and keep the responses in your workspace. Export them when you need to.",
-    alt: "Nivra form builder showing a feedback form with name, email, choice and written answer fields.",
+    features: [
+      {
+        id: "bookmarks",
+        label: "Bookmarks",
+        title: "Keep useful links within reach.",
+        copy: "Save a page with its title and context, then find it alongside your notes.",
+        alt: "Nivra bookmarks view with saved links, collections and page descriptions.",
+      },
+      {
+        id: "artifacts",
+        label: "Artifacts",
+        title: "Keep files and fragments together.",
+        copy: "Save screenshots, documents, text and files in one searchable library.",
+        alt: "Nivra artifacts gallery showing document, image, text and file items.",
+      },
+      {
+        id: "forms",
+        label: "Forms",
+        title: "Make space for other perspectives.",
+        copy: "Build a simple form, choose its fields and share it when it is ready.",
+        alt: "Nivra form builder showing the Seedling exchange sign-up form with a required name field.",
+      },
+      {
+        id: "public-form",
+        label: "Published form",
+        title: "Collect responses in one place.",
+        copy: "Share a clean public form and keep each response with its supporting files.",
+        alt: "Nivra published public form displayed as a simple respondent-facing page.",
+      },
+      {
+        id: "form-responses",
+        label: "Responses",
+        title: "See what came back.",
+        copy: "Review individual submissions, inspect their details and export the results.",
+        alt: "Nivra form responses view showing submitted answers and response details.",
+      },
+      {
+        id: "trash",
+        label: "Trash",
+        title: "A way to bring things back.",
+        copy: "Review deleted items from across your workspace and restore what you still need.",
+        alt: "Nivra Trash listing deleted items from several workspace sections with restore actions.",
+      },
+    ],
+  },
+  {
+    id: "connect",
+    label: "Connect",
+    features: [
+      {
+        id: "tags",
+        label: "Tags",
+        title: "Give related work a shared thread.",
+        copy: "Use your own tags to gather notes, tasks, journal entries, links and files.",
+        alt: "Nivra tags view showing items grouped under an owner-created tag.",
+      },
+      {
+        id: "favorites",
+        label: "Favorites",
+        title: "Keep the important things close.",
+        copy: "Gather starred items from across your workspace in one place.",
+        alt: "Nivra Favorites view showing saved items from multiple content sections.",
+      },
+      {
+        id: "account-security",
+        label: "Account security",
+        title: "Keep your access in your hands.",
+        copy: "Review your sign-in methods, recovery options and device notifications.",
+        alt: "Nivra Account settings showing sign-in methods, passkeys, recovery and notification controls.",
+      },
+      {
+        id: "mcp",
+        label: "MCP",
+        title: "Let your tools work with your workspace.",
+        copy: "Connect compatible agents with the access you choose for them.",
+        alt: "Nivra MCP settings showing the server endpoint, client setup instructions and API-key controls.",
+      },
+      {
+        id: "import-export",
+        label: "Import & export",
+        title: "Take your workspace with you.",
+        copy: "Bring in existing material or export a portable copy of your workspace.",
+        alt: "Nivra Import and export settings showing available workspace transfer options.",
+      },
+      {
+        id: "settings-system",
+        label: "System settings",
+        title: "Choose how your workspace is kept.",
+        copy: "Configure storage, backups and upload limits in one place.",
+        alt: "Nivra System settings showing storage, backup and upload configuration.",
+      },
+    ],
   },
 ];
 const connectedFeatures = [
@@ -40,7 +176,7 @@ const connectedFeatures = [
     copy:
       "Start with the tags you already use. Match new work to your tags first. " +
       "Review suggestions, or opt into automatic tagging for recurring topics.",
-    window: "Tags",
+    window: "Tag suggestions",
     alt: "Nivra showing a suggested tag alongside the item it can organize.",
   },
   {
@@ -113,7 +249,7 @@ const command =
     <a class="skip-link" href="#main">
       Skip to content
     </a>
-    <main id="main">
+    <main id="main" data-site-base={base}>
       <section class="hero container" aria-labelledby="hero-title">
         <a class="brand hero-brand" href={base} aria-label="Nivra home">
           <img src={asset("icon.svg")} width="30" height="30" alt="" />
@@ -157,23 +293,48 @@ const command =
               <span class="window-label">Nivra / Overview</span>
               <span class="window-spacer"></span>
             </div>
-            {["light", "dark"].map((theme) => (
-              <picture class={`theme-image ${theme}-image`}>
+            <picture class="pending-screenshot" data-screenshot-picture>
+              <source
+                data-mobile-source
+                media="(max-width: 600px)"
+                sizes="(max-width: 600px) calc(100vw - 48px), 390px"
+              />
+              <img
+                data-screenshot-id="overview"
+                sizes="(max-width: 600px) calc(100vw - 48px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px"
+                width="1440"
+                height="900"
+                fetchpriority="high"
+                alt="Nivra Overview showing a personal field guide project, with open tasks, recent notes and saved references."
+              />
+            </picture>
+            <noscript>
+              <picture class="fallback-screenshot">
+                <source
+                  media="(max-width: 600px) and (prefers-color-scheme: dark)"
+                  srcset={`${asset("screenshots/overview-mobile-dark-390.webp")} 390w, ${asset("screenshots/overview-mobile-dark-780.webp")} 780w, ${asset("screenshots/overview-mobile-dark-1170.webp")} 1170w`}
+                  sizes="(max-width: 600px) calc(100vw - 48px), 390px"
+                />
                 <source
                   media="(max-width: 600px)"
-                  srcset={asset(`screenshots/overview-mobile-${theme}.webp`)}
+                  srcset={`${asset("screenshots/overview-mobile-light-390.webp")} 390w, ${asset("screenshots/overview-mobile-light-780.webp")} 780w, ${asset("screenshots/overview-mobile-light-1170.webp")} 1170w`}
+                  sizes="(max-width: 600px) calc(100vw - 48px), 390px"
+                />
+                <source
+                  media="(prefers-color-scheme: dark)"
+                  srcset={`${asset("screenshots/overview-desktop-dark-1440.webp")} 1440w, ${asset("screenshots/overview-desktop-dark-2880.webp")} 2880w`}
+                  sizes="(max-width: 1219px) calc(100vw - 80px), 1140px"
                 />
                 <img
-                  src={asset(`screenshots/overview-${theme}.webp`)}
-                  srcset={`${asset(`screenshots/overview-${theme}-960.webp`)} 960w, ${asset(`screenshots/overview-${theme}.webp`)} 1920w`}
-                  sizes="(max-width: 600px) calc(100vw - 40px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px"
+                  src={asset("screenshots/overview-desktop-light-1440.webp")}
+                  srcset={`${asset("screenshots/overview-desktop-light-1440.webp")} 1440w, ${asset("screenshots/overview-desktop-light-2880.webp")} 2880w`}
+                  sizes="(max-width: 1219px) calc(100vw - 80px), 1140px"
                   width="1440"
                   height="900"
-                  fetchpriority="high"
                   alt="Nivra Overview showing a personal field guide project, with open tasks, recent notes and saved references."
                 />
               </picture>
-            ))}
+            </noscript>
           </div>
           <figcaption>
             One place to return to. Real Nivra screens, with demonstration
@@ -199,36 +360,67 @@ const command =
           </p>
         </div>
         <div
-          class="workflow-tabs"
+          class="workflow-group-tabs"
           role="tablist"
-          aria-label="Explore Nivra workflows"
+          aria-label="Explore Nivra features"
         >
-          {workflows.map((w, i) => (
+          {workflowGroups.map((group, i) => (
             <button
-              id={`tab-${w.id}`}
+              id={`group-tab-${group.id}`}
               type="button"
               role="tab"
               aria-selected={i === 0 ? "true" : "false"}
-              aria-controls={`panel-${w.id}`}
+              aria-controls="workflow-group-panel"
               tabindex={i === 0 ? 0 : -1}
-              data-workflow={w.id}
+              data-workflow-group={group.id}
             >
-              {w.label}
+              {group.label}
             </button>
           ))}
         </div>
-        {workflows.map((w, i) => (
+        <div
+          class="workflow-group-panel"
+          id="workflow-group-panel"
+          role="tabpanel"
+          aria-labelledby="group-tab-write"
+        >
+          {workflowGroups.map((group, i) => (
+            <div
+              class="workflow-feature-tabs"
+              id={`feature-tabs-${group.id}`}
+              role="tablist"
+              aria-label={`${group.label} features`}
+              hidden={i !== 0}
+            >
+              {group.features.map((feature, featureIndex) => (
+                <button
+                  id={`feature-tab-${feature.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={featureIndex === 0 ? "true" : "false"}
+                  aria-controls="workflow-panel"
+                  tabindex={featureIndex === 0 ? 0 : -1}
+                  data-workflow-feature={feature.id}
+                  data-workflow-group={group.id}
+                  data-label={feature.label}
+                  data-title={feature.title}
+                  data-copy={feature.copy}
+                  data-alt={feature.alt}
+                >
+                  {feature.label}
+                </button>
+              ))}
+            </div>
+          ))}
           <div
             class="workflow-panel"
-            id={`panel-${w.id}`}
+            id="workflow-panel"
             role="tabpanel"
-            aria-labelledby={`tab-${w.id}`}
-            tabindex="0"
-            hidden={i !== 0}
+            aria-labelledby="feature-tab-notes"
           >
             <div class="workflow-copy">
-              <h3>{w.title}</h3>
-              <p>{w.copy}</p>
+              <h3 data-workflow-title>{workflowGroups[0].features[0].title}</h3>
+              <p data-workflow-copy>{workflowGroups[0].features[0].copy}</p>
             </div>
             <div class="app-window workflow-window">
               <div class="window-bar" aria-hidden="true">
@@ -237,35 +429,38 @@ const command =
                   <i></i>
                   <i></i>
                 </span>
-                <span class="window-label">
-                  Nivra /{" "}
-                  {w.id === "board"
-                    ? "Kanban"
-                    : w.id[0].toUpperCase() + w.id.slice(1)}
+                <span class="window-label" data-workflow-window-label>
+                  Nivra / Notes
                 </span>
                 <span class="window-spacer"></span>
               </div>
-              {["light", "dark"].map((theme) => (
-                <picture class={`theme-image ${theme}-image`}>
+              <a
+                class="workflow-image-link"
+                data-full-size-id="notes"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open full-size Notes screenshot"
+              >
+                <picture class="pending-screenshot" data-screenshot-picture>
                   <source
+                    data-mobile-source
                     media="(max-width: 600px)"
-                    srcset={asset(`screenshots/${w.id}-mobile-${theme}.webp`)}
+                    sizes="(max-width: 600px) calc(100vw - 48px), 390px"
                   />
                   <img
-                    src={asset(`screenshots/${w.id}-${theme}.webp`)}
-                    srcset={`${asset(`screenshots/${w.id}-${theme}-960.webp`)} 960w, ${asset(`screenshots/${w.id}-${theme}.webp`)} 1920w`}
-                    sizes="(max-width: 600px) calc(100vw - 40px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px"
+                    data-screenshot-id="notes"
+                    sizes="(max-width: 600px) calc(100vw - 48px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px"
                     width="1440"
                     height="900"
                     loading="lazy"
                     decoding="async"
-                    alt={w.alt}
+                    alt={workflowGroups[0].features[0].alt}
                   />
                 </picture>
-              ))}
+              </a>
             </div>
           </div>
-        ))}
+        </div>
       </section>
       <section
         class="connections container"
@@ -274,7 +469,10 @@ const command =
       >
         <div class="connections-heading">
           <h2 id="connections-title">Keep the thread.</h2>
-          <p>Optional features in preview, shown with demonstration content.</p>
+          <p>
+            Smart tagging and semantic search are previews on main, shown with
+            demonstration content.
+          </p>
         </div>
         <div class="connections-grid">
           {connectedFeatures.map((feature) => (
@@ -293,42 +491,30 @@ const command =
                   <span class="window-label">Nivra / {feature.window}</span>
                   <span class="window-spacer"></span>
                 </div>
-                {(["light", "dark"] as const).map((theme) => (
-                  <div class={`theme-image ${theme}-image`}>
-                    <a
-                      class="connection-image-link"
-                      href={asset(`screenshots/${feature.id}-${theme}.webp`)}
-                      data-desktop-href={asset(
-                        `screenshots/${feature.id}-${theme}.webp`,
-                      )}
-                      data-mobile-href={asset(
-                        `screenshots/${feature.id}-mobile-${theme}.webp`,
-                      )}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`Open full-size ${feature.title} screenshot`}
-                    >
-                      <picture>
-                        <source
-                          media="(max-width: 600px)"
-                          srcset={asset(
-                            `screenshots/${feature.id}-mobile-${theme}.webp`,
-                          )}
-                        />
-                        <img
-                          src={asset(`screenshots/${feature.id}-${theme}.webp`)}
-                          srcset={`${asset(`screenshots/${feature.id}-${theme}-960.webp`)} 960w, ${asset(`screenshots/${feature.id}-${theme}.webp`)} 1440w`}
-                          sizes="(max-width: 600px) calc(100vw - 40px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px"
-                          width="1440"
-                          height="900"
-                          loading="lazy"
-                          decoding="async"
-                          alt={feature.alt}
-                        />
-                      </picture>
-                    </a>
-                  </div>
-                ))}
+                <a
+                  class="connection-image-link"
+                  data-full-size-id={feature.id}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open full-size ${feature.title} screenshot`}
+                >
+                  <picture class="pending-screenshot" data-screenshot-picture>
+                    <source
+                      data-mobile-source
+                      media="(max-width: 600px)"
+                      sizes="(max-width: 600px) calc(100vw - 48px), 390px"
+                    />
+                    <img
+                      data-screenshot-id={feature.id}
+                      sizes="(max-width: 600px) calc(100vw - 48px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px"
+                      width="1440"
+                      height="900"
+                      loading="lazy"
+                      decoding="async"
+                      alt={feature.alt}
+                    />
+                  </picture>
+                </a>
               </div>
             </article>
           ))}
@@ -341,24 +527,24 @@ const command =
         <h2 id="features-title">Everything has a place.</h2>
         <dl class="feature-list">
           <div>
-            <dt>Write and keep</dt>
+            <dt>Write and share</dt>
             <dd>
-              Notes, journals and drawings. Bookmarks, files and images, with
-              OCR and document text extraction.
+              Notes, journals, drawings and published pages. Save bookmarks,
+              screenshots and documents alongside them.
             </dd>
           </div>
           <div>
             <dt>Plan and collect</dt>
             <dd>
-              Tasks, Kanban boards and calendar events with reminders. Public
-              forms, file uploads and exportable responses.
+              Tasks, Kanban boards and calendar events with reminders. Share
+              forms, review responses and restore deleted items.
             </dd>
           </div>
           <div>
             <dt>Find and connect</dt>
             <dd>
-              Tags, favorites and search. Publish notes, connect your tools
-              through MCP and the API, or install Nivra as a PWA.
+              Tags, favorites, smart tagging and semantic search. Connect agents
+              with MCP, use the API, or add Nivra to your device.
             </dd>
           </div>
         </dl>
@@ -472,20 +658,88 @@ const command =
     <script>
       const root = document.documentElement;
       const screenshotViewport = window.matchMedia("(max-width: 600px)");
-      const refreshScreenshotLinks = () => {
-        for (const link of document.querySelectorAll<HTMLAnchorElement>(
-          ".connection-image-link",
-        )) {
-          link.href = screenshotViewport.matches
-            ? (link.dataset.mobileHref ?? link.href)
-            : (link.dataset.desktopHref ?? link.href);
-        }
-      };
-      refreshScreenshotLinks();
-      screenshotViewport.addEventListener("change", refreshScreenshotLinks);
       const preference = window.matchMedia("(prefers-color-scheme: dark)");
       const isDark = () =>
         root.dataset.theme ? root.dataset.theme === "dark" : preference.matches;
+      const siteBase =
+        document.querySelector<HTMLElement>("#main")?.dataset.siteBase ?? "/";
+      const screenshotUrl = (
+        id: string,
+        device: "desktop" | "mobile",
+        theme: "light" | "dark",
+        width: number,
+      ) => `${siteBase}screenshots/${id}-${device}-${theme}-${width}.webp`;
+      for (const picture of document.querySelectorAll<HTMLPictureElement>(
+        ".pending-screenshot",
+      )) {
+        const img = picture.querySelector<HTMLImageElement>("img");
+        if (!img) continue;
+        img.addEventListener("load", () => {
+          const expected = img.dataset.expectedScreenshot;
+          if (expected && img.currentSrc.includes(expected))
+            picture.classList.add("is-ready");
+        });
+        img.addEventListener("error", () =>
+          picture.classList.remove("is-ready"),
+        );
+      }
+      const refreshScreenshots = () => {
+        const theme = isDark() ? "dark" : "light";
+        const mobile = screenshotViewport.matches;
+        for (const picture of document.querySelectorAll<HTMLPictureElement>(
+          "[data-screenshot-picture]",
+        )) {
+          const img = picture.querySelector<HTMLImageElement>(
+            "img[data-screenshot-id]",
+          );
+          if (!img) continue;
+          const id = img.dataset.screenshotId;
+          if (!id) continue;
+          const device = mobile ? "mobile" : "desktop";
+          const selected = `${id}-${device}-${theme}-`;
+          picture.classList.remove("is-ready");
+          img.dataset.expectedScreenshot = selected;
+          const source = picture.querySelector<HTMLSourceElement>(
+            "source[data-mobile-source]",
+          );
+          if (source) {
+            source.srcset = [390, 780, 1170]
+              .map(
+                (width) =>
+                  `${screenshotUrl(id, "mobile", theme, width)} ${width}w`,
+              )
+              .join(", ");
+            source.sizes = "(max-width: 600px) calc(100vw - 48px), 390px";
+          }
+          img.srcset = [1440, 2880]
+            .map(
+              (width) =>
+                `${screenshotUrl(id, "desktop", theme, width)} ${width}w`,
+            )
+            .join(", ");
+          img.sizes =
+            "(max-width: 600px) calc(100vw - 48px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px";
+          img.src = screenshotUrl(id, "desktop", theme, 1440);
+          const fullSizeLink = picture.closest<HTMLAnchorElement>(
+            "[data-full-size-id]",
+          );
+          if (fullSizeLink)
+            fullSizeLink.href = screenshotUrl(
+              id,
+              mobile ? "mobile" : "desktop",
+              theme,
+              mobile ? 1170 : 2880,
+            );
+          if (
+            img.complete &&
+            img.naturalWidth > 0 &&
+            img.currentSrc.includes(selected)
+          )
+            picture.classList.add("is-ready");
+        }
+      };
+      refreshScreenshots();
+      screenshotViewport.addEventListener("change", refreshScreenshots);
       const refreshThemeLabel = () =>
         document
           .querySelector(".theme-toggle")
@@ -495,41 +749,142 @@ const command =
           );
       refreshThemeLabel();
       preference.addEventListener("change", refreshThemeLabel);
+      preference.addEventListener("change", refreshScreenshots);
       document.querySelector(".theme-toggle")?.addEventListener("click", () => {
         root.dataset.theme = isDark() ? "light" : "dark";
         try {
           localStorage.setItem("nivra-site-theme", root.dataset.theme);
         } catch {}
         refreshThemeLabel();
+        refreshScreenshots();
       });
-      const tabs = [
-        ...document.querySelectorAll<HTMLButtonElement>("[data-workflow]"),
+      const groupTabs = [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          ".workflow-group-tabs [data-workflow-group]",
+        ),
       ];
-      function select(tab: HTMLButtonElement) {
-        for (const item of tabs) {
+      const featureTabs = [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          "[data-workflow-feature]",
+        ),
+      ];
+      const groupPanel = document.querySelector<HTMLElement>(
+        "#workflow-group-panel",
+      );
+      const workflowPanel =
+        document.querySelector<HTMLElement>("#workflow-panel");
+      const selectedFeatures = new Map<string, string>();
+      for (const tab of featureTabs)
+        if (tab.getAttribute("aria-selected") === "true")
+          selectedFeatures.set(
+            tab.dataset.workflowGroup ?? "",
+            tab.dataset.workflowFeature ?? "",
+          );
+
+      function activateFeature(tab: HTMLButtonElement) {
+        const group = tab.dataset.workflowGroup ?? "write";
+        const features = featureTabs.filter(
+          (item) => item.dataset.workflowGroup === group,
+        );
+        for (const item of features) {
           const active = item === tab;
           item.setAttribute("aria-selected", String(active));
           item.tabIndex = active ? 0 : -1;
-          const panel = document.getElementById(
-            item.getAttribute("aria-controls")!,
-          );
-          if (panel) panel.hidden = !active;
         }
+        selectedFeatures.set(group, tab.dataset.workflowFeature ?? "");
+        workflowPanel?.setAttribute("aria-labelledby", tab.id);
+        const title = document.querySelector<HTMLElement>(
+          "[data-workflow-title]",
+        );
+        const copy = document.querySelector<HTMLElement>(
+          "[data-workflow-copy]",
+        );
+        const windowLabel = document.querySelector<HTMLElement>(
+          "[data-workflow-window-label]",
+        );
+        if (title)
+          title.textContent = tab.dataset.title ?? tab.textContent ?? "";
+        if (copy) copy.textContent = tab.dataset.copy ?? "";
+        if (windowLabel)
+          windowLabel.textContent = `Nivra / ${tab.dataset.label ?? tab.textContent ?? ""}`;
+        const img = workflowPanel?.querySelector<HTMLImageElement>(
+          "img[data-screenshot-id]",
+        );
+        if (img) {
+          img.dataset.screenshotId = tab.dataset.workflowFeature ?? "";
+          img.alt = tab.dataset.alt ?? "";
+          const link = img.closest<HTMLAnchorElement>("[data-full-size-id]");
+          if (link) {
+            link.dataset.fullSizeId = tab.dataset.workflowFeature ?? "";
+            link.setAttribute(
+              "aria-label",
+              `Open full-size ${tab.dataset.label ?? "workspace"} screenshot`,
+            );
+          }
+        }
+        refreshScreenshots();
       }
-      for (const tab of tabs) {
-        tab.addEventListener("click", () => select(tab));
-        tab.addEventListener("keydown", (e) => {
-          const index = tabs.indexOf(tab);
-          let next = index;
-          if (e.key === "ArrowRight") next = (index + 1) % tabs.length;
-          else if (e.key === "ArrowLeft")
-            next = (index + tabs.length - 1) % tabs.length;
-          else if (e.key === "Home") next = 0;
-          else if (e.key === "End") next = tabs.length - 1;
-          else return;
-          e.preventDefault();
-          select(tabs[next]);
-          tabs[next].focus();
+
+      function activateGroup(tab: HTMLButtonElement) {
+        const group = tab.dataset.workflowGroup ?? "write";
+        for (const item of groupTabs) {
+          const active = item === tab;
+          item.setAttribute("aria-selected", String(active));
+          item.tabIndex = active ? 0 : -1;
+        }
+        groupPanel?.setAttribute("aria-labelledby", tab.id);
+        for (const list of document.querySelectorAll<HTMLElement>(
+          ".workflow-feature-tabs",
+        ))
+          list.hidden = list.id !== `feature-tabs-${group}`;
+        const features = featureTabs.filter(
+          (item) => item.dataset.workflowGroup === group,
+        );
+        const selectedId = selectedFeatures.get(group);
+        const selected =
+          features.find(
+            (item) => item.dataset.workflowFeature === selectedId,
+          ) ?? features[0];
+        if (selected) activateFeature(selected);
+      }
+
+      function handleTabKeys(
+        event: KeyboardEvent,
+        tab: HTMLButtonElement,
+        tabs: HTMLButtonElement[],
+        activate: (target: HTMLButtonElement) => void,
+      ) {
+        const index = tabs.indexOf(tab);
+        let next = index;
+        if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+        else if (event.key === "ArrowLeft")
+          next = (index + tabs.length - 1) % tabs.length;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        const target = tabs[next];
+        activate(target);
+        target.focus();
+      }
+
+      for (const tab of groupTabs) {
+        tab.addEventListener("click", () => activateGroup(tab));
+        tab.addEventListener("keydown", (event) =>
+          handleTabKeys(event, tab, groupTabs, activateGroup),
+        );
+      }
+      for (const tab of featureTabs) {
+        tab.addEventListener("click", () => activateFeature(tab));
+        tab.addEventListener("keydown", (event) => {
+          const list = tab.closest<HTMLElement>(".workflow-feature-tabs");
+          if (!list) return;
+          const listTabs = [
+            ...list.querySelectorAll<HTMLButtonElement>(
+              "[data-workflow-feature]",
+            ),
+          ];
+          handleTabKeys(event, tab, listTabs, activateFeature);
         });
       }
       document

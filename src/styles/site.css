@@ -287,27 +287,30 @@ h3 {
 .window-spacer {
   width: 46px;
 }
-.theme-image img {
+[data-screenshot-picture] {
+  display: block;
+  aspect-ratio: 16 / 10;
+}
+[data-screenshot-picture] img,
+.fallback-screenshot img {
+  display: block;
   width: 100%;
-  aspect-ratio: 16/10;
+  height: 100%;
   object-fit: contain;
 }
-.dark-image {
-  display: none;
+.pending-screenshot img {
+  opacity: 0;
 }
-:root[data-theme="dark"] .dark-image {
+.pending-screenshot.is-ready img {
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+.fallback-screenshot {
   display: block;
+  aspect-ratio: 16 / 10;
 }
-:root[data-theme="dark"] .light-image {
-  display: none;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .dark-image {
-    display: block;
-  }
-  :root:not([data-theme="light"]) .light-image {
-    display: none;
-  }
+.fallback-screenshot img {
+  background: var(--surface);
 }
 figcaption {
   font-size: 12px;
@@ -331,17 +334,18 @@ figcaption {
   max-width: 280px;
   padding-bottom: 3px;
 }
-.workflow-tabs {
+.workflow-group-tabs,
+.workflow-feature-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   align-items: center;
   max-width: 100%;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 14px;
 }
-.workflow-tabs button {
+.workflow-group-tabs button,
+.workflow-feature-tabs button {
   min-height: 44px;
-  padding: 10px 20px;
+  padding: 10px 16px;
   font-size: 14px;
   font-weight: 520;
   white-space: nowrap;
@@ -350,13 +354,22 @@ figcaption {
   border-radius: 8px;
   color: var(--muted);
 }
-.workflow-tabs button:hover {
+.workflow-group-tabs button:hover,
+.workflow-feature-tabs button:hover {
   color: var(--fg);
   background: var(--soft);
 }
-.workflow-tabs button[aria-selected="true"] {
+.workflow-group-tabs button[aria-selected="true"],
+.workflow-feature-tabs button[aria-selected="true"] {
   background: var(--soft);
   color: var(--fg);
+}
+.workflow-feature-tabs {
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+.workflow-group-panel {
+  min-width: 0;
 }
 .workflow-copy {
   display: grid;
@@ -434,20 +447,15 @@ figcaption {
   font-size: 15px;
   line-height: 1.6;
 }
-.connection-image-link {
+.connection-image-link,
+.workflow-image-link {
   display: block;
   cursor: zoom-in;
 }
-.connection-image-link:focus-visible {
+.connection-image-link:focus-visible,
+.workflow-image-link:focus-visible {
   outline: 2px solid var(--fg);
   outline-offset: -2px;
-}
-.connection-image-link picture {
-  display: block;
-}
-.connection-window .theme-image img {
-  aspect-ratio: 16 / 10;
-  object-fit: contain;
 }
 .ownership {
   margin-top: 124px;
@@ -714,9 +722,11 @@ pre code {
     max-width: 390px;
     margin-inline: auto;
   }
-  .theme-image img {
+  [data-screenshot-picture] {
     aspect-ratio: 390/844;
-    object-fit: contain;
+  }
+  .fallback-screenshot {
+    aspect-ratio: 390/844;
   }
   .window-bar {
     height: 32px;
@@ -742,17 +752,13 @@ pre code {
     max-width: 390px;
     margin-inline: auto;
   }
-  .connection-window .theme-image img {
-    aspect-ratio: 390 / 844;
-    object-fit: contain;
-  }
-  .workflow-tabs {
+  .workflow-group-tabs,
+  .workflow-feature-tabs {
     gap: 0;
-    justify-content: space-between;
-    padding-bottom: 12px;
   }
-  .workflow-tabs button {
-    padding: 10px 12px;
+  .workflow-group-tabs button,
+  .workflow-feature-tabs button {
+    padding-inline: 12px;
     font-size: 13px;
   }
   .workflow-copy h3 {
@@ -792,7 +798,8 @@ pre code {
   .hero-actions .text-link {
     gap: 3px;
   }
-  .workflow-tabs button {
+  .workflow-group-tabs button,
+  .workflow-feature-tabs button {
     padding-inline: 10px;
   }
   .hero-intro {
