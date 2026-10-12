@@ -41,6 +41,11 @@ const config: NextConfig = {
     "/*": [
       "./migrations/**/*",
       "./generated/ai-worker.cjs",
+      ...(
+        JSON.parse(
+          readFileSync("generated/ai-worker-trace.json", "utf8"),
+        ) as string[]
+      ).map((file) => `./${file}`),
       "./node_modules/onnxruntime-node/**/*",
       "./node_modules/onnxruntime-common/**/*",
       "./node_modules/@huggingface/tokenizers/**/*",

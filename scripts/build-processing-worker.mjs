@@ -65,3 +65,11 @@ await build({
   ],
   logLevel: "warning",
 });
+
+const aiTrace = await nodeFileTrace(["generated/ai-worker.cjs"], {
+  base: process.cwd(),
+});
+await writeFile(
+  "generated/ai-worker-trace.json",
+  JSON.stringify([...aiTrace.fileList].sort()),
+);
