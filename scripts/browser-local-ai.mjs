@@ -2130,11 +2130,16 @@ try {
               true,
               "Tab should move from the master opt-in to the tagging-mode control",
             );
-            const automaticModeResponsePromise = page.waitForResponse(
-              (response) =>
-                new URL(response.url()).pathname === "/api/v1/ai" &&
-                response.request().method() === "PATCH",
-            );
+            const automaticModeResponsePromise = page
+              .waitForResponse(
+                (response) =>
+                  new URL(response.url()).pathname === "/api/v1/ai" &&
+                  response.request().method() === "PATCH",
+              )
+              .then(
+                (response) => ({ response }),
+                (error) => ({ error }),
+              );
             await page.keyboard.press("Space");
             await page
               .getByRole("option", {
@@ -2176,6 +2181,26 @@ try {
               `${name} ${width} ${theme}: mode menu after open ${JSON.stringify(await taggingModeKeyboardState())}`,
             );
             await page.keyboard.press("ArrowDown");
+            await page.waitForFunction(
+              () => {
+                const automaticOption = [
+                  ...document.querySelectorAll('[role="option"]'),
+                ].find(
+                  (option) =>
+                    option.textContent?.trim() === "Automatic tagging",
+                );
+                const highlighted =
+                  automaticOption?.getAttribute("data-highlighted");
+                const active = document.activeElement;
+                return (
+                  (highlighted !== null && highlighted !== undefined) ||
+                  (active?.getAttribute("role") === "option" &&
+                    active.textContent?.trim() === "Automatic tagging")
+                );
+              },
+              undefined,
+              { timeout: 3000, polling: "raf" },
+            );
             const highlightedMode = await taggingModeKeyboardState();
             console.log(
               `${name} ${width} ${theme}: mode menu after ArrowDown ${JSON.stringify(highlightedMode)}`,
@@ -2194,7 +2219,9 @@ try {
             await page.keyboard.press("Enter");
             let automaticModeResponse;
             try {
-              automaticModeResponse = await automaticModeResponsePromise;
+              const result = await automaticModeResponsePromise;
+              if (result.error) throw result.error;
+              automaticModeResponse = result.response;
             } catch (error) {
               console.log(
                 `${name} ${width} ${theme}: mode request timed out; state=${JSON.stringify(await taggingModeKeyboardState())}; alerts=${JSON.stringify(await localAiSettings.getByRole("alert").allTextContents())}`,
