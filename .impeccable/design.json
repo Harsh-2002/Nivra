@@ -172,8 +172,8 @@
     "motion": [
       {
         "name": "smooth-scroll",
-        "value": "scroll-behavior: smooth; scroll-padding-top: 100px",
-        "purpose": "Smooth in-page navigation that leaves room above the destination."
+        "value": "scroll-behavior: smooth; scroll-padding-top: 24px",
+        "purpose": "Smooth in-page navigation with a small reading inset."
       },
       {
         "name": "workflow-panel-arrive",
@@ -219,11 +219,11 @@
       "css": ".ds-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--fg); cursor: pointer; } .ds-icon-button:hover { background: var(--soft); } .ds-icon-button:focus-visible { outline: 2px solid var(--fg); outline-offset: 4px; } .ds-icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }"
     },
     {
-      "name": "Responsive Navigation",
-      "kind": "nav",
-      "description": "A compact desktop link row is hidden on mobile, where actions remain directly accessible in the page.",
-      "html": "<header class=\"ds-nav-shell\"><nav class=\"ds-desktop-nav\" aria-label=\"Main navigation\"><a href=\"#product\">Product</a><a href=\"#yours\">Why Nivra</a><a href=\"https://github.com/Harsh-2002/Nivra\">GitHub <svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><path d=\"M7 17 17 7M7 7h10v10\" /></svg></a></nav></header>",
-      "css": ".ds-nav-shell { position: relative; display: flex; align-items: center; justify-content: flex-end; min-height: 80px; gap: 28px; border-bottom: 1px solid var(--line); } .ds-desktop-nav { display: flex; align-items: center; gap: 30px; color: var(--muted); font: 400 14px Geist, sans-serif; } .ds-desktop-nav a { display: flex; align-items: center; gap: 4px; min-height: 44px; color: inherit; text-decoration: none; } .ds-desktop-nav a:hover { color: var(--fg); } .ds-desktop-nav a:focus-visible { outline: 2px solid var(--fg); outline-offset: 4px; } .ds-desktop-nav svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; } @media (max-width: 760px) { .ds-nav-shell { min-height: 72px; } .ds-desktop-nav { display: none; } }"
+      "name": "Hero Brand",
+      "kind": "custom",
+      "description": "The Nivra wordmark introduces the page directly above the tagline; navigation stays out of the hero.",
+      "html": "<a class=\"ds-hero-brand\" href=\"/\" aria-label=\"Nivra home\"><img src=\"icon.svg\" width=\"30\" height=\"30\" alt=\"\" /><span>Nivra</span></a>",
+      "css": ".ds-hero-brand { display: inline-flex; align-items: center; gap: 10px; margin-bottom: 28px; color: var(--fg); font: 650 21px Geist, sans-serif; letter-spacing: -0.04em; text-decoration: none; } .ds-hero-brand img { width: 30px; height: 30px; } .ds-hero-brand:focus-visible { outline: 2px solid var(--fg); outline-offset: 4px; }"
     },
     {
       "name": "Workflow Tabs",

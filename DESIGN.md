@@ -14,19 +14,19 @@ colors:
 typography:
   display:
     fontFamily: "Geist, sans-serif"
-    fontSize: "clamp(56px, 6.1vw, 84px)"
+    fontSize: "clamp(48px, 5.55vw, 80px)"
     fontWeight: 540
     lineHeight: 1.03
     letterSpacing: "-0.035em"
   headline:
     fontFamily: "Geist, sans-serif"
-    fontSize: "clamp(34px, 3.55vw, 48px)"
+    fontSize: "clamp(34px, 3.2vw, 46px)"
     fontWeight: 540
     lineHeight: 1.12
     letterSpacing: "-0.035em"
   title:
     fontFamily: "Geist, sans-serif"
-    fontSize: "24px"
+    fontSize: "23px"
     fontWeight: 540
     lineHeight: 1.25
     letterSpacing: "-0.025em"
@@ -161,9 +161,9 @@ On narrower screens the lead and section headings step down, while body copy and
 
 ## Layout
 
-Content sits in a centered container capped at 1200px. The desktop page pairs columns for the introduction, ownership details, and setup; intermediate widths tighten the side gutters before navigation and content grids stack for mobile. Sections have ample separation, while controls stay compact.
+Content sits in a centered container capped at 1140px. The desktop page pairs columns for the introduction, ownership details, and setup; intermediate widths tighten the side gutters before content grids stack for mobile. Sections have measured separation, while controls stay compact.
 
-The implemented responsive breakpoints are 1000px, 760px, 600px, and 360px. At 760px the horizontal navigation is hidden, the header retains the brand and theme control, and the main two-column groups become single-column. At 600px screenshot frames use portrait captures; at 360px gutters and action gaps tighten again. The sidecar records the exact breakpoint values.
+The implemented responsive breakpoints are 1000px, 760px, 600px, and 360px. The page begins with the Nivra wordmark and hero; theme control sits in the footer. At 760px the main two-column groups become single-column. At 600px screenshot frames use portrait captures; at 360px gutters and action gaps tighten again. The sidecar records the exact breakpoint values.
 
 ## Elevation & Depth
 
@@ -179,7 +179,7 @@ Controls and selected tabs have softly curved corners. Screenshot and installati
 
 ### Buttons
 
-- **Primary:** The main calls to action use an opposite-tone solid fill, a compact label, and a small inline arrow. The header version uses the smaller height.
+- **Primary:** The main calls to action use an opposite-tone solid fill, a compact label, and a small inline arrow.
 - **Hover / Focus:** Hover slightly reduces opacity. Keyboard focus uses a visible foreground outline with offset; it does not rely on color change alone.
 - **Icon controls:** Theme and copy buttons use a transparent square hit area with a soft hover fill. Each has a changing or purpose-specific accessible name.
 - **Text links:** Secondary actions remain plain inline links with an arrow or external-link mark; hover underlines are reserved for these links.
@@ -190,11 +190,10 @@ Controls and selected tabs have softly curved corners. Screenshot and installati
 - **Installation panel:** The Docker command block shares the framed surface language and allows horizontal scrolling when needed. Copy feedback is announced through a live status region.
 - **Shadow strategy:** Flat; see Elevation & Depth.
 
-### Navigation
+### Page entry and footer
 
-- **Desktop:** A compact row of muted links sits beside the brand and header actions. Links gain foreground contrast on hover.
-- **Mobile:** The header shows the brand and theme control without a menu. Installation and repository actions remain directly accessible in the page.
-- **Footer:** Only GitHub and MIT license links, aligned to the content gutter, with no repeated branding or tagline.
+- **Hero:** The Nivra mark and wordmark sit directly above the tagline. There is no global header or menu.
+- **Footer:** GitHub and MIT license links sit opposite a 44px theme control, aligned to the content gutter. No repeated logo or tagline appears in the footer.
 
 ### Workflow Tabs
 

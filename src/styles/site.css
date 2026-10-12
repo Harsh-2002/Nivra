@@ -1,6 +1,6 @@
 @font-face {
   font-family: Geist;
-  src: url("/fonts/geist-latin.woff2") format("woff2");
+  src: url("/Nivra/fonts/geist-latin.woff2") format("woff2");
   font-weight: 100 900;
   font-style: normal;
   font-display: swap;
@@ -19,7 +19,7 @@
   font-family: Geist, sans-serif;
   font-synthesis: none;
   scroll-behavior: smooth;
-  scroll-padding-top: 100px;
+  scroll-padding-top: 24px;
 }
 :root[data-theme="dark"] {
   --bg: #101011;
@@ -123,20 +123,20 @@ p {
   line-height: 1.6;
 }
 h1 {
-  font-size: clamp(56px, 6.1vw, 84px);
+  font-size: clamp(48px, 5.55vw, 80px);
   line-height: 1.03;
 }
 h2 {
-  font-size: clamp(34px, 3.55vw, 48px);
+  font-size: clamp(34px, 3.2vw, 46px);
   line-height: 1.12;
 }
 h3 {
-  font-size: 24px;
+  font-size: 23px;
   line-height: 1.25;
   letter-spacing: -0.025em;
 }
 .container {
-  width: min(1200px, calc(100% - 80px));
+  width: min(1140px, calc(100% - 80px));
   margin-inline: auto;
 }
 .skip-link {
@@ -153,18 +153,6 @@ h3 {
 .skip-link:focus {
   transform: none;
 }
-.site-header {
-  border-bottom: 1px solid var(--line);
-}
-.header-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  width: min(1200px, calc(100% - 80px));
-  margin: auto;
-  height: 80px;
-}
 .brand {
   display: inline-flex;
   align-items: center;
@@ -176,34 +164,6 @@ h3 {
 }
 .brand:hover {
   text-decoration: none;
-}
-.desktop-nav {
-  display: flex;
-  gap: 30px;
-  margin-left: auto;
-  margin-right: 28px;
-  align-items: center;
-  font-size: 14px;
-  color: var(--muted);
-}
-.desktop-nav a {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 44px;
-}
-.desktop-nav a:hover {
-  color: var(--fg);
-  text-decoration: none;
-}
-.desktop-nav svg {
-  width: 14px;
-  height: 14px;
-}
-.header-actions {
-  display: flex;
-  gap: 12px;
-  align-items: center;
 }
 .icon-button {
   width: 44px;
@@ -238,10 +198,6 @@ h3 {
   text-decoration: none;
   opacity: 0.87;
 }
-.button.small {
-  min-height: 44px;
-  padding: 10px 16px;
-}
 .text-link {
   display: inline-flex;
   align-items: center;
@@ -268,20 +224,23 @@ h3 {
   }
 }
 .hero {
-  padding-top: 98px;
+  padding-top: 82px;
+}
+.hero-brand {
+  margin-bottom: 28px;
 }
 .hero-intro {
   display: grid;
   grid-template-columns: 1.12fr 1fr;
   align-items: end;
-  gap: 70px;
-  margin-bottom: 60px;
+  gap: 66px;
+  margin-bottom: 56px;
 }
 .hero-detail {
   padding-bottom: 5px;
 }
 .hero-detail > p {
-  font-size: 20px;
+  font-size: 19px;
   max-width: 390px;
   line-height: 1.5;
 }
@@ -358,7 +317,7 @@ figcaption {
   line-height: 1.6;
 }
 .product {
-  padding-top: 132px;
+  padding-top: 124px;
 }
 .section-intro {
   display: flex;
@@ -429,14 +388,14 @@ figcaption {
   margin-top: 18px;
 }
 .ownership {
-  margin-top: 132px;
-  padding-top: 70px;
-  padding-bottom: 70px;
+  margin-top: 124px;
+  padding-top: 66px;
+  padding-bottom: 66px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 110px;
+  gap: 104px;
 }
 .ownership > div > p {
   font-size: 16px;
@@ -464,8 +423,8 @@ figcaption {
   grid-template-columns: 1fr 1.2fr;
   gap: 80px;
   align-items: center;
-  padding-top: 100px;
-  padding-bottom: 100px;
+  padding-top: 94px;
+  padding-bottom: 94px;
 }
 .start-copy > p {
   font-size: 16px;
@@ -525,8 +484,12 @@ pre code {
 .site-footer {
   border-top: 1px solid var(--line);
   padding: 32px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
 }
-.site-footer > div {
+.footer-links {
   display: flex;
   gap: 24px;
   font-size: 13px;
@@ -538,8 +501,7 @@ pre code {
   align-items: center;
 }
 @media (max-width: 1000px) {
-  .container,
-  .header-inner {
+  .container {
     width: calc(100% - 48px);
   }
   .hero {
@@ -557,39 +519,22 @@ pre code {
     margin-top: 20px;
   }
   .product {
-    padding-top: 90px;
+    padding-top: 88px;
   }
   .ownership {
     gap: 60px;
-    margin-top: 90px;
+    margin-top: 88px;
   }
   .start {
     gap: 40px;
-    padding-top: 80px;
-    padding-bottom: 80px;
+    padding-top: 76px;
+    padding-bottom: 76px;
   }
   .workflow-copy {
     gap: 40px;
   }
-  .desktop-nav {
-    margin-right: 0;
-    gap: 22px;
-  }
 }
 @media (max-width: 760px) {
-  .header-inner {
-    height: 72px;
-    gap: 12px;
-  }
-  .desktop-nav {
-    display: none;
-  }
-  .header-actions {
-    gap: 3px;
-  }
-  .header-cta {
-    display: none;
-  }
   .hero-intro {
     grid-template-columns: 1fr;
     gap: 25px;
@@ -605,10 +550,10 @@ pre code {
     gap: 22px;
   }
   .hero {
-    padding-top: 55px;
+    padding-top: 54px;
   }
   h1 {
-    font-size: 64px;
+    font-size: clamp(54px, 8.4vw, 64px);
   }
   .section-intro {
     align-items: start;
@@ -660,18 +605,17 @@ pre code {
   }
 }
 @media (max-width: 600px) {
-  .container,
-  .header-inner {
+  .container {
     width: calc(100% - 40px);
   }
   .brand {
     font-size: 20px;
   }
   h1 {
-    font-size: clamp(45px, 12.8vw, 60px);
+    font-size: clamp(45px, 12.8vw, 54px);
   }
   h2 {
-    font-size: 36px;
+    font-size: 34px;
   }
   .hero-detail > p {
     font-size: 17px;
@@ -702,7 +646,7 @@ pre code {
     margin-inline: auto;
   }
   .product {
-    padding-top: 76px;
+    padding-top: 72px;
   }
   .workflow-tabs {
     gap: 0;
@@ -722,7 +666,7 @@ pre code {
     line-height: 1.6;
   }
   .ownership {
-    margin-top: 76px;
+    margin-top: 72px;
   }
   .install-heading {
     padding-left: 16px;
@@ -737,8 +681,7 @@ pre code {
   }
 }
 @media (max-width: 360px) {
-  .container,
-  .header-inner {
+  .container {
     width: calc(100% - 32px);
   }
   .hero-actions {
