@@ -9,6 +9,7 @@ import { searchStopwords } from "./policy";
 
 const vectorDimensions = 384;
 const maxProposalNameLength = 60;
+const maxProposalPreviewItems = 3;
 const maxCandidatesPerSource = 3;
 const maxEvidencePerProposal = 12;
 const maxPendingProposals = 30;
@@ -1044,7 +1045,7 @@ export function listTagProposals(owner: string) {
         name: row.name.slice(0, maxProposalNameLength),
         color: "gray" as const,
         itemCount: row.item_count,
-        items: sources.map((source) => ({
+        items: sources.slice(0, maxProposalPreviewItems).map((source) => ({
           itemId: source.item_id,
           type: source.item_kind,
           title: source.title,

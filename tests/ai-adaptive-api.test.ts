@@ -10,6 +10,9 @@ test("adaptive tagging preferences and proposal reviews remain owner-only and re
   process.env.NIVRA_DATA_DIR = directory;
   const routes = await import("../src/app/api/v1/[...path]/route");
   const { sqlite } = await import("../src/lib/server/db");
+  const { fingerprint, sourceFor, sourceText } =
+    await import("../src/lib/server/ai/content");
+  const { modelVersion } = await import("../src/lib/server/ai/model");
   const { stopJobWorker } = await import("../src/lib/server/jobs");
   const { stopAi } = await import("../src/lib/server/ai/indexer");
   const { operationFor } = await import("../src/lib/server/api-contract");
@@ -115,6 +118,112 @@ test("adaptive tagging preferences and proposal reviews remain owner-only and re
       );
       assert.ok([404, 409].includes(missing.status));
     }
+
+    const database = sqlite();
+    database.prepare("UPDATE ai_configuration SET enabled=1").run();
+    const ownerId = (
+      database.prepare("SELECT id FROM user LIMIT 1").get() as { id: string }
+    ).id;
+    const proposalId = randomUUID();
+    const proposalName = "Disposable proposal preview";
+    const nameFingerprint = fingerprint(proposalName);
+    const now = Date.now();
+    const vector = new Float32Array(384);
+    vector[0] = 1;
+    const embedding = Buffer.from(vector.buffer);
+    database
+      .prepare(
+        "INSERT INTO ai_tag_proposals(id,owner_id,normalized_name,name_fingerprint,name,status,cohesion,created_at) VALUES(?,?,?,?,?,'pending',1,?)",
+      )
+      .run(
+        proposalId,
+        ownerId,
+        proposalName.toLowerCase(),
+        nameFingerprint,
+        proposalName,
+        now,
+      );
+    const previewNoteIds: string[] = [];
+    for (let index = 0; index < 4; index++) {
+      const id = randomUUID();
+      previewNoteIds.push(id);
+      database
+        .prepare(
+          "INSERT INTO notes(id,owner_id,title,document,text,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+        )
+        .run(
+          id,
+          ownerId,
+          `Preview source ${index + 1}`,
+          '{"schemaVersion":1,"blocks":[]}',
+          "Disposable evidence for proposal preview contract testing.",
+          now,
+          now,
+        );
+      const sourceKey = `note:${id}`;
+      const source = sourceFor(sourceKey);
+      assert.ok(source, "synthetic note is visible through the AI source view");
+      const sourceFingerprint = fingerprint(sourceText(source));
+      database
+        .prepare(
+          "UPDATE ai_content SET owner_id=?,item_kind='note',item_id=?,state='indexed',indexed_generation=generation,model_version=?,fingerprint=?,pending=0 WHERE source_key=?",
+        )
+        .run(ownerId, id, modelVersion, sourceFingerprint, sourceKey);
+      const generation = (
+        database
+          .prepare("SELECT generation FROM ai_content WHERE source_key=?")
+          .get(sourceKey) as { generation: number }
+      ).generation;
+      database
+        .prepare(
+          "INSERT INTO ai_tag_proposal_evidence(proposal_id,source_key,canonical_item_key,generation,fingerprint,model_version,terms,cohesion,embedding,created_at) VALUES(?,?,?,?,?,?,?,1,?,?)",
+        )
+        .run(
+          proposalId,
+          sourceKey,
+          sourceKey,
+          generation,
+          sourceFingerprint,
+          modelVersion,
+          "[]",
+          embedding,
+          now,
+        );
+    }
+
+    const proposalResponse = await value("ai/tag-proposals");
+    const proposal = proposalResponse.items[0];
+    assert.equal(proposal.id, proposalId);
+    assert.equal(proposal.itemCount, 4);
+    assert.equal(proposal.items.length, 3);
+    assert.deepEqual(
+      proposal.items.map((item: { itemId: string }) => item.itemId),
+      [...previewNoteIds].sort().slice(0, 3),
+      "the endpoint returns only the first three source previews",
+    );
+    const proposalOperation = operationFor("/api/v1/ai/tag-proposals", "GET");
+    assert.ok(proposalOperation);
+    assert.ok(
+      proposalOperation.output.safeParse(proposalResponse).success,
+      "the four-source response conforms to the public API contract",
+    );
+
+    assert.deepEqual(
+      await value(`ai/tag-proposals/${proposalId}/accept`, "POST", {}),
+      { ok: true },
+    );
+    assert.equal(
+      (
+        database
+          .prepare(
+            "SELECT count(*) AS n FROM note_tags WHERE tag_id=(SELECT created_tag_id FROM ai_tag_proposals WHERE id=?)",
+          )
+          .get(proposalId) as { n: number }
+      ).n,
+      4,
+      "acceptance still uses every eligible evidence item beyond the preview",
+    );
+
     const key = await value("ai-connections", "POST", {
       name: "Adaptive API test",
       action: "create-key",
