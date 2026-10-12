@@ -5,9 +5,17 @@ import { useCompletion } from "@/lib/completion-client";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Label } from "./ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 type Status = {
   enabled: boolean;
   revision: number;
+  taggingMode: "manual" | "automatic";
   total: number;
   indexed: number;
   failed: number;
@@ -113,6 +121,44 @@ export function LocalAiSettings({
         />
         Enable smart features
       </Label>
+      {status?.enabled && (
+        <div className="local-ai-mode">
+          <Label htmlFor="local-ai-tagging-mode">Tagging mode</Label>
+          <Select
+            value={status.taggingMode ?? "manual"}
+            disabled={statusLoading || !!statusError || busy}
+            onValueChange={(value) => {
+              if (value !== "manual" && value !== "automatic") return;
+              void run(() =>
+                api("ai", {
+                  method: "PATCH",
+                  body: JSON.stringify({
+                    enabled: status.enabled,
+                    revision: status.revision,
+                    taggingMode: value,
+                  }),
+                }),
+              );
+            }}
+          >
+            <SelectTrigger
+              id="local-ai-tagging-mode"
+              aria-describedby="local-ai-mode-description"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="manual">Review suggestions</SelectItem>
+              <SelectItem value="automatic">Automatic tagging</SelectItem>
+            </SelectContent>
+          </Select>
+          <p id="local-ai-mode-description" className="settings-description">
+            {status.taggingMode === "automatic"
+              ? "Reliable matches are assigned automatically, and reusable tags are created for recurring topics."
+              : "Review each suggestion before assigning it or creating a reusable tag."}
+          </p>
+        </div>
+      )}
       {status?.enabled && !onboarding && (
         <>
           <p className="settings-description" role="status">

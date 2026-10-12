@@ -7289,6 +7289,24 @@ body .bn-mobile-formatting-toolbar {
   gap: 10px;
   min-height: 44px;
 }
+.local-ai-mode {
+  display: grid;
+  gap: 8px;
+  max-width: 34rem;
+  margin-block-start: 12px;
+}
+.local-ai-mode > label {
+  font-size: 13px;
+  font-weight: 550;
+}
+.local-ai-mode [data-slot="select-trigger"] {
+  width: 100%;
+  min-height: 44px;
+}
+.local-ai-mode .settings-description {
+  margin: 0;
+  line-height: 1.55;
+}
 .tag-suggestion-card {
   min-width: 0;
 }
@@ -7370,6 +7388,89 @@ body .bn-mobile-formatting-toolbar {
   flex-shrink: 0;
   width: 44px;
   height: 44px;
+}
+.tag-proposal-section {
+  margin-block-start: 28px;
+}
+.tag-proposal-section > h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 550;
+}
+.tag-proposal-card .tag-collection-card {
+  position: relative;
+}
+.tag-proposal-card .tag-collection-card:hover {
+  background: transparent;
+}
+.tag-proposal-card .tag-collection-kind {
+  padding-right: 48px;
+}
+.tag-proposal-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 48px;
+}
+.tag-proposal-name {
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.tag-proposal-count {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.tag-proposal-sources {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tag-proposal-sources > li {
+  min-width: 0;
+}
+.tag-proposal-sources .tag-proposal-source {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding-inline: 8px;
+  text-align: left;
+  white-space: normal;
+}
+.tag-proposal-source > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tag-proposal-source > small {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.tag-proposal-card .tag-proposal-footer {
+  width: 100%;
+}
+.tag-proposal-footer > button {
+  width: 100%;
+  min-height: 44px;
+  justify-content: flex-start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tag-proposal-footer > button svg {
+  flex-shrink: 0;
 }
 .tag-collection .tag-suggestions-review {
   flex-shrink: 0;

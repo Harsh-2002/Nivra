@@ -38,9 +38,14 @@ if ((await api("status")).setup) {
 }
 assert.match((await api("status")).owner?.name ?? "", /review|audit|test/i);
 const originalTheme = (await api("settings")).theme;
-let status = await api("ai");
-if (!status.enabled)
-  await api("ai", "PATCH", { enabled: true, revision: status.revision });
+const originalAiStatus = await api("ai");
+let status = originalAiStatus;
+if (!status.enabled || status.taggingMode !== "manual")
+  status = await api("ai", "PATCH", {
+    enabled: true,
+    revision: status.revision,
+    taggingMode: "manual",
+  });
 const name = process.env.NIVRA_AUDIT_ENGINE ?? "chromium",
   engines = { chromium, firefox, webkit };
 assert.ok(engines[name]);
@@ -297,7 +302,7 @@ try {
           });
         if (width < 1024) {
           const sizes = await s
-            .locator(".tag-suggestion-card button")
+            .locator(".tag-suggestion-card button, .tag-proposal-card button")
             .evaluateAll((elements) =>
               elements.map((e) => e.getBoundingClientRect().height),
             );
@@ -415,6 +420,63 @@ try {
               Math.max(bounds.chip.top, bounds.add.top),
           `The suggested-tag chip and Add icon should share one footer row; bounds=${JSON.stringify(bounds)}`,
         );
+      }
+      async function verifyProposalCards(
+        suggestions,
+        title,
+        createName,
+        dismissName,
+      ) {
+        const section = suggestions.locator(".tag-proposal-section");
+        await section
+          .getByRole("heading", { name: "New tag ideas", exact: true })
+          .waitFor();
+        const cards = section.locator(".tag-proposal-card");
+        assert.equal(
+          await cards.count(),
+          2,
+          "Both tag ideas should be visible",
+        );
+        const createCard = cards.filter({ hasText: createName }).first();
+        const dismissCard = cards.filter({ hasText: dismissName }).first();
+        await createCard
+          .getByRole("heading", { name: createName, exact: true })
+          .waitFor();
+        await dismissCard
+          .getByRole("heading", { name: dismissName, exact: true })
+          .waitFor();
+        await createCard
+          .getByText("Suggested new tag", { exact: true })
+          .waitFor();
+        await createCard
+          .getByText("Suggested for 3 items", { exact: true })
+          .waitFor();
+        await createCard
+          .getByRole("button", { name: `Open ${title} (Note)`, exact: true })
+          .waitFor();
+        await createCard
+          .getByRole("button", {
+            name: `Create ${createName} and tag 3 items`,
+            exact: true,
+          })
+          .waitFor();
+        assert.equal(
+          await createCard
+            .locator(".tag-proposal-footer > button")
+            .evaluate((element) => element.innerText.trim()),
+          "Create tag",
+          "New tag creation should have concise, consistent visible copy",
+        );
+        await dismissCard
+          .getByRole("button", {
+            name: `Dismiss new tag idea ${dismissName}`,
+            exact: true,
+          })
+          .waitFor();
+        await dismissCard
+          .getByRole("button", { name: `Open ${title} (Note)`, exact: true })
+          .waitFor();
+        return { createCard, dismissCard };
       }
       async function assertScreenReaderStatus(root, message) {
         const status = root.getByRole("status").filter({ hasText: message });
@@ -1000,6 +1062,66 @@ try {
           await page.screenshot({
             path: `${output}/${name}-${width}-${theme}-tag-navigation.png`,
           });
+        const proposalNames = {
+          create: `Workflow idea ${randomUUID().slice(0, 6)}`,
+          dismiss: `Reference idea ${randomUUID().slice(0, 6)}`,
+        };
+        const proposalIds = {
+          create: randomUUID(),
+          dismiss: randomUUID(),
+        };
+        let proposalFixtureItems = [
+          {
+            id: proposalIds.create,
+            name: proposalNames.create,
+            color: "gray",
+            itemCount: 3,
+            items: [{ itemId: note.id, type: "note", title }],
+            createdAt: Date.now(),
+          },
+          {
+            id: proposalIds.dismiss,
+            name: proposalNames.dismiss,
+            color: "gray",
+            itemCount: 4,
+            items: [{ itemId: note.id, type: "note", title }],
+            createdAt: Date.now() - 1,
+          },
+        ];
+        const proposalDecisions = [];
+        const proposalFixtureRoute = async (route) => {
+          const request = route.request();
+          const path = new URL(request.url()).pathname;
+          if (request.method() === "GET" && path === "/api/v1/ai/tag-proposals")
+            return route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ items: proposalFixtureItems }),
+            });
+          const decision = path.match(
+            /^\/api\/v1\/ai\/tag-proposals\/([^/]+)\/(accept|reject)$/,
+          );
+          if (request.method() === "POST" && decision) {
+            const [, id, action] = decision;
+            if (!proposalFixtureItems.some((item) => item.id === id))
+              return route.fulfill({
+                status: 404,
+                contentType: "application/json",
+                body: JSON.stringify({ error: "Unknown fixture proposal" }),
+              });
+            proposalDecisions.push({ id, action });
+            proposalFixtureItems = proposalFixtureItems.filter(
+              (item) => item.id !== id,
+            );
+            return route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ ok: true }),
+            });
+          }
+          return route.continue();
+        };
+        await page.route("**/api/v1/ai/tag-proposals**", proposalFixtureRoute);
         await suggestionsLink.click();
         let suggestions = page.locator(".tag-suggestions-panel");
         await suggestions
@@ -1029,7 +1151,96 @@ try {
           .getByText(tag.name, { exact: true })
           .waitFor();
         await verifySuggestionCardActions(suggestions, title, tag.name);
+        let proposalCards = await verifyProposalCards(
+          suggestions,
+          title,
+          proposalNames.create,
+          proposalNames.dismiss,
+        );
         await audit(suggestions, "tag-suggestions");
+        if (name === "chromium" && width === 320 && theme === "light") {
+          const sourceButton = proposalCards.createCard.getByRole("button", {
+            name: `Open ${title} (Note)`,
+            exact: true,
+          });
+          await sourceButton.click();
+          await page.locator('[aria-label="Note content"]').waitFor();
+          await waitForWorkspaceApiIdle("open proposed tag source");
+          const assignedTags = (await api(`item-tags/note/${note.id}`)).tags;
+          assert.equal(
+            assignedTags.some(
+              (assigned) => assigned.name === proposalNames.create,
+            ),
+            false,
+            "Opening a representative item must not create or assign a proposed tag",
+          );
+          await (
+            await nav()
+          )
+            .getByRole("button", { name: "Tag suggestions", exact: true })
+            .click();
+          suggestions = page.locator(".tag-suggestions-panel");
+          await suggestions
+            .getByRole("heading", { name: "Tag suggestions", exact: true })
+            .waitFor();
+          proposalCards = await verifyProposalCards(
+            suggestions,
+            title,
+            proposalNames.create,
+            proposalNames.dismiss,
+          );
+          const dismissResponsePromise = page.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return (
+              response.request().method() === "POST" &&
+              url.pathname ===
+                `/api/v1/ai/tag-proposals/${proposalIds.dismiss}/reject`
+            );
+          });
+          await proposalCards.dismissCard
+            .getByRole("button", {
+              name: `Dismiss new tag idea ${proposalNames.dismiss}`,
+              exact: true,
+            })
+            .click();
+          const dismissResponse = await dismissResponsePromise;
+          assert.equal(dismissResponse.status(), 200);
+          await assertScreenReaderStatus(
+            suggestions,
+            `Suggestion for ${proposalNames.dismiss} dismissed.`,
+          );
+          await proposalCards.dismissCard.waitFor({ state: "detached" });
+          assert.deepEqual(proposalDecisions, [
+            { id: proposalIds.dismiss, action: "reject" },
+          ]);
+          await waitForWorkspaceApiIdle("dismissed new tag idea");
+          const createResponsePromise = page.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return (
+              response.request().method() === "POST" &&
+              url.pathname ===
+                `/api/v1/ai/tag-proposals/${proposalIds.create}/accept`
+            );
+          });
+          await proposalCards.createCard
+            .getByRole("button", {
+              name: `Create ${proposalNames.create} and tag 3 items`,
+              exact: true,
+            })
+            .click();
+          const createResponse = await createResponsePromise;
+          assert.equal(createResponse.status(), 200);
+          await assertScreenReaderStatus(
+            suggestions,
+            `Created ${proposalNames.create} and assigned it to 3 items.`,
+          );
+          await proposalCards.createCard.waitFor({ state: "detached" });
+          assert.deepEqual(proposalDecisions, [
+            { id: proposalIds.dismiss, action: "reject" },
+            { id: proposalIds.create, action: "accept" },
+          ]);
+          await waitForWorkspaceApiIdle("created proposed tag");
+        }
         await waitForAiCompletionQuiet();
         await waitForWorkspaceApiIdle("suggestions settled before navigation");
         await (
@@ -1893,6 +2104,197 @@ try {
             false,
             "Tag-suggestion loading failure must not disable the smart-feature toggle",
           );
+          const modeControl = localAiSettings.getByRole("combobox", {
+            name: "Tagging mode",
+            exact: true,
+          });
+          await modeControl.waitFor({ state: "visible" });
+          await localAiSettings
+            .getByText(
+              "Review each suggestion before assigning it or creating a reusable tag.",
+              { exact: true },
+            )
+            .waitFor();
+          assert.equal(
+            (await api("ai")).taggingMode,
+            "manual",
+            "The matrix begins with review mode enabled",
+          );
+          if (name === "chromium" && width === 320 && theme === "light") {
+            await errorToggle.focus();
+            await page.keyboard.press("Tab");
+            assert.equal(
+              await modeControl.evaluate(
+                (element) => element === document.activeElement,
+              ),
+              true,
+              "Tab should move from the master opt-in to the tagging-mode control",
+            );
+            const automaticModeResponsePromise = page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/v1/ai" &&
+                response.request().method() === "PATCH",
+            );
+            await page.keyboard.press("Space");
+            await page
+              .getByRole("option", {
+                name: "Automatic tagging",
+                exact: true,
+              })
+              .waitFor();
+            const taggingModeKeyboardState = () =>
+              page.locator("#local-ai-tagging-mode").evaluate((control) => {
+                const active = document.activeElement;
+                return {
+                  control: {
+                    text: control.textContent?.trim(),
+                    state: control.getAttribute("data-state"),
+                    expanded: control.getAttribute("aria-expanded"),
+                    activeDescendant: control.getAttribute(
+                      "aria-activedescendant",
+                    ),
+                  },
+                  active: active
+                    ? {
+                        role: active.getAttribute("role"),
+                        label: active.getAttribute("aria-label"),
+                        text: active.textContent?.trim(),
+                        state: active.getAttribute("data-state"),
+                      }
+                    : null,
+                  options: [
+                    ...document.querySelectorAll('[role="option"]'),
+                  ].map((option) => ({
+                    text: option.textContent?.trim(),
+                    state: option.getAttribute("data-state"),
+                    selected: option.getAttribute("aria-selected"),
+                    highlighted: option.getAttribute("data-highlighted"),
+                  })),
+                };
+              });
+            console.log(
+              `${name} ${width} ${theme}: mode menu after open ${JSON.stringify(await taggingModeKeyboardState())}`,
+            );
+            await page.keyboard.press("ArrowDown");
+            const highlightedMode = await taggingModeKeyboardState();
+            console.log(
+              `${name} ${width} ${theme}: mode menu after ArrowDown ${JSON.stringify(highlightedMode)}`,
+            );
+            assert.ok(
+              highlightedMode.options.some(
+                (option) =>
+                  option.text === "Automatic tagging" &&
+                  (option.highlighted === "true" ||
+                    option.highlighted === "" ||
+                    option.selected === "true" ||
+                    highlightedMode.active?.text === "Automatic tagging"),
+              ),
+              "ArrowDown should highlight Automatic tagging before confirming it",
+            );
+            await page.keyboard.press("Enter");
+            let automaticModeResponse;
+            try {
+              automaticModeResponse = await automaticModeResponsePromise;
+            } catch (error) {
+              console.log(
+                `${name} ${width} ${theme}: mode request timed out; state=${JSON.stringify(await taggingModeKeyboardState())}; alerts=${JSON.stringify(await localAiSettings.getByRole("alert").allTextContents())}`,
+              );
+              if (output)
+                await page.screenshot({
+                  path: `${output}/${name}-${width}-${theme}-mode-timeout.png`,
+                });
+              throw error;
+            }
+            assert.equal(automaticModeResponse.status(), 200);
+            await localAiSettings
+              .getByText(
+                "Reliable matches are assigned automatically, and reusable tags are created for recurring topics.",
+                { exact: true },
+              )
+              .waitFor();
+            assert.equal(
+              (await api("ai")).taggingMode,
+              "automatic",
+              "The automatic tagging mode should persist",
+            );
+
+            const disableResponsePromise = page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/v1/ai" &&
+                response.request().method() === "PATCH",
+            );
+            await errorToggle.click();
+            const disableResponse = await disableResponsePromise;
+            assert.equal(disableResponse.status(), 200);
+            await page.waitForFunction(
+              (checkbox) => checkbox.getAttribute("aria-checked") === "false",
+              await errorToggle.elementHandle(),
+            );
+            await modeControl.waitFor({ state: "hidden" });
+            let disabledStatus = await api("ai");
+            assert.equal(disabledStatus.enabled, false);
+            assert.equal(
+              disabledStatus.taggingMode,
+              "automatic",
+              "Turning off smart features should preserve the chosen mode",
+            );
+
+            const enableResponsePromise = page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/v1/ai" &&
+                response.request().method() === "PATCH",
+            );
+            await errorToggle.click();
+            const enableResponse = await enableResponsePromise;
+            assert.equal(enableResponse.status(), 200);
+            await page.waitForFunction(
+              (checkbox) => checkbox.getAttribute("aria-checked") === "true",
+              await errorToggle.elementHandle(),
+            );
+            await modeControl.waitFor({ state: "visible" });
+            await localAiSettings
+              .getByText(
+                "Reliable matches are assigned automatically, and reusable tags are created for recurring topics.",
+                { exact: true },
+              )
+              .waitFor();
+            disabledStatus = await api("ai");
+            assert.equal(disabledStatus.enabled, true);
+            assert.equal(
+              disabledStatus.taggingMode,
+              "automatic",
+              "Re-enabling smart features should retain automatic mode",
+            );
+
+            const manualModeResponsePromise = page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/v1/ai" &&
+                response.request().method() === "PATCH",
+            );
+            await modeControl.focus();
+            await page.keyboard.press("Space");
+            await page
+              .getByRole("option", {
+                name: "Review suggestions",
+                exact: true,
+              })
+              .waitFor();
+            await page.keyboard.press("ArrowUp");
+            await page.keyboard.press("Enter");
+            const manualModeResponse = await manualModeResponsePromise;
+            assert.equal(manualModeResponse.status(), 200);
+            await localAiSettings
+              .getByText(
+                "Review each suggestion before assigning it or creating a reusable tag.",
+                { exact: true },
+              )
+              .waitFor();
+            assert.equal(
+              (await api("ai")).taggingMode,
+              "manual",
+              "The manual review mode should persist when selected by keyboard",
+            );
+          }
           await waitForWorkspaceApiIdle("tag-suggestion error state");
           assert.deepEqual(errors, []);
           console.log(
@@ -1914,9 +2316,22 @@ try {
     await browser.close();
   } finally {
     try {
-      await api("settings", "PATCH", { theme: originalTheme });
+      const currentAiStatus = await api("ai");
+      if (
+        currentAiStatus.enabled !== originalAiStatus.enabled ||
+        currentAiStatus.taggingMode !== originalAiStatus.taggingMode
+      )
+        await api("ai", "PATCH", {
+          enabled: originalAiStatus.enabled,
+          revision: currentAiStatus.revision,
+          taggingMode: originalAiStatus.taggingMode,
+        });
     } finally {
-      await owner.dispose();
+      try {
+        await api("settings", "PATCH", { theme: originalTheme });
+      } finally {
+        await owner.dispose();
+      }
     }
   }
 }

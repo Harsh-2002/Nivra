@@ -28,6 +28,40 @@ type Suggestion = {
   tag: { id: string; name: string; color: string };
   createdAt: number;
 };
+type ProposalSource = {
+  itemId: string;
+  type: SearchResult["type"];
+  title: string;
+  formId?: string;
+};
+type TagProposal = {
+  id: string;
+  name: string;
+  color: string;
+  itemCount: number;
+  items: ProposalSource[];
+  createdAt: number;
+};
+
+function sourceTypeLabel(type: SearchResult["type"]) {
+  return type === "response"
+    ? "Form response"
+    : type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+function sourceIcon(type: SearchResult["type"]) {
+  return type === "note"
+    ? FileText
+    : type === "task"
+      ? SquareCheckBig
+      : type === "bookmark"
+        ? Bookmark
+        : type === "event"
+          ? CalendarDays
+          : type === "artifact"
+            ? Layers
+            : ClipboardList;
+}
 
 export function TagSuggestionsPanel({
   beforeAction,
@@ -40,6 +74,7 @@ export function TagSuggestionsPanel({
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [items, setItems] = useState<Suggestion[]>([]);
+  const [proposals, setProposals] = useState<TagProposal[]>([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -107,17 +142,24 @@ export function TagSuggestionsPanel({
         setEnabled(status.enabled);
         if (!status.enabled) {
           setItems([]);
+          setProposals([]);
           setHasLoaded(true);
           return;
         }
-        const result = await api<{ items: Suggestion[] }>("ai/suggestions", {
-          signal: controller.signal,
-        });
+        const [result, proposalResult] = await Promise.all([
+          api<{ items: Suggestion[] }>("ai/suggestions", {
+            signal: controller.signal,
+          }),
+          api<{ items: TagProposal[] }>("ai/tag-proposals", {
+            signal: controller.signal,
+          }),
+        ]);
         if (
           !controller.signal.aborted &&
           generation === reviewGeneration.current
         ) {
           setItems(result.items);
+          setProposals(proposalResult.items);
           setHasLoaded(true);
         }
       } catch {
@@ -138,25 +180,43 @@ export function TagSuggestionsPanel({
     return () => controller.abort();
   }, [version, scheduleRefresh]);
 
-  async function open(item: Suggestion) {
+  async function openResult(id: string, result: SearchResult) {
     if (busy || reviewInFlight.current) return;
     setBusy(true);
     setActionError(null);
     setMessage("");
     try {
-      await onSelect({
-        id: item.itemId,
-        type: item.type,
-        title: item.title,
-        excerpt: item.excerpt,
-        updatedAt: item.createdAt,
-        ...(item.formId ? { formId: item.formId } : {}),
-      });
+      await onSelect(result);
     } catch {
-      setActionError({ itemId: item.id, message: "Could not open this item." });
+      setActionError({ itemId: id, message: "Could not open this item." });
     } finally {
       setBusy(false);
     }
+  }
+
+  async function open(item: Suggestion) {
+    await openResult(item.id, {
+      id: item.itemId,
+      type: item.type,
+      title: item.title,
+      excerpt: item.excerpt,
+      updatedAt: item.createdAt,
+      ...(item.formId ? { formId: item.formId } : {}),
+    });
+  }
+
+  async function openProposalSource(
+    proposal: TagProposal,
+    source: ProposalSource,
+  ) {
+    await openResult(`${proposal.id}:${source.itemId}`, {
+      id: source.itemId,
+      type: source.type,
+      title: source.title,
+      excerpt: "",
+      updatedAt: proposal.createdAt,
+      ...(source.formId ? { formId: source.formId } : {}),
+    });
   }
 
   async function decide(item: Suggestion, decision: "accept" | "reject") {
@@ -191,6 +251,52 @@ export function TagSuggestionsPanel({
               ? "Smart features are turned off. Turn them on in Settings → System and refresh."
               : "This item changed or was already reviewed. Refresh the list and try again."
             : "Could not update this suggestion. Refresh and try again.",
+      });
+    } finally {
+      reviewInFlight.current = false;
+      setBusy(false);
+      if (reviewed || refreshQueued.current) {
+        if (loadingRef.current) refreshQueued.current = true;
+        else refresh(true);
+      }
+    }
+  }
+
+  async function decideProposal(
+    proposal: TagProposal,
+    decision: "accept" | "reject",
+  ) {
+    if (busy || reviewInFlight.current) return;
+    reviewInFlight.current = true;
+    let reviewed = false;
+    setBusy(true);
+    setActionError(null);
+    setMessage("");
+    try {
+      if (!(await beforeAction())) return;
+      await api(`ai/tag-proposals/${proposal.id}/${decision}`, {
+        method: "POST",
+        body: "{}",
+      });
+      reviewGeneration.current++;
+      reviewed = true;
+      setProposals((current) =>
+        current.filter((item) => item.id !== proposal.id),
+      );
+      setMessage(
+        decision === "accept"
+          ? `Created ${proposal.name} and assigned it to ${proposal.itemCount} items.`
+          : `Suggestion for ${proposal.name} dismissed.`,
+      );
+    } catch (error) {
+      setActionError({
+        itemId: proposal.id,
+        message:
+          error instanceof ApiError && error.status === 409
+            ? error.message === "Local AI is disabled."
+              ? "Smart features are turned off. Turn them on in Settings → System and refresh."
+              : "This tag idea changed or was already reviewed. Refresh the list and try again."
+            : "Could not update this tag idea. Refresh and try again.",
       });
     } finally {
       reviewInFlight.current = false;
@@ -333,7 +439,100 @@ export function TagSuggestionsPanel({
                     );
                   })}
                 </ul>
-              ) : !loading && !loadError ? (
+              ) : null}
+              {proposals.length > 0 && (
+                <section
+                  className="tag-proposal-section"
+                  aria-labelledby="tag-proposal-heading"
+                >
+                  <h2 id="tag-proposal-heading">New tag ideas</h2>
+                  <ul className="tag-collection-grid tag-proposal-grid">
+                    {proposals.map((proposal) => (
+                      <li className="tag-proposal-card" key={proposal.id}>
+                        <article className="tag-collection-card">
+                          <div className="tag-collection-kind">
+                            <Tags size={16} aria-hidden="true" />
+                            <span>Suggested new tag</span>
+                          </div>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="tag-suggestion-dismiss"
+                            disabled={busy}
+                            aria-label={`Dismiss new tag idea ${proposal.name}`}
+                            onClick={() =>
+                              void decideProposal(proposal, "reject")
+                            }
+                          >
+                            <X size={16} aria-hidden="true" />
+                          </Button>
+                          <div className="tag-proposal-name-row">
+                            <h3 className="tag-proposal-name">
+                              {proposal.name}
+                            </h3>
+                            <span
+                              className="tag-dot"
+                              data-color={proposal.color}
+                              aria-hidden="true"
+                            />
+                          </div>
+                          <p className="tag-proposal-count">
+                            Suggested for {proposal.itemCount} items
+                          </p>
+                          {proposal.items.length > 0 && (
+                            <ul className="tag-proposal-sources">
+                              {proposal.items.slice(0, 3).map((source) => {
+                                const title = source.title || "Untitled";
+                                const kind = sourceTypeLabel(source.type);
+                                const Icon = sourceIcon(source.type);
+                                return (
+                                  <li key={`${source.type}:${source.itemId}`}>
+                                    <Button
+                                      variant="ghost"
+                                      className="tag-proposal-source"
+                                      disabled={busy}
+                                      aria-label={`Open ${title} (${kind})`}
+                                      onClick={() =>
+                                        void openProposalSource(
+                                          proposal,
+                                          source,
+                                        )
+                                      }
+                                    >
+                                      <Icon size={16} aria-hidden="true" />
+                                      <span>{title}</span>
+                                      <small>{kind}</small>
+                                    </Button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                          <footer className="tag-proposal-footer">
+                            <Button
+                              variant="outline"
+                              disabled={busy}
+                              aria-label={`Create ${proposal.name} and tag ${proposal.itemCount} items`}
+                              onClick={() =>
+                                void decideProposal(proposal, "accept")
+                              }
+                            >
+                              <Plus size={16} aria-hidden="true" />
+                              Create tag
+                            </Button>
+                            {actionError?.itemId === proposal.id && (
+                              <p className="form-error" role="alert">
+                                {actionError.message}
+                              </p>
+                            )}
+                          </footer>
+                        </article>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {!items.length && !proposals.length && !loading && !loadError ? (
                 <div className="tasks-empty">
                   <Tags size={32} strokeWidth={1} aria-hidden="true" />
                   <h2>No tag suggestions to review</h2>
