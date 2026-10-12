@@ -104,6 +104,8 @@ try {
         errors = [],
         failedApiRequests = [],
         cancelledSearchRequests = [],
+        cancelledNavigationRequests = [],
+        navigationCancellationPaths = new Set(),
         pendingApiRequests = new Set();
       let lastWorkspaceApiActivity = Date.now();
       let lastIndexWaitDiagnostics = null;
@@ -134,15 +136,25 @@ try {
           path: url.pathname,
           error: request.failure()?.errorText,
         };
+        const knownAbort = ["net::ERR_ABORTED", "NS_BINDING_ABORTED"].includes(
+          failure.error,
+        );
         if (
+          failure.method === "GET" &&
           failure.path === "/api/v1/search" &&
-          failure.error === "net::ERR_ABORTED"
+          knownAbort
         )
           cancelledSearchRequests.push({
             ...failure,
             strategy: url.searchParams.get("strategy"),
             queryLength: url.searchParams.get("q")?.length ?? null,
           });
+        else if (
+          failure.method === "GET" &&
+          navigationCancellationPaths.has(failure.path) &&
+          knownAbort
+        )
+          cancelledNavigationRequests.push(failure);
         else failedApiRequests.push(failure);
       });
       const title = `report-${randomUUID().slice(0, 8)}.pdf SQLite recovery`;
@@ -2764,12 +2776,21 @@ try {
               2,
               "A failed action keeps its card and unrelated suggestions visible",
             );
-            await racePanel
-              .getByRole("button", {
-                name: `Dismiss suggestion for ${raceFinal.tag.name} on ${raceFinal.title}`,
-                exact: true,
-              })
-              .click();
+            const retryDismiss = racePanel.getByRole("button", {
+              name: `Dismiss suggestion for ${raceFinal.tag.name} on ${raceFinal.title}`,
+              exact: true,
+            });
+            const retryDismissResponsePromise = page.waitForResponse(
+              (response) =>
+                response.request().method() === "POST" &&
+                new URL(response.url()).pathname ===
+                  `/api/v1/ai/suggestions/${raceFinal.id}/reject`,
+            );
+            await retryDismiss.click();
+            const retryDismissResponse = await retryDismissResponsePromise;
+            assert.equal(retryDismissResponse.status(), 200);
+            await retryDismiss.waitFor({ state: "detached" });
+            await waitForSuggestionsBusy(racePanel, false);
             await racePanel
               .getByRole("button", {
                 name: `Add ${raceInitial[2].tag.name} to ${raceInitial[2].title}`,
@@ -3067,12 +3088,18 @@ try {
             await route.continue();
           });
           await waitForWorkspaceApiIdle("before keyword-fallback navigation");
-          await page.goto(`${base}/overview`, {
-            waitUntil: "domcontentloaded",
-          });
-          await waitForWorkspaceApiIdle(
-            "overview settled before fallback search",
-          );
+          navigationCancellationPaths.add("/api/v1/tags");
+          navigationCancellationPaths.add("/api/v1/notes");
+          try {
+            await page.goto(`${base}/overview`, {
+              waitUntil: "domcontentloaded",
+            });
+            await waitForWorkspaceApiIdle(
+              "overview settled before fallback search",
+            );
+          } finally {
+            navigationCancellationPaths.clear();
+          }
           const fallbackRecentSearchResponsePromise = page.waitForResponse(
             (response) => {
               const url = new URL(response.url());
@@ -3473,6 +3500,10 @@ try {
         if (cancelledSearchRequests.length)
           console.log(
             `${name} ${width} ${theme}: ${cancelledSearchRequests.length} superseded search request(s) canceled by the client`,
+          );
+        if (cancelledNavigationRequests.length)
+          console.log(
+            `${name} ${width} ${theme}: ${cancelledNavigationRequests.length} tag/note read(s) canceled by the navigation`,
           );
         if (name === "chromium" && width === 320 && theme === "light")
           await runLiveSuggestionsRefresh();
