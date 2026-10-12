@@ -190,7 +190,7 @@ const connectedFeatures = [
   },
 ];
 const command =
-  "docker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/app/data \\\n  ghcr.io/harsh-2002/nivra:latest";
+  "docker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/data \\\n  ghcr.io/harsh-2002/nivra:latest";
 ---
 
 <!doctype html>
@@ -598,8 +598,8 @@ const command =
             some space.
           </h2>
           <p>
-            Start Nivra with Docker, then follow the guided setup in your
-            browser.
+            This command is for the updated image after release. Until then,
+            follow the source-build instructions in the quick start.
           </p>
           <a class="text-link" href={`${repository}#get-started-with-docker`}>
             Read the quick start
