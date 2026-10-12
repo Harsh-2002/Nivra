@@ -11,8 +11,28 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   copyPinnedOcrAsset,
+  hasProvenanceLine,
   tessdataBestEnglishSha256,
 } from "../scripts/copy-ocr-asset.mjs";
+
+test("requires complete provenance citation lines", () => {
+  const source = "https://github.com/tesseract-ocr/tessdata_best";
+  const citation = `- Source: ${source}`;
+  const provenance = readFileSync(
+    "src/lib/server/ai/licenses/native/tessdata-package-provenance.txt",
+    "utf8",
+  );
+  assert.equal(hasProvenanceLine(provenance, citation), true);
+  assert.equal(hasProvenanceLine(`\r\n  ${citation}\r\n`, citation), true);
+  for (const candidate of [
+    `- Source: https://untrusted.example/${source}`,
+    `${citation}.untrusted.example`,
+    "- Source: https://github.com@untrusted.example/tesseract-ocr/tessdata_best",
+    `prefix ${citation}`,
+    `${citation} suffix`,
+  ])
+    assert.equal(hasProvenanceLine(candidate, citation), false);
+});
 
 test("copies only the pinned English OCR dataset into generated runtime assets", (t) => {
   const temporaryDirectory = mkdtempSync(

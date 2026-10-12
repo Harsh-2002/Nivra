@@ -5,6 +5,10 @@ import path from "node:path";
 export const tessdataBestEnglishSha256 =
   "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91";
 
+export function hasProvenanceLine(text, expected) {
+  return text.split(/\r?\n/).some((line) => line.trim() === expected);
+}
+
 export function copyPinnedOcrAsset(sourcePath, destinationPath) {
   const source = readFileSync(sourcePath);
   const sourceHash = createHash("sha256").update(source).digest("hex");

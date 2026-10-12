@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { hasProvenanceLine } from "./copy-ocr-asset.mjs";
 
 const root = process.cwd();
 const lockPath = path.join(root, "package-lock.json");
@@ -821,16 +822,17 @@ const tesseractChecks = {
   provenanceIsPinned:
     tesseractProvenanceHash ===
       "0c599eb893da158e473368d479541f274362645c731d49b3e640f479b892909e" &&
-    tesseractProvenanceText.includes(tesseractSourceReadmeUrl) &&
+    hasProvenanceLine(tesseractProvenanceText, tesseractSourceReadmeUrl) &&
     tesseractProvenanceText.includes(tesseractSourceReadmeHash) &&
     tesseractProvenanceText.includes(
       '`4.0.0_best_int` - Integerized Version of "Tessdata Best"',
     ) &&
-    tesseractProvenanceText.includes(
-      "https://github.com/tesseract-ocr/tessdata_best",
+    hasProvenanceLine(
+      tesseractProvenanceText,
+      "- Source: https://github.com/tesseract-ocr/tessdata_best",
     ) &&
-    tesseractProvenanceText.includes(tesseractPublishedAssetUrl) &&
-    tesseractProvenanceText.includes(tesseractUpstreamAssetUrl) &&
+    hasProvenanceLine(tesseractProvenanceText, tesseractPublishedAssetUrl) &&
+    hasProvenanceLine(tesseractProvenanceText, tesseractUpstreamAssetUrl) &&
     tesseractProvenanceText.includes(tesseractUpstreamAssetGitBlobSha1) &&
     tesseractProvenanceText.includes(
       "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
