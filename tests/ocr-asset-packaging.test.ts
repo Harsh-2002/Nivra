@@ -50,3 +50,11 @@ test("copies only the pinned English OCR dataset into generated runtime assets",
   });
   assert.equal(existsSync(rejectedDestination), false);
 });
+
+test("excludes the build-only language package from standalone tracing", () => {
+  const nextConfig = readFileSync("next.config.ts", "utf8");
+  assert.match(
+    nextConfig,
+    /outputFileTracingExcludes:[\s\S]*?\.\/node_modules\/@tesseract\.js-data\/eng\/\*\*\/\*/,
+  );
+});

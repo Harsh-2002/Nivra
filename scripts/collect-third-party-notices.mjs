@@ -804,43 +804,52 @@ const tesseractApacheLicense = await readFile(
 const tesseractApacheHash = createHash("sha256")
   .update(tesseractApacheLicense)
   .digest("hex");
-if (
-  rootPackage.dependencies?.["@tesseract.js-data/eng"] !== undefined ||
-  rootPackage.devDependencies?.["@tesseract.js-data/eng"] !== "1.0.0" ||
-  !tesseractLockEntry.dev ||
-  tesseractPackage?.version !== "1.0.0" ||
-  tesseractLockEntry?.version !== "1.0.0" ||
-  tesseractLockEntry.license !== "MIT" ||
-  tesseractPackage.license !== "MIT" ||
-  tesseractLockEntry.integrity !==
-    "sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==" ||
-  tesseractPackage.repository?.url !==
-    "https://github.com/naptha/tessdata.git" ||
-  tesseractProvenanceHash !==
-    "0c599eb893da158e473368d479541f274362645c731d49b3e640f479b892909e" ||
-  !tesseractProvenanceText.includes(tesseractSourceReadmeUrl) ||
-  !tesseractProvenanceText.includes(tesseractSourceReadmeHash) ||
-  !tesseractProvenanceText.includes(
-    '`4.0.0_best_int` - Integerized Version of "Tessdata Best"',
-  ) ||
-  !tesseractProvenanceText.includes(
-    "https://github.com/tesseract-ocr/tessdata_best",
-  ) ||
-  !tesseractProvenanceText.includes(tesseractPublishedAssetUrl) ||
-  !tesseractProvenanceText.includes(tesseractUpstreamAssetUrl) ||
-  !tesseractProvenanceText.includes(tesseractUpstreamAssetGitBlobSha1) ||
-  !tesseractProvenanceText.includes(
+const tesseractChecks = {
+  packageIsBuildOnly:
+    rootPackage.dependencies?.["@tesseract.js-data/eng"] === undefined &&
+    rootPackage.devDependencies?.["@tesseract.js-data/eng"] === "1.0.0" &&
+    tesseractLockEntry.dev === true,
+  packageMetadataIsPinned:
+    tesseractPackage?.version === "1.0.0" &&
+    tesseractLockEntry?.version === "1.0.0" &&
+    tesseractLockEntry.license === "MIT" &&
+    tesseractPackage.license === "MIT" &&
+    tesseractLockEntry.integrity ===
+      "sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==" &&
+    tesseractPackage.repository?.url ===
+      "https://github.com/naptha/tessdata.git",
+  provenanceIsPinned:
+    tesseractProvenanceHash ===
+      "0c599eb893da158e473368d479541f274362645c731d49b3e640f479b892909e" &&
+    tesseractProvenanceText.includes(tesseractSourceReadmeUrl) &&
+    tesseractProvenanceText.includes(tesseractSourceReadmeHash) &&
+    tesseractProvenanceText.includes(
+      '`4.0.0_best_int` - Integerized Version of "Tessdata Best"',
+    ) &&
+    tesseractProvenanceText.includes(
+      "https://github.com/tesseract-ocr/tessdata_best",
+    ) &&
+    tesseractProvenanceText.includes(tesseractPublishedAssetUrl) &&
+    tesseractProvenanceText.includes(tesseractUpstreamAssetUrl) &&
+    tesseractProvenanceText.includes(tesseractUpstreamAssetGitBlobSha1) &&
+    tesseractProvenanceText.includes(
+      "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+    ),
+  sourceAssetHashIsPinned:
+    tesseractAssetHash ===
     "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
-  ) ||
-  tesseractAssetHash !==
-    "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91" ||
-  !tesseractRuntimeAsset.equals(tesseractSourceAsset) ||
-  tesseractRuntimePackagePresent ||
-  tesseractApacheHash !==
-    "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
-)
+  runtimeAssetMatchesSource: tesseractRuntimeAsset.equals(tesseractSourceAsset),
+  buildOnlyPackageExcluded: !tesseractRuntimePackagePresent,
+  licenseTextIsPinned:
+    tesseractApacheHash ===
+    "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+};
+const failedTesseractChecks = Object.entries(tesseractChecks)
+  .filter(([, passed]) => !passed)
+  .map(([name]) => name);
+if (failedTesseractChecks.length)
   throw new Error(
-    "Pinned Tesseract data asset, build-only source package, runtime exclusion, or upstream data-license evidence changed.",
+    `Pinned Tesseract packaging checks failed: ${failedTesseractChecks.join(", ")}.`,
   );
 const tesseractData = {
   packageVersion: tesseractPackage.version,

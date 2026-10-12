@@ -76,7 +76,13 @@ const config: NextConfig = {
     ],
   },
   outputFileTracingExcludes: {
-    "/*": ["./data/**/*", "./tests/**/*", "./.impeccable/**/*", "./.git/**/*"],
+    "/*": [
+      "./data/**/*",
+      "./tests/**/*",
+      "./.impeccable/**/*",
+      "./.git/**/*",
+      "./node_modules/@tesseract.js-data/eng/**/*",
+    ],
   },
   async headers() {
     return [
