@@ -1002,6 +1002,7 @@ const aiStatus = z
     indexed: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
     capacity: z.number().int().nonnegative(),
+    vocabularyPending: z.number().int().nonnegative(),
     chunkLimit: z.number().int().positive(),
   })
   .strict();

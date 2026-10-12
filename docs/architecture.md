@@ -1,14 +1,12 @@
 # Architecture
 
-Nivra has a Next.js application shell, client-only BlockNote/Excalidraw editors, and authenticated Node.js route handlers. Workspace sections have direct URLs: `/overview`, `/notes`, `/favorites`, `/journal`, `/tasks`, `/calendar`, `/bookmarks`, `/artifacts` and `/trash`. The root opens Overview. Client navigation updates browser history while retaining the workspace shell; direct loads and refreshes select the section from the path. Existing `?note=` links retain their behavior, and navigation preserves the editor save guard. Unknown section paths return 404. Authentication and private API authorization apply on every section. PWA navigation remains network-only.
+Nivra has a Next.js application shell, client-only BlockNote/Excalidraw editors, and authenticated Node.js route handlers. Workspace sections have direct URLs: `/overview`, `/notes`, `/favorites`, `/journal`, `/tasks`, `/calendar`, `/bookmarks`, `/artifacts`, `/forms`, `/tag-suggestions` and `/trash`. Search and Settings use `/search` and `/settings` on mobile. The root opens Overview. Client navigation updates browser history while retaining the workspace shell and editor save guard; direct loads select the section from the path. Unknown sections return 404. Every private route requires authentication. PWA navigation remains network-only.
 
 SQLite is the only database. Drizzle defines the schema and handles model/auth mapping; prepared SQL handles FTS5, transactional updates, and ordered startup migrations. Each connection targets a 32 MiB SQLite page cache to avoid repeatedly decrypting pages during larger searches. This is a cache target, not a process memory limit.
 
 ## HTTP contract
 
 `/api/v1` routes are matched against the operation registry in `api-contract.ts`. Its shared Zod request/response schemas generate [OpenAPI](openapi.json); `npm run verify:api` checks generated-contract drift and validates the specification and references. The contract is available in the repository only; the instance does not serve an OpenAPI discovery endpoint. HTTP responses are checked at runtime. Content and calendar services accept structured commands; HTTP and MCP share these services without simulated browser requests. Transfer services preserve lossless bundle behavior. Account and instance operations require the owner session; bearer API keys authorize only scoped content access. `/health` is public readiness, and OAuth stays at `/mcp`.
-
-Migration 0035 updates structured attachment references in stored notes, checkpoints and publication snapshots, preserving written text and files. It advances affected note revisions and invalidates rendered publication caches. Imports also understand retired attachment references while emitting current paths.
 
 ## Data and saves
 
@@ -44,7 +42,7 @@ The viewport and single scrolling wrapper follow [BlockNote's mobile keyboard gu
 
 ## Publication snapshots
 
-An ordered migration adds publications and publication files. Publishing checks the expected note revision, copies only referenced note-owned attachments, rewrites their URLs to token-scoped public endpoints, and commits the snapshot and file records together. Private drawing scene data is omitted; readers see its preview. Public APIs return no owner, private note IDs, tags, or draft revisions. Later private edits do not change a publication. Updates preserve its link; revocation deletes the publication and its copies, and a subsequent publication gets a new token. Trashing a note revokes it. Public pages and files are network-only with no persistent service-worker caching.
+Publishing checks the expected note revision, copies only referenced note-owned attachments, rewrites their URLs to token-scoped public endpoints, and commits the snapshot and file records together. Private drawing scene data is omitted; readers see its preview. Public APIs return no owner, private note IDs, tags, or draft revisions. Later private edits do not change a publication. Updates preserve its link; revocation deletes the publication and its copies, and a subsequent publication gets a new token. Trashing a note revokes it. Public pages and files are network-only with no persistent service-worker caching.
 
 ## Overview
 
@@ -58,7 +56,7 @@ The client refreshes on mount, shared completion/resync events, window focus and
 
 FTS5 covers note titles, prose, code, and drawing text, with prefix matching and relevance ordering. If the normal query finds no notes, a vocabulary-based fallback finds close spellings (one edit for words of at least four characters, two for words of at least eight, including adjacent transpositions). Short words and exact matches retain their normal behavior. Up to eight terms participate in typo correction. Favorites, tag, and trash filters apply to both paths. Artifacts provide bounded document extraction and local English image OCR; media transcription remains deferred.
 
-Tags cover notes, journal entries, tasks, bookmarks and artifacts through indexed join tables. Migration 0017 preserves note relationships and adds the other item types. Owner-authorized tag saves use revision checks; Trash retains relationships and permanent deletion cascades them. Recurring successors inherit task tags. Tags have a validated named color, defaulting to gray for existing data. Bundles retain colors for newly imported tags; a same-named existing tag keeps its local color. Tag colors are content metadata, while the interface remains monochrome.
+Tags cover notes, journal entries, tasks, bookmarks and artifacts through indexed join tables. Owner-authorized tag saves use revision checks; Trash retains relationships and permanent deletion cascades them. Recurring successors inherit task tags. Tags have a validated named color, defaulting to gray. Bundles retain colors for newly imported tags; a same-named existing tag keeps its local color. Tag colors are content metadata, while the interface remains monochrome.
 
 Better Auth's passkey plugin supports optional discoverable FIDO2 credentials, including security keys, device authenticators and password managers. Registration and login require server-verified PIN or biometric verification. The canonical public URL supplies the relying-party ID and origin. Adding, renaming and removing keys require a session created within five minutes. Verified passkey login is sufficient when TOTP is enabled; password login still requires TOTP. Account recovery preserves registered passkeys and revokes sessions; unwanted credentials must be removed explicitly. Passkey records are included in full-instance encrypted backups.
 
@@ -72,7 +70,7 @@ Tasks use a dedicated SQLite table and Drizzle queries scoped to the authenticat
 
 The better-sqlite3 import is pinned to the SQLite3 Multiple Ciphers fork through an npm alias, preserving the Drizzle driver API. SQLite pages and WAL are encrypted with ChaCha20-Poly1305; temporary SQL storage stays in memory. A random 256-bit master key derives separate SQLite and file keys with HKDF-SHA256. The authentication secret, backup manifests and backup objects use one AES-256-GCM message with a random nonce and an authenticated object identifier (the single-message v1 format). Attachments and other stored files use the chunked v2 format. Local and S3 adapters encrypt before writing and authenticate before returning plaintext.
 
-Startup upgrades legacy databases, records pending attachment/publication keys, encrypts legacy objects with atomic local replacement or S3 object replacement, and clears each pending row only after replacement. The migration resumes after interruption. Missing keys, incorrect keys, and authentication failures do not fall back to plaintext. A fresh installation chooses its encryption mode during onboarding before database initialization. The owner-only `encryption-mode.json` record persists the choice; malformed records and opt-out attempts on established installations fail. Complete records are atomically published without overwriting a concurrent startup's decision. Existing pre-mode installations default to encryption and retain the resumable migration. The opt-out stores SQLite and file data as plaintext while authentication secrets and backups remain encrypted; it never changes authorization or creates an automatic fallback for failed decryption.
+Onboarding chooses the encryption mode before database initialization. The owner-only `encryption-mode.json` record persists the choice and cannot be changed afterward. Complete records are atomically published without overwriting a concurrent startup's decision. Missing keys, incorrect keys and authentication failures never fall back to plaintext. When encryption is disabled, SQLite and files use plaintext storage; authentication secrets and backups remain encrypted.
 
 ## Bookmarks
 
@@ -143,7 +141,7 @@ Editor and reader audio/video blocks share a client player with styled play/paus
 
 ## Paged tasks and bookmarks
 
-`GET /api/v1/tasks` and `GET /api/v1/bookmarks` return `{ items, next }` pages of at most 100 rows (default 60) in a stable order; `next` is an opaque cursor for the following page, and `null` marks the end. Tasks are ordered newest-created first with an ID tie-breaker, and accept `filter` (`open`, `completed`) and `q`; bookmarks accept `q`, `favorite=1`, `collection`, and `unfiled=1`. `?summary=1` returns task open/completed counts or the bookmark total for the same filters plus the owner's collection names. Cursors are validated and rejected with 400 when malformed. Bundle export and import still read the complete sets directly on the server. The API is private to the signed-in owner; scripts that previously read a bare array must follow `next`.
+`GET /api/v1/tasks` and `GET /api/v1/bookmarks` return `{ items, next }` pages of at most 100 rows (default 60) in a stable order; `next` is an opaque cursor for the following page, and `null` marks the end. Tasks are ordered newest-created first with an ID tie-breaker, and accept `filter` (`open`, `completed`) and `q`; bookmarks accept `q`, `favorite=1`, `collection`, and `unfiled=1`. `?summary=1` returns task open/completed counts or the bookmark total for the same filters plus the owner's collection names. Malformed cursors return 400. Bundle export and import read complete sets directly on the server. Access requires an owner session or a scoped API key.
 
 ## Chunked file encryption
 
@@ -179,7 +177,7 @@ Migration 0014 adds owner-scoped artifacts and FTS5 indexes. SQLite stores title
 
 ## Storage identity
 
-Configuration and application URLs use `NIVRA_*` and `/api/v1/`. The database filename is `nivra.sqlite`; ordered migrations canonicalize saved attachment routes. Cryptographic signature bytes and derivation inputs remain fixed to preserve encrypted objects. Configuration aliases and earlier product backup identifiers are not accepted.
+Configuration and application URLs use `NIVRA_*` and `/api/v1/`. The database filename is `nivra.sqlite`. Cryptographic signatures and key derivation remain fixed to preserve encrypted objects.
 
 ## Calendar
 
@@ -207,7 +205,7 @@ Anonymous upload sessions use hashed secrets bound to one form/version, 24-hour 
 
 Form deadlines persist a local date, timezone and exclusive next-midnight timestamp. Public reads, submissions and upload reservations enforce expiry without a polling job. Calendar derives deadlines and indexed daily submission aggregates from active forms/responses, so edits, revocation and Trash need no duplicate calendar events. Submission lists/exports accept `date` and `timezone` filters. Forms JSON mutations also support idempotency keys for save retries.
 
-## Local AI (feature branch)
+## Smart tagging and search
 
 Migration 0045 records optional post-setup onboarding progress on the instance. Existing installations default to `complete`; new password/passkey owners begin at `tags`. Owner-session settings updates persist `tags`, `install` or `complete` independently of theme. Tag setup uses existing tag creation/validation and a short fixed list of starter suggestions, rather than inference or automatic assignments. Added tags appear in a separate “Your tags” list above suggestions; owners can also create their own. A compact, default-off “Enable smart features” option is available during tag setup; progression waits for its persisted update. Device installation guidance retains a supported browser install event until explicitly requested, handles standalone launches and iOS Safari instructions, and remains skippable. Desktop guidance introduces the actual Search, Quick and New note shortcuts.
 
@@ -215,7 +213,7 @@ Source builds include opt-in, English local AI, disabled by default. Settings �
 
 Overview displays open tasks, upcoming events, recent content and owner-only review information in separate cards. Section descriptors declare visibility and compact or roomy sizing; a shared responsive layout groups compact cards and gives longer lists their own space. Future sections use the same structure rather than nesting inside another card. Existing API fields remain available; browser requests supply the device timezone for calendar expansion. Review counts contain no response text, suggestions or vectors and are omitted for agent credentials. Normal content and indexing completions refresh the dashboard through SSE while retaining the current cards during background loading.
 
-One pinned Arctic Embed XS q8 model serves both suggestions and explicit meaning-based search. `ai/model-manifest.json` pins revision, artifact hashes, query prefix, CLS pooling and normalized 384-dimensional text vectors. The standard source-built Debian Bookworm Slim image bundles assets, tokenizer and CPU-only ONNX Runtime Node. Runtime downloads are prohibited. Visual models and generative tag naming remain deferred; model/version/modality/dimension metadata isolates future embedding spaces.
+One pinned Arctic Embed XS q8 model serves both suggestions and semantic search. When smart features are enabled in onboarding or System settings, the workspace automatically uses semantic retrieval for nonempty queries; empty queries show recent items, and unavailable inference falls back to keyword search. There is no per-query switch. `ai/model-manifest.json` pins revision, artifact hashes, query prefix, CLS pooling and normalized 384-dimensional text vectors. The Debian Bookworm Slim image bundles assets, tokenizer and CPU-only ONNX Runtime Node. Runtime downloads are prohibited. Visual models and generative tag naming remain deferred; model/version/modality/dimension metadata isolates future embedding spaces.
 
 Migration 0046 adds adaptive matching, encrypted tag-label/example caches, automatic-assignment provenance and bounded reusable-topic proposals. Existing tag names/aliases and owner-confirmed canonical examples are ranked before unmatched-topic extraction. Unapproved automatic assignments are excluded from examples. Per-tag revisions and an installation matching epoch fence stale results; a coalesced durable refresh reuses existing content vectors. Revision changes immediately clear learned example profiles, including when no indexing jobs remain; label/model refreshes also discard old profiles before rebuilding. Review suggestions remains the default. Automatic tagging is an explicit owner setting and uses stronger evidence gates. Owner rejection suppresses alternate guesses for that source fingerprint. Content-generation changes remove stale unapproved automatic memberships only when no other fresh source supports them; approved/manual assignments remain.
 

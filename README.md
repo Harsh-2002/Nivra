@@ -21,23 +21,23 @@ Nivra brings notes, journals, tasks, bookmarks and files into one quiet workspac
 
 Smart tagging and semantic search are currently in preview on `main`.
 
-The screenshot uses demo content. See the [website](https://harsh-2002.github.io/Nivra/) for more workflows.
+See the [website](https://harsh-2002.github.io/Nivra/) for more workflows.
 
 ## Get started with Docker
 
-Requires Docker. Run the public image:
+The command below is for the updated image after release. Until then, use a [source build](CONTRIBUTING.md).
 
 ```sh
 docker run -d --name nivra \
   --restart unless-stopped --init \
   -p 3000:3000 \
-  -v nivra-data:/app/data \
+  -v nivra-data:/data \
   ghcr.io/harsh-2002/nivra:latest
 ```
 
-Open **<http://localhost:3000>**, create your owner account and save the recovery code. No environment configuration is required for local use. The named volume persists your database, files and generated keys. The image supports Linux AMD64 and ARM64; Docker selects the matching architecture.
+Open **<http://localhost:3000>** and complete onboarding. The data volume holds the database, local files and generated keys. Docker selects AMD64 or ARM64 automatically.
 
-Prefer Compose? Download [compose.yaml](compose.yaml), then run `docker compose up -d`. It uses the same published image and persists data in a named volume.
+For Compose, use [docker-compose.yaml](docker-compose.yaml) and run `docker compose up -d`.
 
 For HTTPS behind a reverse proxy, add `-e NIVRA_PUBLIC_URL=https://notes.example.com` to `docker run`, or with Compose:
 
@@ -45,9 +45,9 @@ For HTTPS behind a reverse proxy, add `-e NIVRA_PUBLIC_URL=https://notes.example
 NIVRA_PUBLIC_URL=https://notes.example.com docker compose up -d
 ```
 
-To use a different host port, change `-p` to `3001:3000` with Docker run, or use `NIVRA_PORT=3001` with Compose. Complete onboarding before exposing a fresh installation to other people: Nivra has one owner, and later signup is disabled. Save the recovery code. Passkeys and browser notifications require HTTPS or localhost; an email-shaped username does not enable email delivery.
+Change the host port with `-p 3001:3000`, or `NIVRA_PORT=3001` in Compose. Complete onboarding before exposing the installation, and save the recovery code. Passkeys and notifications require HTTPS or localhost.
 
-Releases use calendar versions (`vYYYY.MM.DD`) and one active GitHub release. Docker uses only `latest`. With Compose, upgrade using `docker compose pull && docker compose up -d`; preserve the data volume and take a backup first. See [contribution guidance](CONTRIBUTING.md#releases) for release checks and source builds.
+Upgrade with `docker compose pull && docker compose up -d`. Back up first and keep the existing data volume. Releases use `vYYYY.MM.DD` with one active release and the Docker tag `latest`.
 
 ## Configuration
 
@@ -59,16 +59,16 @@ All three deployment settings are optional. Copy [.env.example](.env.example) to
 | `NIVRA_PUBLIC_URL`          | Address saved during setup       | Explicit public origin for a reverse proxy.   |
 | `NIVRA_ENCRYPTION_KEY_FILE` | Generated key in the data volume | Mounted external key containing 32 raw bytes. |
 
-Choose encryption during account setup; it defaults on and cannot change after initialization. **Settings → System** manages local/S3 storage, the upload limit (25 MiB by default), and backup scheduling/retention (daily, seven copies). S3 credentials are verified before activation and stored encrypted. Files and optional S3 backups share one connection and bucket, separated into `nivra/` and `nivra-backups/`. Changing storage transfers existing files in the background while preserving the source. Appearance is in the sidebar; account security, notifications and MCP have their own settings.
+Encryption defaults on and is chosen once during onboarding. **Settings → System** manages storage, upload limits, backups and smart features. S3 files and backups can share one connection and bucket. See [architecture and recovery](docs/architecture.md) for storage details.
 
-The container listens on `0.0.0.0:3000` and stores data at `/app/data`. To use a host directory, replace the named-volume entry in Compose with:
+The container runs as `nivra` (UID/GID 1000), listens on port 3000 and stores persistent data in `/data`. For a host directory:
 
 ```yaml
 volumes:
-  - /srv/nivra:/app/data
+  - /srv/nivra:/data
 ```
 
-The directory must be writable by container UID 1000. An external key file also needs a read-only container mount; set `NIVRA_ENCRYPTION_KEY_FILE` to its container path. Keep the exact existing volume or directory when upgrading. A reverse proxy must preserve the host; use HTTPS at the domain root, with WebSocket forwarding for development. Subpath hosting is unsupported.
+The directory must be writable by UID 1000. Mount an external encryption key read-only and set `NIVRA_ENCRYPTION_KEY_FILE` to its container path. Reverse proxies must preserve the host and serve Nivra at the domain root; subpath hosting is unsupported.
 
 ## Development
 
@@ -94,7 +94,7 @@ npm test
 npm run build
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance, API examples and development upgrade notes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance and API examples.
 
 [Architecture and recovery](docs/architecture.md) · [MCP](docs/mcp.md) · [OpenAPI contract](docs/openapi.json) · [Testing](docs/testing.md)
 

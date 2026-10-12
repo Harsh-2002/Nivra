@@ -1278,7 +1278,31 @@ test("MCP shares content while isolating agent credentials and account administr
         const tag = await call(client, "create_tag", {
           name: "Paged MCP",
           color: "blue",
+          aliases: ["library paging", "paged records"],
         });
+        const updatedAliases = ["cursor pagination", "paged results"];
+        await call(client, "update_tag", {
+          id: tag.id,
+          aliases: updatedAliases,
+        });
+        const reader = await connect(readKey);
+        const visibleTags = await call<{
+          items: {
+            id: string;
+            name: string;
+            color: string;
+            aliases?: string[];
+          }[];
+        }>(reader, "list_tags", { limit: 100 });
+        assert.deepEqual(
+          visibleTags.items.find((item) => item.id === tag.id),
+          {
+            id: tag.id,
+            name: "Paged MCP",
+            color: "blue",
+            aliases: updatedAliases,
+          },
+        );
         sqlite().transaction(() => {
           for (const id of ids) {
             sqlite()

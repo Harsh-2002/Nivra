@@ -5,7 +5,12 @@ import { z } from "zod";
 import { documentInput } from "./validation";
 const count = z.number().int().nonnegative();
 const tag = z
-  .object({ id: z.string().uuid(), name: z.string(), color: z.string() })
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    color: z.string(),
+    aliases: z.array(z.string()).optional(),
+  })
   .passthrough();
 const summary = z
   .object({

@@ -19,7 +19,7 @@ Nivra is a single-owner, self-hosted notes, tasks, and bookmarks web app. Its st
 | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [README.md](README.md)                               | User quick start, Docker commands, supported environment variables, configuration and development setup.                                                 |
 | [AGENTS.md](AGENTS.md)                               | Repository instructions for agents, verification requirements and this documentation index.                                                              |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Contributor workflow, calendar release policy, source builds, development upgrade exceptions, HTTP API examples and required checks.                     |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Contributor workflow, calendar release policy, source builds, HTTP API examples and required checks.                                                     |
 | [PRODUCT.md](PRODUCT.md)                             | Confirmed product scope, requirements and deferred features; verify implementation in code and tests.                                                    |
 | [DESIGN.md](DESIGN.md)                               | Interface principles, tokens and responsive behavior.                                                                                                    |
 | [docs/architecture.md](docs/architecture.md)         | Implementation architecture, persistence, security, storage, Forms/public uploads, recovery, shared services and local AI lifecycle/resource boundaries. |
@@ -53,7 +53,7 @@ npm run build
 
 `npm run dev` uses port 3000, or the next free port. To choose a port, use `npm run dev -- --port 3001`. Persistent development data defaults to `data/`; tests must use a separate temporary directory.
 
-Docker delivery pulls the public AMD64/ARM64 image `ghcr.io/harsh-2002/nivra:latest`; use `docker compose up -d`, or the Docker run command in the README. Source builds and container verification are in CONTRIBUTING.md. Inspect configuration with `docker compose config`; check readiness with `/health`. Never remove an existing data volume to resolve a startup issue.
+Docker delivery pulls the public AMD64/ARM64 image `ghcr.io/harsh-2002/nivra:latest`; use `docker compose up -d` with `docker-compose.yaml`, or the Docker run command in the README. The container runs as `nivra` (UID/GID 1000) with persistent data and its home at `/data`. Source builds and container verification are in CONTRIBUTING.md. Inspect configuration with `docker compose -f docker-compose.yaml config`; check readiness with `/health`. Never remove an existing data volume to resolve a startup issue.
 
 Release date tags use `vYYYY.MM.DD`. `.github/workflows/release.yml` requires successful CI on the exact current main commit and verifies native containers before promoting `latest`. Maintain one published release; retire its predecessor and tag only after the replacement is public. Do not bypass CI, overwrite a published date tag, publish extra image tags, or use a PR/fork as privileged release source. Pin GitHub Actions to the commit of their latest upstream release and keep version comments current.
 

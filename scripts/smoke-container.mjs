@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 
 const image = process.argv[2];
+const previousImage = process.argv[3];
 if (!image) throw new Error("Provide the Docker image to verify.");
 const docker = (...args) =>
   execFileSync("docker", args, {
@@ -15,7 +16,7 @@ for (const encrypted of [false, true]) {
   const name = `nivra-smoke-${randomUUID()}`;
   const volume = `${name}-data`;
   let port = "";
-  const run = () =>
+  const run = (initial = false) =>
     docker(
       "run",
       "-d",
@@ -29,8 +30,8 @@ for (const encrypted of [false, true]) {
       "-p",
       `127.0.0.1:${port}:3000`,
       "-v",
-      `${volume}:/app/data`,
-      image,
+      `${volume}:${initial && previousImage ? "/app/data" : "/data"}`,
+      initial && previousImage ? previousImage : image,
     );
   const ready = async () => {
     port = JSON.parse(docker("inspect", name))[0].NetworkSettings.Ports[
@@ -44,14 +45,25 @@ for (const encrypted of [false, true]) {
     throw new Error("Container did not become ready within two minutes.");
   };
   try {
-    run();
-    docker(
-      "exec",
-      name,
-      "node",
-      "-e",
-      "const fs=require('node:fs');const p='/app/THIRD_PARTY_NOTICES.txt';const s=fs.readFileSync(p,'utf8');for(const item of ['NIVRA THIRD-PARTY NOTICES','onnxruntime-node@1.30.0','Assistant (SIL Open Font License 1.1)','Cascadia Code (SIL Open Font License 1.1)','Comic Shanns (MIT)','Excalifont (SIL Open Font License 1.1)','Liberation Sans (pre-2.00 family license)','Lilita One (SIL Open Font License 1.1)','Nunito (SIL Open Font License 1.1)','Virgil (SIL Open Font License 1.1)','Xiaolai SC (SIL Open Font License 1.1)'])if(!s.includes(item))throw Error('Runtime third-party notice is missing: '+item);",
-    );
+    run(true);
+    const checkRuntime = () =>
+      docker(
+        "exec",
+        name,
+        "node",
+        "-e",
+        "const assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os');assert.equal(os.userInfo().username,'nivra');assert.equal(process.getuid(),1000);assert.equal(process.getgid(),1000);assert.equal(process.env.NIVRA_DATA_DIR,'/data');assert.equal(process.env.HOME,'/data');assert.equal(fs.statSync('/data').uid,1000);assert.equal(fs.existsSync('/app/data'),false);",
+      );
+    if (!previousImage) checkRuntime();
+    const checkNotices = () =>
+      docker(
+        "exec",
+        name,
+        "node",
+        "-e",
+        "const fs=require('node:fs');const p='/app/THIRD_PARTY_NOTICES.txt';const s=fs.readFileSync(p,'utf8');for(const item of ['NIVRA THIRD-PARTY NOTICES','onnxruntime-node@1.30.0','Assistant (SIL Open Font License 1.1)','Cascadia Code (SIL Open Font License 1.1)','Comic Shanns (MIT)','Excalifont (SIL Open Font License 1.1)','Liberation Sans (pre-2.00 family license)','Lilita One (SIL Open Font License 1.1)','Nunito (SIL Open Font License 1.1)','Virgil (SIL Open Font License 1.1)','Xiaolai SC (SIL Open Font License 1.1)'])if(!s.includes(item))throw Error('Runtime third-party notice is missing: '+item);",
+      );
+    if (!previousImage) checkNotices();
     let base = await ready();
     const request = (path, method = "GET", body, cookie) =>
       fetch(`${base}${path}`, {
@@ -73,7 +85,7 @@ for (const encrypted of [false, true]) {
       name,
       "node",
       "-e",
-      "if(require('node:fs').existsSync('/app/data/nivra.sqlite')) process.exit(1)",
+      "if(require('node:fs').existsSync(require('node:path').join(process.env.NIVRA_DATA_DIR,'nivra.sqlite'))) process.exit(1)",
     );
     const password = `CI-${randomUUID()}`;
     const setup = await request("/api/v1/setup", "POST", {
@@ -136,6 +148,8 @@ for (const encrypted of [false, true]) {
     docker("rm", "-f", name);
     run();
     base = await ready();
+    checkRuntime();
+    checkNotices();
     const notes = await request("/api/v1/notes", "GET", undefined, cookie);
     assert.equal(notes.status, 200, "Session was not preserved");
     assert.deepEqual(
@@ -147,7 +161,7 @@ for (const encrypted of [false, true]) {
       name,
       "node",
       "-e",
-      "process.stdout.write(String(JSON.parse(require('node:fs').readFileSync('/app/data/encryption-mode.json')).encrypted))",
+      "process.stdout.write(String(JSON.parse(require('node:fs').readFileSync('/data/encryption-mode.json')).encrypted))",
     );
     assert.equal(
       savedMode,
@@ -155,7 +169,7 @@ for (const encrypted of [false, true]) {
       "Encryption mode changed after recreation",
     );
     console.log(
-      `Container verified: ${encrypted ? "encrypted" : "plaintext"} onboarding, authorization, single owner, files tooling and persistence.`,
+      `Container verified: ${encrypted ? "encrypted" : "plaintext"} onboarding, authorization, single owner, files tooling and ${previousImage ? "volume upgrade" : "persistence"}.`,
     );
   } catch (error) {
     try {

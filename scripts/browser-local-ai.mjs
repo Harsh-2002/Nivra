@@ -53,6 +53,7 @@ const browser = await engines[name].launch();
 const axe = await readFile("node_modules/axe-core/axe.min.js", "utf8");
 const output = process.env.NIVRA_AUDIT_OUTPUT;
 if (output) await mkdir(output, { recursive: true });
+let primaryRunError;
 try {
   for (const width of (process.env.NIVRA_AUDIT_WIDTHS ?? "320,390,768,1440")
     .split(",")
@@ -102,8 +103,10 @@ try {
       const page = await context.newPage(),
         errors = [],
         failedApiRequests = [],
+        cancelledSearchRequests = [],
         pendingApiRequests = new Set();
       let lastWorkspaceApiActivity = Date.now();
+      let lastIndexWaitDiagnostics = null;
       const isWorkspaceApi = (request) =>
         ["fetch", "xhr"].includes(request.resourceType()) &&
         request.url().includes("/api/v1/");
@@ -125,27 +128,51 @@ try {
         if (!isWorkspaceApi(request)) return;
         lastWorkspaceApiActivity = Date.now();
         pendingApiRequests.delete(request);
-        failedApiRequests.push({
-          path: new URL(request.url()).pathname,
+        const url = new URL(request.url());
+        const failure = {
+          method: request.method(),
+          path: url.pathname,
           error: request.failure()?.errorText,
-        });
+        };
+        if (
+          failure.path === "/api/v1/search" &&
+          failure.error === "net::ERR_ABORTED"
+        )
+          cancelledSearchRequests.push({
+            ...failure,
+            strategy: url.searchParams.get("strategy"),
+            queryLength: url.searchParams.get("q")?.length ?? null,
+          });
+        else failedApiRequests.push(failure);
       });
       const title = `report-${randomUUID().slice(0, 8)}.pdf SQLite recovery`;
       const tagName = `Database checks ${randomUUID().slice(0, 6)}`;
       let tag = null;
       let note = null;
       async function cleanupFixture() {
+        const failures = [];
         if (note) {
-          const current = await api(`notes/${note.id}`);
-          await api(`notes/${note.id}`, "DELETE", {
-            revision: current.revision,
-          });
-          note = null;
+          try {
+            const current = await api(`notes/${note.id}`);
+            await api(`notes/${note.id}`, "DELETE", {
+              revision: current.revision,
+            });
+            note = null;
+          } catch (error) {
+            failures.push(error);
+          }
         }
         if (tag) {
-          await api(`tags/${tag.id}`, "DELETE");
-          tag = null;
+          try {
+            await api(`tags/${tag.id}`, "DELETE");
+            tag = null;
+          } catch (error) {
+            failures.push(error);
+          }
         }
+        if (failures.length === 1) throw failures[0];
+        if (failures.length)
+          throw new AggregateError(failures, "Browser fixture cleanup failed");
       }
       try {
         tag = await api("tags", "POST", {
@@ -234,6 +261,21 @@ try {
           true,
           "Collapsing the sidebar must retain its compact navigation rail",
         );
+        const activeNavigationItem = desktopNavigation
+          .locator(".navigation-scroll .nav-item.active")
+          .first();
+        assert.equal(
+          await activeNavigationItem.getAttribute("aria-current"),
+          "page",
+          "The compact rail must keep its current-page semantics",
+        );
+        assert.equal(
+          await activeNavigationItem.evaluate(
+            (element) => getComputedStyle(element).boxShadow,
+          ),
+          "none",
+          "The compact current-page icon must not add an inset selection bar",
+        );
         const expand = desktopNavigation.getByRole("button", {
           name: "Expand sidebar",
           exact: true,
@@ -258,6 +300,57 @@ try {
           ),
           true,
           "Keyboard focus should remain on the sidebar control after collapsing",
+        );
+        const selectedTagButton = desktopNavigation.getByRole("button", {
+          name: tag.name,
+          exact: true,
+        });
+        await selectedTagButton.click();
+        const selectedTagRow = selectedTagButton.locator("xpath=..");
+        assert.equal(
+          await selectedTagButton.getAttribute("aria-pressed"),
+          "true",
+          "The compact selected tag must retain its pressed state",
+        );
+        const selectedTagDecoration = await selectedTagRow.evaluate((row) => {
+          const dot = row.querySelector(".tag-dot");
+          const style = getComputedStyle(row);
+          const before = getComputedStyle(row, "::before");
+          const dotStyle = dot ? getComputedStyle(dot) : null;
+          return {
+            boxShadow: style.boxShadow,
+            beforeContent: before.content,
+            dotOutline: dotStyle?.outlineStyle,
+            dotWidth: dotStyle?.width,
+            backgroundColor: style.backgroundColor,
+            railBackgroundColor: getComputedStyle(
+              row.closest(".desktop-navigation"),
+            ).backgroundColor,
+          };
+        });
+        assert.equal(
+          selectedTagDecoration.boxShadow,
+          "none",
+          "The compact selected tag must not have a border outline",
+        );
+        assert.ok(
+          ["none", "normal"].includes(selectedTagDecoration.beforeContent),
+          "The compact selected tag must not have a left indicator bar",
+        );
+        assert.equal(
+          selectedTagDecoration.dotOutline,
+          "none",
+          "The compact selected tag dot must not have a halo outline",
+        );
+        assert.equal(
+          selectedTagDecoration.dotWidth,
+          "14px",
+          "The compact selected tag uses a modest size cue",
+        );
+        assert.notEqual(
+          selectedTagDecoration.backgroundColor,
+          selectedTagDecoration.railBackgroundColor,
+          "The compact selected tag keeps its tinted background cue",
         );
         await expand.click();
         await waitForRailWidth(216);
@@ -672,6 +765,10 @@ try {
         );
       }
       async function waitForStableAiIndex(suggestionItemId) {
+        const startedAt = Date.now();
+        const vocabularyPendingSamples = [];
+        let previousPending;
+        let lastSampleAt = 0;
         let previous = "";
         let stable = 0;
         let latestStatus;
@@ -680,6 +777,26 @@ try {
           latestStatus = await api("ai");
           if (suggestionItemId)
             latestSuggestions = (await api("ai/suggestions")).items;
+          const elapsedMs = Date.now() - startedAt;
+          const pendingSample = {
+            elapsedMs,
+            total: latestStatus.total,
+            indexed: latestStatus.indexed,
+            failed: latestStatus.failed,
+            capacity: latestStatus.capacity,
+            vocabularyPending: latestStatus.vocabularyPending ?? null,
+            pending: latestStatus.pending ?? null,
+            retryAfter: latestStatus.retryAfter ?? null,
+            semanticJobs: latestStatus.semanticJobs ?? null,
+          };
+          if (
+            previousPending !== pendingSample.vocabularyPending ||
+            elapsedMs - lastSampleAt >= 3000
+          ) {
+            vocabularyPendingSamples.push(pendingSample);
+            previousPending = pendingSample.vocabularyPending;
+            lastSampleAt = elapsedMs;
+          }
           const snapshot = JSON.stringify({
             total: latestStatus.total,
             indexed: latestStatus.indexed,
@@ -699,12 +816,21 @@ try {
               latestSuggestions.some(
                 (item) => item.itemId === suggestionItemId,
               ))
-          )
+          ) {
+            lastIndexWaitDiagnostics = {
+              elapsedMs,
+              vocabularyPendingSamples,
+            };
             return { status: latestStatus, suggestions: latestSuggestions };
+          }
           await setTimeout(250);
         }
+        lastIndexWaitDiagnostics = {
+          elapsedMs: Date.now() - startedAt,
+          vocabularyPendingSamples,
+        };
         throw new Error(
-          `Indexed demo fixture did not stabilize; AI status=${JSON.stringify(latestStatus)}; matching suggestion=${latestSuggestions.some((item) => item.itemId === suggestionItemId)}`,
+          `Indexed demo fixture did not stabilize; AI status=${JSON.stringify(latestStatus)}; vocabulary pending samples=${JSON.stringify(vocabularyPendingSamples)}; matching suggestion=${latestSuggestions.some((item) => item.itemId === suggestionItemId)}`,
         );
       }
       async function createSuggestionNote(title) {
@@ -1037,6 +1163,8 @@ try {
           `Semantic search did not return the indexed demo note; query=${query}; attempts=${JSON.stringify(attempts)}; AI status=${JSON.stringify(status)}`,
         );
       }
+      let contextRunError;
+      const contextCleanupErrors = [];
       try {
         await page.goto(`${base}/overview`, { waitUntil: "domcontentloaded" });
         await verifyDesktopSidebarCollapse();
@@ -1100,6 +1228,24 @@ try {
           await page.screenshot({
             path: `${output}/${name}-${width}-${theme}-tag-navigation.png`,
           });
+        await page.evaluate(() => {
+          const snapshot = (event) => ({
+            event,
+            at: Date.now(),
+            hasFocus: document.hasFocus(),
+            visibilityState: document.visibilityState,
+          });
+          window.__tagSuggestionFocusTrace = [snapshot("before-navigation")];
+          window.addEventListener("focus", () => {
+            window.__tagSuggestionFocusTrace.push(snapshot("focus"));
+          });
+          window.addEventListener("blur", () => {
+            window.__tagSuggestionFocusTrace.push(snapshot("blur"));
+          });
+          document.addEventListener("visibilitychange", () => {
+            window.__tagSuggestionFocusTrace.push(snapshot("visibilitychange"));
+          });
+        });
         const proposalNames = {
           create: `Workflow idea ${randomUUID().slice(0, 6)}`,
           dismiss: `Reference idea ${randomUUID().slice(0, 6)}`,
@@ -1169,7 +1315,109 @@ try {
           name: `Add ${tag.name} to ${title}`,
           exact: true,
         });
-        await approve.waitFor();
+        try {
+          await approve.waitFor();
+        } catch (error) {
+          const diagnostics = {
+            expected: { title, tag: tag.name, itemId: note.id },
+            indexWait: lastIndexWaitDiagnostics,
+            failedApiRequests,
+            pendingApiRequests: pendingApiRequests.size,
+          };
+          for (const path of ["ai", "ai/suggestions", "ai/tag-proposals"]) {
+            try {
+              const result = await api(path);
+              if (path === "ai")
+                diagnostics.ai = {
+                  enabled: result.enabled,
+                  total: result.total,
+                  indexed: result.indexed,
+                  failed: result.failed,
+                  capacity: result.capacity,
+                  vocabularyPending: result.vocabularyPending,
+                };
+              else if (path === "ai/suggestions")
+                diagnostics.suggestions = {
+                  count: result.items?.length,
+                  matching: result.items
+                    ?.filter(
+                      (item) => item.itemId === note.id || item.title === title,
+                    )
+                    .map((item) => ({
+                      itemId: item.itemId,
+                      title: item.title,
+                      tag: item.tag?.name,
+                    })),
+                };
+              else diagnostics.proposals = { count: result.items?.length };
+            } catch (diagnosticError) {
+              diagnostics[path] =
+                diagnosticError instanceof Error
+                  ? diagnosticError.message
+                  : String(diagnosticError);
+            }
+          }
+          diagnostics.document = await page
+            .evaluate(() => {
+              const active = document.activeElement;
+              return {
+                hasFocus: document.hasFocus(),
+                visibilityState: document.visibilityState,
+                activeElement: active
+                  ? {
+                      tagName: active.tagName,
+                      id: active.id,
+                      role: active.getAttribute("role"),
+                      ariaLabel: active.getAttribute("aria-label"),
+                      className:
+                        typeof active.className === "string"
+                          ? active.className
+                          : "",
+                    }
+                  : null,
+              };
+            })
+            .catch((diagnosticError) => ({
+              error:
+                diagnosticError instanceof Error
+                  ? diagnosticError.message
+                  : String(diagnosticError),
+            }));
+          diagnostics.focusTrace = await page
+            .evaluate(() => window.__tagSuggestionFocusTrace ?? [])
+            .catch((diagnosticError) => ({
+              error:
+                diagnosticError instanceof Error
+                  ? diagnosticError.message
+                  : String(diagnosticError),
+            }));
+          diagnostics.panel = await suggestions
+            .evaluate((element) => ({
+              ariaBusy: element
+                .querySelector('[role="region"][aria-label="Tag suggestions"]')
+                ?.getAttribute("aria-busy"),
+              suggestionCards: element.querySelectorAll(".tag-suggestion-card")
+                .length,
+              proposalCards:
+                element.querySelectorAll(".tag-proposal-card").length,
+              messages: Array.from(
+                element.querySelectorAll("h1, h2, [role=alert], [role=status]"),
+              )
+                .map((node) => node.textContent?.trim())
+                .filter(Boolean),
+            }))
+            .catch((diagnosticError) => ({
+              error:
+                diagnosticError instanceof Error
+                  ? diagnosticError.message
+                  : String(diagnosticError),
+            }));
+          console.error(
+            "Tag suggestion render diagnostics:",
+            JSON.stringify(diagnostics),
+          );
+          throw error;
+        }
         await approve.scrollIntoViewIfNeeded();
         await suggestions
           .getByRole("button", {
@@ -1252,6 +1500,12 @@ try {
             { id: proposalIds.dismiss, action: "reject" },
           ]);
           await waitForWorkspaceApiIdle("dismissed new tag idea");
+          const suggestionGrid = suggestions
+            .locator(".tag-suggestion-grid")
+            .first();
+          const gridTopBeforeCreate = await suggestionGrid.evaluate(
+            (element) => element.getBoundingClientRect().top,
+          );
           const createResponsePromise = page.waitForResponse((response) => {
             const url = new URL(response.url());
             return (
@@ -1268,6 +1522,14 @@ try {
             .click();
           const createResponse = await createResponsePromise;
           assert.equal(createResponse.status(), 200);
+          await waitForSuggestionsBusy(suggestions, true);
+          const gridTopDuringRefresh = await suggestionGrid.evaluate(
+            (element) => element.getBoundingClientRect().top,
+          );
+          assert.ok(
+            Math.abs(gridTopDuringRefresh - gridTopBeforeCreate) < 1,
+            `Accepting a tag idea must not shift the loaded suggestion grid; before=${gridTopBeforeCreate}, during=${gridTopDuringRefresh}`,
+          );
           await assertScreenReaderStatus(
             suggestions,
             `Created ${proposalNames.create} and assigned it to 3 items.`,
@@ -1855,6 +2117,711 @@ try {
             `${name} ${width} ${theme}: background refresh keeps existing suggestions visible and explicit review loads the next batch`,
           );
         }
+        if (
+          name === "chromium" &&
+          theme === "light" &&
+          [390, 1440].includes(width)
+        ) {
+          const raceTag = (suffix) => ({
+            id: randomUUID(),
+            itemId: note.id,
+            type: "note",
+            title: `Mixed approval sample ${suffix}`,
+            excerpt:
+              "A stable suggestion remains visible during vocabulary rebuild.",
+            tag: {
+              id: randomUUID(),
+              name: `Mixed tag ${suffix}`,
+              color: "gray",
+            },
+            createdAt: Date.now(),
+          });
+          const raceInitial = [
+            raceTag("one"),
+            raceTag("two"),
+            raceTag("three"),
+          ];
+          const racePrePost = raceTag("pre-post");
+          const raceFinal = raceTag("four");
+          const acceptedIds = new Set();
+          let raceSuggestions = [...raceInitial, racePrePost];
+          let raceVocabularyPending = 0;
+          let staleReadHeld = false;
+          let releaseStaleRead;
+          let staleReadEntered;
+          const staleReadGate = new Promise((resolve) => {
+            releaseStaleRead = resolve;
+          });
+          const staleReadEnteredPromise = new Promise((resolve) => {
+            staleReadEntered = resolve;
+          });
+          let holdPrePostGet = false;
+          let releasePrePostGet;
+          let prePostGetEntered;
+          const prePostGetGate = new Promise((resolve) => {
+            releasePrePostGet = resolve;
+          });
+          const prePostGetEnteredPromise = new Promise((resolve) => {
+            prePostGetEntered = resolve;
+          });
+          let holdPrePostPost = false;
+          let releasePrePostPost;
+          let prePostPostEntered;
+          const prePostPostGate = new Promise((resolve) => {
+            releasePrePostPost = resolve;
+          });
+          const prePostPostEnteredPromise = new Promise((resolve) => {
+            prePostPostEntered = resolve;
+          });
+          let raceProposal = proposalFixtureItems.find(
+            (proposal) => proposal.id === proposalIds.create,
+          );
+          assert.ok(raceProposal, "The synthetic new-tag proposal exists");
+          proposalFixtureItems = [raceProposal];
+          let failedRejectOnce = true;
+          let raceSuggestionGets = 0;
+          const statusRoute = async (route) => {
+            if (route.request().method() !== "GET") return route.continue();
+            const current = await api("ai");
+            return route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({
+                ...current,
+                enabled: true,
+                vocabularyPending: raceVocabularyPending,
+              }),
+            });
+          };
+          const suggestionsRoute = async (route) => {
+            const request = route.request();
+            const path = new URL(request.url()).pathname;
+            if (
+              request.method() === "GET" &&
+              path === "/api/v1/ai/suggestions"
+            ) {
+              raceSuggestionGets++;
+              let responseItems = [...raceSuggestions];
+              if (holdPrePostGet) {
+                holdPrePostGet = false;
+                responseItems = [];
+                prePostGetEntered();
+                await prePostGetGate;
+              } else if (staleReadHeld) {
+                staleReadHeld = false;
+                responseItems = [...raceInitial];
+                staleReadEntered();
+                await staleReadGate;
+              }
+              return route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ items: responseItems }),
+              });
+            }
+            const action = path.match(
+              /^\/api\/v1\/ai\/suggestions\/([^/]+)\/(accept|reject)$/,
+            );
+            if (request.method() === "POST" && action) {
+              const [, id, decision] = action;
+              if (decision === "accept") acceptedIds.add(id);
+              if (
+                decision === "reject" &&
+                failedRejectOnce &&
+                id === raceFinal.id
+              ) {
+                failedRejectOnce = false;
+                return route.fulfill({
+                  status: 500,
+                  contentType: "application/json",
+                  body: JSON.stringify({
+                    error: "Synthetic rejection failure",
+                  }),
+                });
+              }
+              if (decision === "reject") acceptedIds.add(id);
+              raceSuggestions = raceSuggestions.filter(
+                (item) => item.id !== id,
+              );
+              if (decision === "accept" && id === racePrePost.id) {
+                prePostPostEntered();
+                if (holdPrePostPost) await prePostPostGate;
+              }
+              return route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ ok: true }),
+              });
+            }
+            return route.continue();
+          };
+          const proposalsRoute = async (route) => {
+            const request = route.request();
+            const path = new URL(request.url()).pathname;
+            if (
+              request.method() === "GET" &&
+              path === "/api/v1/ai/tag-proposals"
+            )
+              return route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ items: proposalFixtureItems }),
+              });
+            const action = path.match(
+              /^\/api\/v1\/ai\/tag-proposals\/([^/]+)\/(accept|reject)$/,
+            );
+            if (request.method() === "POST" && action) {
+              const [, id, decision] = action;
+              if (id !== raceProposal.id)
+                return route.fulfill({
+                  status: 404,
+                  contentType: "application/json",
+                  body: JSON.stringify({ error: "Unknown race-test proposal" }),
+                });
+              proposalFixtureItems = [];
+              if (decision === "accept") raceVocabularyPending = 4;
+              return route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ ok: true }),
+              });
+            }
+            return route.continue();
+          };
+          await page.route("**/api/v1/ai", statusRoute);
+          await page.route("**/api/v1/ai/suggestions**", suggestionsRoute);
+          await page.route("**/api/v1/ai/tag-proposals**", proposalsRoute);
+          const waitForGate = async (promise, label) => {
+            let timer;
+            try {
+              await Promise.race([
+                promise,
+                new Promise((_, reject) => {
+                  timer = globalThis.setTimeout(
+                    () => reject(new Error(`Timed out waiting for ${label}`)),
+                    15_000,
+                  );
+                }),
+              ]);
+            } finally {
+              if (timer) globalThis.clearTimeout(timer);
+            }
+          };
+          let raceError = null;
+          let raceCleanupError = null;
+          try {
+            await page.goto(`${base}/tag-suggestions`, {
+              waitUntil: "domcontentloaded",
+            });
+            let racePanel = page.locator(".tag-suggestions-panel");
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[0].tag.name} to ${raceInitial[0].title}`,
+                exact: true,
+              })
+              .waitFor();
+            const prePostPanel = racePanel;
+            const prePostGrid = prePostPanel.locator(".tag-suggestion-grid");
+            const prePostButton = prePostPanel.getByRole("button", {
+              name: `Add ${racePrePost.tag.name} to ${racePrePost.title}`,
+              exact: true,
+            });
+            await prePostButton.waitFor({ state: "visible" });
+            assert.equal(
+              await prePostPanel.locator(".tag-suggestion-card").count(),
+              4,
+              "The pre-response fence fixture starts with four suggestions",
+            );
+            await prePostButton.scrollIntoViewIfNeeded();
+            const prePostInitialBounds = await prePostGrid.evaluate(
+              (element) => {
+                const { top, height } = element.getBoundingClientRect();
+                return {
+                  documentTop: top + window.scrollY,
+                  viewportTop: top,
+                  scrollY: window.scrollY,
+                  height,
+                };
+              },
+            );
+            holdPrePostGet = true;
+            const prePostGetResponsePromise = page.waitForResponse(
+              (response) =>
+                response.request().method() === "GET" &&
+                new URL(response.url()).pathname === "/api/v1/ai/suggestions",
+              { timeout: 15_000 },
+            );
+            await page.evaluate(() =>
+              window.dispatchEvent(
+                new CustomEvent("nivra:ai-completion", {
+                  detail: { kind: "ai", source: "pre-post-response-fence" },
+                }),
+              ),
+            );
+            await waitForGate(
+              prePostGetEnteredPromise,
+              "the pre-POST stale suggestions GET",
+            );
+            holdPrePostPost = true;
+            const prePostDecisionResponsePromise = page.waitForResponse(
+              (response) =>
+                response.request().method() === "POST" &&
+                new URL(response.url()).pathname ===
+                  `/api/v1/ai/suggestions/${racePrePost.id}/accept`,
+              { timeout: 15_000 },
+            );
+            await prePostButton.click();
+            await waitForGate(
+              prePostPostEnteredPromise,
+              "the committed approval with its response held",
+            );
+            releasePrePostGet();
+            const prePostGetResponse = await prePostGetResponsePromise;
+            assert.equal(prePostGetResponse.status(), 200);
+            assert.deepEqual(
+              (await prePostGetResponse.json()).items,
+              [],
+              "The stale pre-response request simulates an empty result after the server commits the review",
+            );
+            await setTimeout(100);
+            assert.equal(
+              await prePostPanel.locator(".tag-suggestion-card").count(),
+              4,
+              "A stale empty GET must not clear cards while the approval response is pending",
+            );
+            await prePostButton.waitFor({ state: "visible" });
+            assert.equal(
+              await prePostPanel
+                .getByRole("region", { name: "Tag suggestions" })
+                .getAttribute("aria-busy"),
+              "true",
+              "The review remains visibly busy while its response is held",
+            );
+            const prePostPendingBounds = await prePostGrid.evaluate(
+              (element) => {
+                const { top, height } = element.getBoundingClientRect();
+                return {
+                  documentTop: top + window.scrollY,
+                  viewportTop: top,
+                  scrollY: window.scrollY,
+                  height,
+                };
+              },
+            );
+            assert.ok(
+              Math.abs(
+                prePostPendingBounds.documentTop -
+                  prePostInitialBounds.documentTop,
+              ) <= 1 &&
+                Math.abs(
+                  prePostPendingBounds.height - prePostInitialBounds.height,
+                ) <= 1,
+              `A pre-response stale GET must not shift the suggestion grid; before=${JSON.stringify(prePostInitialBounds)} after=${JSON.stringify(prePostPendingBounds)}`,
+            );
+            const postReviewGetCount = raceSuggestionGets;
+            const postReviewCanonicalResponsePromise = page.waitForResponse(
+              (response) =>
+                response.request().method() === "GET" &&
+                new URL(response.url()).pathname === "/api/v1/ai/suggestions",
+              { timeout: 15_000 },
+            );
+            releasePrePostPost();
+            const prePostDecisionResponse =
+              await prePostDecisionResponsePromise;
+            assert.equal(prePostDecisionResponse.status(), 200);
+            const postReviewCanonicalResponse =
+              await postReviewCanonicalResponsePromise;
+            assert.equal(postReviewCanonicalResponse.status(), 200);
+            await prePostPanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[0].tag.name} to ${raceInitial[0].title}`,
+                exact: true,
+              })
+              .waitFor({ state: "visible" });
+            await waitForSuggestionsBusy(prePostPanel, false);
+            assert.equal(
+              await prePostPanel.locator(".tag-suggestion-card").count(),
+              3,
+              "A canonical refresh after the review keeps the three unrelated suggestions",
+            );
+            assert.equal(
+              await prePostButton.count(),
+              0,
+              "The reviewed suggestion disappears after the canonical refresh",
+            );
+            assert.ok(
+              raceSuggestionGets > postReviewGetCount,
+              "Settling the review queues a canonical suggestions GET after the stale pre-response GET",
+            );
+            raceSuggestions = [...raceInitial];
+            acceptedIds.clear();
+            await page.goto(`${base}/tag-suggestions`, {
+              waitUntil: "domcontentloaded",
+            });
+            racePanel = page.locator(".tag-suggestions-panel");
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[0].tag.name} to ${raceInitial[0].title}`,
+                exact: true,
+              })
+              .waitFor({ state: "visible" });
+            assert.equal(
+              await racePanel.locator(".tag-suggestion-card").count(),
+              3,
+              "The next race starts from an isolated three-card snapshot",
+            );
+            staleReadHeld = true;
+            const firstAcceptResponse = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                response.request().method() === "POST" &&
+                url.pathname ===
+                  `/api/v1/ai/suggestions/${raceInitial[0].id}/accept`
+              );
+            });
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[0].tag.name} to ${raceInitial[0].title}`,
+                exact: true,
+              })
+              .click();
+            assert.equal((await firstAcceptResponse).status(), 200);
+            let staleReadWaitTimer;
+            try {
+              await Promise.race([
+                staleReadEnteredPromise,
+                new Promise((_, reject) => {
+                  staleReadWaitTimer = globalThis.setTimeout(
+                    () =>
+                      reject(
+                        new Error(
+                          "Timed out waiting for the held suggestions refresh",
+                        ),
+                      ),
+                    15_000,
+                  );
+                }),
+              ]);
+            } finally {
+              if (staleReadWaitTimer)
+                globalThis.clearTimeout(staleReadWaitTimer);
+            }
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[1].tag.name} to ${raceInitial[1].title}`,
+                exact: true,
+              })
+              .waitFor({ state: "visible" });
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[0].tag.name} to ${raceInitial[0].title}`,
+                exact: true,
+              })
+              .waitFor({ state: "detached" });
+            await page.evaluate(
+              (titles) => {
+                window.__acceptedSuggestionTitles = new Set(titles);
+                window.__suggestionResurrections = [];
+                const panel = document.querySelector(".tag-suggestions-panel");
+                const recordAdded = (node) => {
+                  if (!(node instanceof Element)) return;
+                  const titles = [];
+                  if (node.matches(".tag-suggestion-title")) titles.push(node);
+                  titles.push(
+                    ...node.querySelectorAll(".tag-suggestion-title"),
+                  );
+                  for (const title of titles) {
+                    const value = title.textContent?.trim();
+                    if (value && window.__acceptedSuggestionTitles.has(value))
+                      window.__suggestionResurrections.push(value);
+                  }
+                };
+                window.__suggestionResurrectionObserver = new MutationObserver(
+                  (records) => {
+                    for (const record of records)
+                      for (const node of record.addedNodes) recordAdded(node);
+                  },
+                );
+                if (panel)
+                  window.__suggestionResurrectionObserver.observe(panel, {
+                    childList: true,
+                    subtree: true,
+                  });
+              },
+              [raceInitial[0].title],
+            );
+            const secondAcceptResponse = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                response.request().method() === "POST" &&
+                url.pathname ===
+                  `/api/v1/ai/suggestions/${raceInitial[1].id}/accept`
+              );
+            });
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[1].tag.name} to ${raceInitial[1].title}`,
+                exact: true,
+              })
+              .click();
+            assert.equal((await secondAcceptResponse).status(), 200);
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[1].tag.name} to ${raceInitial[1].title}`,
+                exact: true,
+              })
+              .waitFor({ state: "detached" });
+            await page.evaluate((title) => {
+              window.__acceptedSuggestionTitles.add(title);
+            }, raceInitial[1].title);
+            const staleResponsePromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                response.request().method() === "GET" &&
+                url.pathname === "/api/v1/ai/suggestions"
+              );
+            });
+            releaseStaleRead();
+            const staleResponse = await staleResponsePromise;
+            assert.equal(staleResponse.status(), 200);
+            raceSuggestions = raceInitial.filter(
+              (item) => !acceptedIds.has(item.id),
+            );
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[2].tag.name} to ${raceInitial[2].title}`,
+                exact: true,
+              })
+              .waitFor();
+            await waitForSuggestionsBusy(racePanel, false);
+            assert.equal(
+              await racePanel
+                .getByRole("button", {
+                  name: new RegExp(
+                    `Add (?:${raceInitial[0].tag.name}|${raceInitial[1].tag.name})`,
+                  ),
+                })
+                .count(),
+              0,
+              "Accepted suggestions must not be restored by a delayed list response",
+            );
+            assert.deepEqual(
+              await page.evaluate(() => window.__suggestionResurrections),
+              [],
+              "Accepted suggestion cards must never reappear during a stale response",
+            );
+
+            const createProposalButton = racePanel.getByRole("button", {
+              name: `Create ${raceProposal.name} and tag ${raceProposal.itemCount} items`,
+              exact: true,
+            });
+            await createProposalButton.waitFor();
+            const createProposalResponse = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                response.request().method() === "POST" &&
+                url.pathname ===
+                  `/api/v1/ai/tag-proposals/${raceProposal.id}/accept`
+              );
+            });
+            await createProposalButton.click();
+            assert.equal((await createProposalResponse).status(), 200);
+            const vocabularyStatus = racePanel
+              .locator('[role="status"].sr-only')
+              .filter({
+                hasText:
+                  "Updating tag suggestions. Existing suggestions are kept while they refresh.",
+              });
+            await vocabularyStatus.waitFor({ state: "attached" });
+            assert.match(
+              (await vocabularyStatus.textContent()) ?? "",
+              /Updating tag suggestions\. Existing suggestions are kept while they refresh\./,
+              "The vocabulary refresh remains announced to assistive technology without adding visible content",
+            );
+            assert.notEqual(
+              await vocabularyStatus.getAttribute("aria-hidden"),
+              "true",
+              "The refresh announcement stays available to assistive technology",
+            );
+            const statusBounds = await vocabularyStatus.evaluate((element) => {
+              const { width, height } = element.getBoundingClientRect();
+              return { width, height };
+            });
+            assert.ok(
+              statusBounds.width <= 1 && statusBounds.height <= 1,
+              `The refresh announcement must stay visually clipped; bounds=${JSON.stringify(statusBounds)}`,
+            );
+            assert.equal(
+              await racePanel
+                .locator('[role="status"]:not(.sr-only)')
+                .filter({
+                  hasText:
+                    "Updating tag suggestions. Existing suggestions are kept while they refresh.",
+                })
+                .count(),
+              0,
+              "The vocabulary refresh must not add a visible banner above the suggestions",
+            );
+            assert.equal(
+              await racePanel
+                .getByRole("button", {
+                  name: `Add ${raceInitial[2].tag.name} to ${raceInitial[2].title}`,
+                  exact: true,
+                })
+                .isDisabled(),
+              true,
+              "Stale approvals stay disabled while tag vocabulary is rebuilding",
+            );
+            assert.equal(
+              await racePanel
+                .getByRole("button", {
+                  name: `Open ${raceInitial[2].title}`,
+                  exact: true,
+                })
+                .isEnabled(),
+              true,
+              "Opening a source remains available during vocabulary rebuilding",
+            );
+            assert.equal(
+              await racePanel.locator(".tag-suggestion-card").count(),
+              1,
+              "The remaining valid card stays visible during vocabulary rebuilding",
+            );
+            const readsBeforeCompletionBurst = raceSuggestionGets;
+            await page.evaluate(() =>
+              Array.from({ length: 6 }, () =>
+                window.dispatchEvent(
+                  new CustomEvent("nivra:ai-completion", {
+                    detail: { kind: "ai", source: "mixed-approval-race" },
+                  }),
+                ),
+              ),
+            );
+            await setTimeout(250);
+            assert.equal(
+              raceSuggestionGets,
+              readsBeforeCompletionBurst,
+              "SSE completion bursts must not replace cards with partial vocabulary results",
+            );
+
+            await (
+              await nav()
+            )
+              .getByRole("button", { name: "Overview", exact: true })
+              .click();
+            await waitForWorkspaceApiIdle("leave pending vocabulary rebuild");
+            await (
+              await nav()
+            )
+              .getByRole("button", { name: "Tag suggestions", exact: true })
+              .click();
+            racePanel = page.locator(".tag-suggestions-panel");
+            await racePanel
+              .getByRole("status", { name: "Updating tag suggestions" })
+              .waitFor();
+            assert.equal(
+              await racePanel.locator(".tag-suggestion-card").count(),
+              0,
+              "A fresh visit during rebuilding must show progress, not stale accepted cards",
+            );
+            raceSuggestions = [...raceSuggestions, raceFinal];
+            raceVocabularyPending = 0;
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceFinal.tag.name} to ${raceFinal.title}`,
+                exact: true,
+              })
+              .waitFor({ timeout: 15_000 });
+            await waitForSuggestionsBusy(racePanel, false);
+            assert.equal(
+              await racePanel
+                .getByRole("button", {
+                  name: new RegExp(
+                    `Add (?:${raceInitial[0].tag.name}|${raceInitial[1].tag.name})`,
+                  ),
+                })
+                .count(),
+              0,
+              "Canonical refresh after rebuilding must not restore accepted cards",
+            );
+            await racePanel
+              .getByRole("button", {
+                name: `Dismiss suggestion for ${raceFinal.tag.name} on ${raceFinal.title}`,
+                exact: true,
+              })
+              .click();
+            await racePanel
+              .getByRole("alert")
+              .getByText(
+                "Could not update this suggestion. Refresh and try again.",
+                {
+                  exact: true,
+                },
+              )
+              .waitFor();
+            assert.equal(
+              await racePanel.locator(".tag-suggestion-card").count(),
+              2,
+              "A failed action keeps its card and unrelated suggestions visible",
+            );
+            await racePanel
+              .getByRole("button", {
+                name: `Dismiss suggestion for ${raceFinal.tag.name} on ${raceFinal.title}`,
+                exact: true,
+              })
+              .click();
+            await racePanel
+              .getByRole("button", {
+                name: `Add ${raceInitial[2].tag.name} to ${raceInitial[2].title}`,
+                exact: true,
+              })
+              .waitFor();
+            assert.equal(
+              await racePanel.locator(".tag-suggestion-card").count(),
+              1,
+              "Retrying the failed action removes only the dismissed card",
+            );
+            await waitForWorkspaceApiIdle("mixed tag-approval race fixture");
+            await page.evaluate(() => {
+              window.__suggestionResurrectionObserver?.disconnect();
+            });
+            assert.deepEqual(errors, []);
+            console.log(
+              `${name} ${width} ${theme}: mixed tag approvals, stale-response fencing, vocabulary rebuild and partial failure passed`,
+            );
+          } catch (error) {
+            raceError = error;
+          } finally {
+            releasePrePostGet();
+            releasePrePostPost();
+            releaseStaleRead();
+            try {
+              await page.unroute("**/api/v1/ai", statusRoute);
+              await page.unroute(
+                "**/api/v1/ai/suggestions**",
+                suggestionsRoute,
+              );
+              await page.unroute(
+                "**/api/v1/ai/tag-proposals**",
+                proposalsRoute,
+              );
+            } catch (error) {
+              raceCleanupError = error;
+            }
+            await page
+              .evaluate(() => {
+                window.__suggestionResurrectionObserver?.disconnect();
+              })
+              .catch(() => {});
+          }
+          const raceFailures = [raceError, raceCleanupError].filter(Boolean);
+          if (raceFailures.length === 1) throw raceFailures[0];
+          if (raceFailures.length)
+            throw new AggregateError(
+              raceFailures,
+              "Mixed tag-approval race fixture failed",
+            );
+        }
         console.log(
           `${name} ${width} ${theme}: tag navigation, contextual review, source opening, explicit tag approval, focus, accessibility and overflow passed`,
         );
@@ -1863,48 +2830,159 @@ try {
         await waitForStableAiIndex();
         await waitForSemanticResult(semanticQuery, note.id);
         await waitForWorkspaceApiIdle("before search navigation");
-        const recentSearchResponsePromise = page.waitForResponse((response) => {
-          const url = new URL(response.url());
-          return (
-            url.pathname === "/api/v1/search" &&
-            response.request().method() === "GET" &&
-            url.searchParams.get("mode") === "suggest" &&
-            url.searchParams.get("strategy") === "keyword" &&
-            url.searchParams.get("q") === ""
+        let search;
+        if (width === 320 && theme === "light") {
+          let availabilityWasChecked = false;
+          await page.route("**/api/v1/ai", async (route) => {
+            const current = await api("ai");
+            availabilityWasChecked = true;
+            await route.fulfill({
+              status: 200,
+              contentType: "application/json",
+              body: JSON.stringify({ ...current, enabled: false }),
+            });
+          });
+          const disabledQuery = "SQLite database queries";
+          try {
+            const disabledStatusPromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/ai" &&
+                response.request().method() === "GET"
+              );
+            });
+            const disabledRecentPromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/search" &&
+                url.searchParams.get("mode") === "suggest" &&
+                url.searchParams.get("strategy") === "keyword" &&
+                url.searchParams.get("q") === ""
+              );
+            });
+            const disabledQueryPromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/search" &&
+                url.searchParams.get("mode") === "suggest" &&
+                url.searchParams.get("q") === disabledQuery
+              );
+            });
+            await (
+              await nav()
+            )
+              .getByRole("button", { name: /^Search/ })
+              .first()
+              .click();
+            const disabledSearch = await surface("Search");
+            search = disabledSearch;
+            const disabledStatus = await disabledStatusPromise;
+            assert.equal(disabledStatus.status(), 200);
+            assert.equal((await disabledStatus.json()).enabled, false);
+            const disabledRecent = await disabledRecentPromise;
+            assert.equal(disabledRecent.status(), 200);
+            await disabledSearch
+              .getByRole("combobox", {
+                name: "Search everything",
+                exact: true,
+              })
+              .fill(disabledQuery);
+            const disabledQueryResponse = await disabledQueryPromise;
+            assert.equal(disabledQueryResponse.status(), 200);
+            assert.equal(
+              new URL(disabledQueryResponse.url()).searchParams.get("strategy"),
+              "keyword",
+              "Search must stay lexical when the shared smart-features setting is off",
+            );
+            await disabledSearch
+              .getByText("Search results", { exact: true })
+              .waitFor();
+            assert.equal(
+              await disabledSearch
+                .getByText("Related matches", { exact: true })
+                .count(),
+              0,
+              "Disabled smart features must not label keyword results as semantic",
+            );
+            assert.equal(
+              availabilityWasChecked,
+              true,
+              "Search must read the shared smart-features setting",
+            );
+            await page.unroute("**/api/v1/ai");
+            const enabledStatusPromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/ai" &&
+                response.request().method() === "GET"
+              );
+            });
+            const enabledSemanticPromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/search" &&
+                url.searchParams.get("mode") === "suggest" &&
+                url.searchParams.get("strategy") === "semantic" &&
+                url.searchParams.get("q") === disabledQuery
+              );
+            });
+            await page.evaluate(() => {
+              window.dispatchEvent(
+                new CustomEvent("nivra:ai-completion", {
+                  detail: {
+                    kind: "ai",
+                    target: "settings",
+                    status: "changed",
+                  },
+                }),
+              );
+            });
+            const enabledStatus = await enabledStatusPromise;
+            assert.equal(enabledStatus.status(), 200);
+            assert.equal((await enabledStatus.json()).enabled, true);
+            const enabledSemantic = await enabledSemanticPromise;
+            assert.equal(enabledSemantic.status(), 200);
+            assert.equal(
+              (await enabledSemantic.json()).strategyUsed,
+              "semantic",
+              "A settings completion event must switch the open search to semantic strategy",
+            );
+            await waitForWorkspaceApiIdle("settings-driven search settled");
+            console.log(
+              `${name} ${width} ${theme}: smart-feature setting and live settings changes control semantic search`,
+            );
+          } finally {
+            await page.unroute("**/api/v1/ai");
+          }
+        }
+        if (!search) {
+          const recentSearchResponsePromise = page.waitForResponse(
+            (response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/search" &&
+                response.request().method() === "GET" &&
+                url.searchParams.get("mode") === "suggest" &&
+                url.searchParams.get("strategy") === "keyword" &&
+                url.searchParams.get("q") === ""
+              );
+            },
           );
-        });
-        await (
-          await nav()
-        )
-          .getByRole("button", { name: /^Search/ })
-          .first()
-          .click();
-        const search = await surface("Search");
-        const recentSearchResponse = await recentSearchResponsePromise;
-        assert.equal(recentSearchResponse.status(), 200);
-        await waitForWorkspaceApiIdle("recent search settled");
+          await (
+            await nav()
+          )
+            .getByRole("button", { name: /^Search/ })
+            .first()
+            .click();
+          search = await surface("Search");
+          const recentSearchResponse = await recentSearchResponsePromise;
+          assert.equal(recentSearchResponse.status(), 200);
+          await waitForWorkspaceApiIdle("recent search settled");
+        }
         const searchInput = search.getByRole("combobox", {
           name: "Search everything",
           exact: true,
         });
-        const keywordSearchResponsePromise = page.waitForResponse(
-          (response) => {
-            const url = new URL(response.url());
-            return (
-              url.pathname === "/api/v1/search" &&
-              response.request().method() === "GET" &&
-              url.searchParams.get("mode") === "suggest" &&
-              url.searchParams.get("strategy") === "keyword" &&
-              url.searchParams.get("q") === semanticQuery
-            );
-          },
-        );
-        await searchInput.fill(semanticQuery);
-        const keywordSearchResponse = await keywordSearchResponsePromise;
-        assert.equal(keywordSearchResponse.status(), 200);
-        await waitForWorkspaceApiIdle(
-          "keyword search settled before enabling meaning search",
-        );
         const semanticResponsePromise = page.waitForResponse((response) => {
           const url = new URL(response.url());
           return (
@@ -1914,9 +2992,14 @@ try {
             url.searchParams.get("q") === semanticQuery
           );
         });
-        await search
-          .getByRole("checkbox", { name: "Search by meaning", exact: true })
-          .check();
+        assert.equal(
+          await search
+            .getByRole("checkbox", { name: "Search by meaning", exact: true })
+            .count(),
+          0,
+          "Meaning search must follow the System setting instead of a per-query checkbox",
+        );
+        await searchInput.fill(semanticQuery);
         let semanticResponse;
         try {
           semanticResponse = await semanticResponsePromise;
@@ -2017,24 +3100,6 @@ try {
             name: "Search everything",
             exact: true,
           });
-          const fallbackKeywordResponsePromise = page.waitForResponse(
-            (response) => {
-              const url = new URL(response.url());
-              return (
-                url.pathname === "/api/v1/search" &&
-                response.request().method() === "GET" &&
-                url.searchParams.get("mode") === "suggest" &&
-                url.searchParams.get("strategy") === "keyword" &&
-                url.searchParams.get("q") === fallbackQuery
-              );
-            },
-          );
-          await fallbackInput.fill(fallbackQuery);
-          const fallbackKeywordResponse = await fallbackKeywordResponsePromise;
-          assert.equal(fallbackKeywordResponse.status(), 200);
-          await waitForWorkspaceApiIdle(
-            "keyword fallback query settled before enabling meaning search",
-          );
           const fallbackResponsePromise = page.waitForResponse((response) => {
             const url = new URL(response.url());
             return (
@@ -2045,9 +3110,17 @@ try {
               url.searchParams.get("q") === fallbackQuery
             );
           });
-          await fallbackSearch
-            .getByRole("checkbox", { name: "Search by meaning", exact: true })
-            .check();
+          assert.equal(
+            await fallbackSearch
+              .getByRole("checkbox", {
+                name: "Search by meaning",
+                exact: true,
+              })
+              .count(),
+            0,
+            "Meaning search fallback must not expose a per-query checkbox",
+          );
+          await fallbackInput.fill(fallbackQuery);
           const fallbackResponse = await fallbackResponsePromise;
           const fallbackResult = await fallbackResponse.json();
           assert.equal(fallbackResponse.status(), 200);
@@ -2397,37 +3470,85 @@ try {
             `${name} ${width} ${theme}: tag-suggestion failure leaves smart-feature toggle usable`,
           );
         }
+        if (cancelledSearchRequests.length)
+          console.log(
+            `${name} ${width} ${theme}: ${cancelledSearchRequests.length} superseded search request(s) canceled by the client`,
+          );
         if (name === "chromium" && width === 320 && theme === "light")
           await runLiveSuggestionsRefresh();
+      } catch (error) {
+        contextRunError = error;
       } finally {
         try {
           await context.close();
-        } finally {
+        } catch (error) {
+          contextCleanupErrors.push(error);
+        }
+        try {
           await cleanupFixture();
+        } catch (error) {
+          contextCleanupErrors.push(error);
         }
       }
-    }
-} finally {
-  try {
-    await browser.close();
-  } finally {
-    try {
-      const currentAiStatus = await api("ai");
-      if (
-        currentAiStatus.enabled !== originalAiStatus.enabled ||
-        currentAiStatus.taggingMode !== originalAiStatus.taggingMode
-      )
-        await api("ai", "PATCH", {
-          enabled: originalAiStatus.enabled,
-          revision: currentAiStatus.revision,
-          taggingMode: originalAiStatus.taggingMode,
-        });
-    } finally {
-      try {
-        await api("settings", "PATCH", { theme: originalTheme });
-      } finally {
-        await owner.dispose();
+      if (contextRunError) {
+        if (contextCleanupErrors.length)
+          console.error(
+            "Browser fixture cleanup failures:",
+            contextCleanupErrors.map((error) =>
+              error instanceof Error ? error.message : String(error),
+            ),
+          );
+        throw contextRunError;
       }
+      if (contextCleanupErrors.length === 1) throw contextCleanupErrors[0];
+      if (contextCleanupErrors.length)
+        throw new AggregateError(
+          contextCleanupErrors,
+          "Browser fixture cleanup failed",
+        );
     }
+} catch (error) {
+  primaryRunError = error;
+} finally {
+  const cleanupErrors = [];
+  const cleanup = async (label, operation) => {
+    try {
+      await operation();
+    } catch (error) {
+      cleanupErrors.push(
+        new Error(
+          `${label}: ${error instanceof Error ? error.message : error}`,
+        ),
+      );
+    }
+  };
+
+  await cleanup("Close browser", () => browser.close());
+  await cleanup("Restore smart-feature settings", async () => {
+    const currentAiStatus = await api("ai");
+    if (
+      currentAiStatus.enabled !== originalAiStatus.enabled ||
+      currentAiStatus.taggingMode !== originalAiStatus.taggingMode
+    )
+      await api("ai", "PATCH", {
+        enabled: originalAiStatus.enabled,
+        revision: currentAiStatus.revision,
+        taggingMode: originalAiStatus.taggingMode,
+      });
+  });
+  await cleanup("Restore appearance", () =>
+    api("settings", "PATCH", { theme: originalTheme }),
+  );
+  await cleanup("Dispose owner API context", () => owner.dispose());
+
+  if (primaryRunError) {
+    if (cleanupErrors.length)
+      console.error(
+        "Browser audit cleanup failures:",
+        cleanupErrors.map((error) => error.message),
+      );
+    throw primaryRunError;
   }
+  if (cleanupErrors.length)
+    throw new AggregateError(cleanupErrors, "Browser audit cleanup failed");
 }

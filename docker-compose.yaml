@@ -4,11 +4,11 @@ services:
     ports:
       - "0.0.0.0:${NIVRA_PORT:-3000}:3000"
     environment:
-      NIVRA_DATA_DIR: /app/data
+      NIVRA_DATA_DIR: /data
       NIVRA_PUBLIC_URL: ${NIVRA_PUBLIC_URL:-}
       NIVRA_ENCRYPTION_KEY_FILE: ${NIVRA_ENCRYPTION_KEY_FILE:-}
     volumes:
-      - nivra-data:/app/data
+      - nivra-data:/data
     restart: unless-stopped
     init: true
     security_opt:

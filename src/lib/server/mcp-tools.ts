@@ -189,7 +189,7 @@ add(
     favoritesOnly: z
       .boolean()
       .default(false)
-      .describe("Favorited notes, journals and bookmarks only."),
+      .describe("Count favorite notes, journals, bookmarks and forms only."),
   }),
   false,
   async (i, c) =>
@@ -713,7 +713,7 @@ add(
 );
 add(
   "list_tags",
-  "List paginated tags.",
+  "List paginated tags and matching aliases.",
   z.object({
     limit: page.limit,
     offset: z.number().int().min(0).max(1000000).default(0),
@@ -721,10 +721,20 @@ add(
   false,
   async (i) => {
     const rows = sqlite()
-      .prepare("SELECT id,name,color FROM tags ORDER BY name LIMIT ? OFFSET ?")
-      .all(Number(i.limit) + 1, i.offset);
+      .prepare(
+        "SELECT id,name,color,aliases FROM tags ORDER BY name LIMIT ? OFFSET ?",
+      )
+      .all(Number(i.limit) + 1, i.offset) as {
+      id: string;
+      name: string;
+      color: string;
+      aliases: string;
+    }[];
     return {
-      items: rows.slice(0, Number(i.limit)),
+      items: rows.slice(0, Number(i.limit)).map((row) => ({
+        ...row,
+        aliases: JSON.parse(row.aliases) as string[],
+      })),
       nextOffset:
         rows.length > Number(i.limit)
           ? Number(i.offset) + Number(i.limit)
@@ -751,7 +761,7 @@ add(
 );
 add(
   "update_tag",
-  "Update a tag's name or color.",
+  "Update a tag's name, color or matching aliases.",
   z.object({
     id,
     name: z.string().trim().min(1).max(50).optional(),

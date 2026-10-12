@@ -55,6 +55,7 @@ test("adaptive tagging preferences and proposal reviews remain owner-only and re
     const initial = await value("ai");
     assert.equal(initial.enabled, false);
     assert.equal(initial.taggingMode, "manual");
+    assert.equal(initial.vocabularyPending, 0);
     const automatic = await value("ai", "PATCH", {
       enabled: false,
       revision: initial.revision,
@@ -222,6 +223,77 @@ test("adaptive tagging preferences and proposal reviews remain owner-only and re
       ).n,
       4,
       "acceptance still uses every eligible evidence item beyond the preview",
+    );
+    const rebuild = await value("ai");
+    assert.equal(
+      rebuild.vocabularyPending,
+      4,
+      "adding an approved tag reports the old indexed vocabulary while suggestions are being rebuilt",
+    );
+    const vocabularyGeneration = (
+      database
+        .prepare("SELECT vocabulary_generation AS value FROM ai_configuration")
+        .get() as { value: number }
+    ).value;
+    database
+      .prepare(
+        "UPDATE ai_content SET vocabulary_generation=?,pending=0 WHERE owner_id=? AND state='indexed'",
+      )
+      .run(vocabularyGeneration, ownerId);
+    assert.equal(
+      (await value("ai")).vocabularyPending,
+      0,
+      "fully processed or terminal failed content does not leave the vocabulary rebuild pending",
+    );
+    database
+      .prepare("UPDATE ai_content SET pending=1 WHERE source_key=?")
+      .run(`note:${previewNoteIds[0]}`);
+    assert.equal(
+      (await value("ai")).vocabularyPending,
+      1,
+      "a current indexed item awaiting adaptive preparation is pending even when its vocabulary generation already matches",
+    );
+    database
+      .prepare("UPDATE ai_content SET pending=0 WHERE source_key=?")
+      .run(`note:${previewNoteIds[0]}`);
+    assert.equal(
+      (await value("ai")).vocabularyPending,
+      0,
+      "clearing the adaptive processing marker clears the pending count when vocabulary is current",
+    );
+    const ordinaryPendingNote = randomUUID();
+    database
+      .prepare(
+        "INSERT INTO notes(id,owner_id,title,document,text,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+      )
+      .run(
+        ordinaryPendingNote,
+        ownerId,
+        "Disposable ordinary pending content",
+        '{"schemaVersion":1,"blocks":[]}',
+        "Unrelated content ingestion must not block tag review.",
+        now,
+        now,
+      );
+    assert.equal(
+      (await value("ai")).vocabularyPending,
+      0,
+      "ordinary new content is not a vocabulary rebuild and must not lock tag review",
+    );
+    database
+      .prepare(
+        "UPDATE ai_content SET state='failed',vocabulary_generation=? WHERE source_key=?",
+      )
+      .run(vocabularyGeneration - 1, `note:${previewNoteIds[0]}`);
+    database
+      .prepare(
+        "UPDATE ai_content SET state='capacity',vocabulary_generation=? WHERE source_key=?",
+      )
+      .run(vocabularyGeneration - 1, `note:${previewNoteIds[1]}`);
+    assert.equal(
+      (await value("ai")).vocabularyPending,
+      0,
+      "terminal failures and capacity deferrals must not keep vocabulary refresh blocked",
     );
 
     const key = await value("ai-connections", "POST", {

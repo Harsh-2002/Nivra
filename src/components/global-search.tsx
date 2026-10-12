@@ -3,6 +3,7 @@ import { ResponsiveSurface } from "./responsive-surface";
 import { LoadingState } from "./loading-state";
 import { useCompletion } from "@/lib/completion-client";
 import {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -19,8 +20,6 @@ import {
   SlidersHorizontal,
   ClipboardList,
 } from "lucide-react";
-import { Checkbox } from "./ui/checkbox";
-import { Label } from "./ui/label";
 import { Button } from "./ui/button";
 import { SearchText } from "./search-text";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -72,36 +71,67 @@ export function GlobalSearch({
     setOpen(false);
   };
   const [query, setQuery] = useState("");
-  const [semantic, setSemantic] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiStatusError, setAiStatusError] = useState(false);
   const [strategyUsed, setStrategyUsed] = useState("keyword");
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    void api<{ enabled: boolean }>("ai", { signal: controller.signal })
+  const aiStatusRequest = useRef<{
+    controller: AbortController;
+    generation: number;
+  } | null>(null);
+  const aiStatusGeneration = useRef(0);
+  const refreshAiStatus = useCallback(() => {
+    aiStatusRequest.current?.controller.abort();
+    const request = {
+      controller: new AbortController(),
+      generation: ++aiStatusGeneration.current,
+    };
+    aiStatusRequest.current = request;
+    void api<{ enabled: boolean }>("ai", {
+      signal: request.controller.signal,
+    })
       .then((value) => {
-        if (!controller.signal.aborted) {
-          setAiStatusError(false);
-          setAiEnabled(value.enabled);
-          if (!value.enabled) setSemantic(false);
-        }
+        if (
+          request.controller.signal.aborted ||
+          request.generation !== aiStatusGeneration.current ||
+          aiStatusRequest.current !== request
+        )
+          return;
+        setAiStatusError(false);
+        setAiEnabled(value.enabled);
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
-          setAiEnabled(false);
-          setSemantic(false);
-          setAiStatusError(true);
-        }
+        if (
+          request.controller.signal.aborted ||
+          request.generation !== aiStatusGeneration.current ||
+          aiStatusRequest.current !== request
+        )
+          return;
+        setAiEnabled(false);
+        setAiStatusError(true);
+      })
+      .finally(() => {
+        if (aiStatusRequest.current === request) aiStatusRequest.current = null;
       });
-    return () => controller.abort();
-  }, [open]);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    refreshAiStatus();
+    return () => {
+      aiStatusRequest.current?.controller.abort();
+      aiStatusRequest.current = null;
+    };
+  }, [open, refreshAiStatus]);
   const [completionVersion, setCompletionVersion] = useState(0);
   useCompletion(undefined, () => {
     if (open) setCompletionVersion((version) => version + 1);
   });
-  useCompletion("ai", () => {
-    if (open && semantic) setCompletionVersion((version) => version + 1);
+  useCompletion("ai", (event) => {
+    if (!open) return;
+    if (event.target === "settings") {
+      refreshAiStatus();
+      return;
+    }
+    if (aiEnabled) setCompletionVersion((version) => version + 1);
   });
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,8 +146,9 @@ export function GlobalSearch({
       () => {
         setLoading(true);
         setError("");
+        const strategy = aiEnabled && query.trim() ? "semantic" : "keyword";
         void api<{ items: SearchResult[]; strategyUsed?: string }>(
-          `search?mode=suggest&strategy=${semantic ? "semantic" : "keyword"}&q=${encodeURIComponent(query)}`,
+          `search?mode=suggest&strategy=${strategy}&q=${encodeURIComponent(query)}`,
           {
             signal: controller.signal,
           },
@@ -149,7 +180,7 @@ export function GlobalSearch({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [open, query, semantic, completionVersion]);
+  }, [open, query, aiEnabled, completionVersion]);
   const run = async (action: () => Promise<boolean>, focus: string) => {
     if (busy) return;
     setBusy(true);
@@ -220,28 +251,6 @@ export function GlobalSearch({
             setError("");
           }}
         />
-        {aiEnabled && (
-          <div className="search-semantic-control">
-            <Label>
-              <Checkbox
-                checked={semantic}
-                onCheckedChange={(value) => {
-                  setSemantic(value === true);
-                  setLoading(true);
-                }}
-              />
-              Search by meaning
-            </Label>
-            {semantic &&
-              query.trim() &&
-              !loading &&
-              strategyUsed === "keyword" && (
-                <span role="status">
-                  Meaning search is unavailable. Showing keyword results.
-                </span>
-              )}
-          </div>
-        )}
         {aiStatusError && (
           <p className="search-ai-availability" role="status">
             Could not check meaning-search availability. Keyword search is
@@ -250,6 +259,14 @@ export function GlobalSearch({
         )}
         <div className="search-results-viewport">
           <div className="search-status">
+            {aiEnabled &&
+              query.trim() &&
+              !loading &&
+              strategyUsed === "keyword" && (
+                <p className="search-ai-availability" role="status">
+                  Meaning search is unavailable. Showing keyword results.
+                </p>
+              )}
             {loading && !results.length ? (
               <LoadingState kind="search" label="Loading search results" />
             ) : loading ? (

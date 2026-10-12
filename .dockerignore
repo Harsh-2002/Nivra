@@ -10,7 +10,7 @@ playwright-report
 public/excalidraw
 *.tsbuildinfo
 Dockerfile
-compose.yaml
+docker-compose.yaml
 *.md
 docs
 tests

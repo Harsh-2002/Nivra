@@ -87,8 +87,8 @@ export function LocalAiSettings({
     >
       <h2 id="local-ai-title">Smart tagging and search</h2>
       <p className="settings-description">
-        Suggest tags for your items and find related content. Review tag
-        suggestions under Tags.
+        Suggest tags for your items and use semantic search to find related
+        content. Review tag suggestions under Tags.
       </p>
       {!status && statusLoading && !error && (
         <p className="settings-description" role="status">

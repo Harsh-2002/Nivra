@@ -84,16 +84,45 @@ export function TagSuggestionsPanel({
   } | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [vocabularyRefreshing, setVocabularyRefreshing] = useState(false);
+  const [vocabularyWaitExpired, setVocabularyWaitExpired] = useState(false);
   const [version, setVersion] = useState(0);
   const completionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const vocabularyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadingRef = useRef(true);
   const refreshQueued = useRef(false);
   const reviewInFlight = useRef(false);
+  const vocabularyRefreshRef = useRef(false);
+  const vocabularyStartedAt = useRef<number | null>(null);
+  const vocabularyPollAttempt = useRef(0);
   const reviewGeneration = useRef(0);
 
+  const beginVocabularyRefresh = useCallback(() => {
+    vocabularyRefreshRef.current = true;
+    vocabularyStartedAt.current ??= Date.now();
+    setVocabularyRefreshing(true);
+    setVocabularyWaitExpired(false);
+  }, []);
+
+  const finishVocabularyRefresh = useCallback(() => {
+    if (vocabularyTimer.current) clearTimeout(vocabularyTimer.current);
+    vocabularyTimer.current = null;
+    vocabularyRefreshRef.current = false;
+    vocabularyStartedAt.current = null;
+    vocabularyPollAttempt.current = 0;
+    setVocabularyRefreshing(false);
+    setVocabularyWaitExpired(false);
+  }, []);
+
   const refresh = useCallback((preserveFeedback = false) => {
+    if (reviewInFlight.current) {
+      refreshQueued.current = true;
+      return;
+    }
     if (completionTimer.current) clearTimeout(completionTimer.current);
     completionTimer.current = null;
+    if (vocabularyTimer.current) clearTimeout(vocabularyTimer.current);
+    vocabularyTimer.current = null;
     refreshQueued.current = false;
     loadingRef.current = true;
     setLoading(true);
@@ -105,7 +134,39 @@ export function TagSuggestionsPanel({
     setVersion((current) => current + 1);
   }, []);
 
+  const scheduleVocabularyPoll = useCallback(() => {
+    if (!vocabularyRefreshRef.current || vocabularyTimer.current) return;
+    const startedAt = vocabularyStartedAt.current ?? Date.now();
+    vocabularyStartedAt.current = startedAt;
+    const maxWaitMs = 120_000;
+    if (Date.now() - startedAt >= maxWaitMs) {
+      setVocabularyRefreshing(false);
+      setVocabularyWaitExpired(true);
+      return;
+    }
+    if (document.visibilityState === "hidden" || !document.hasFocus()) return;
+    const backoff = [1000, 2000, 5000, 10_000, 20_000, 30_000];
+    const delay =
+      backoff[Math.min(vocabularyPollAttempt.current, backoff.length - 1)];
+    vocabularyPollAttempt.current++;
+    vocabularyTimer.current = setTimeout(() => {
+      vocabularyTimer.current = null;
+      if (!vocabularyRefreshRef.current) return;
+      if (document.visibilityState === "hidden" || !document.hasFocus()) return;
+      if (Date.now() - startedAt >= maxWaitMs) {
+        setVocabularyRefreshing(false);
+        setVocabularyWaitExpired(true);
+        return;
+      }
+      if (loadingRef.current || reviewInFlight.current) {
+        return;
+      }
+      refresh(true);
+    }, delay);
+  }, [refresh]);
+
   const scheduleRefresh = useCallback(() => {
+    if (vocabularyRefreshRef.current) return;
     refreshQueued.current = true;
     if (completionTimer.current) clearTimeout(completionTimer.current);
     completionTimer.current = null;
@@ -117,10 +178,42 @@ export function TagSuggestionsPanel({
     }, 150);
   }, [refresh]);
 
-  useCompletion("ai", scheduleRefresh);
+  useCompletion("ai", (event) => {
+    if (event.target === "settings") refresh(true);
+    else scheduleRefresh();
+  });
+
+  useEffect(() => {
+    const resumeVocabularyRefresh = () => {
+      if (
+        vocabularyRefreshRef.current &&
+        document.visibilityState !== "hidden" &&
+        document.hasFocus()
+      ) {
+        vocabularyStartedAt.current = Date.now();
+        vocabularyPollAttempt.current = 0;
+        setVocabularyWaitExpired(false);
+        setVocabularyRefreshing(true);
+        scheduleVocabularyPoll();
+      }
+    };
+    const pauseVocabularyRefresh = () => {
+      if (vocabularyTimer.current) clearTimeout(vocabularyTimer.current);
+      vocabularyTimer.current = null;
+    };
+    document.addEventListener("visibilitychange", resumeVocabularyRefresh);
+    window.addEventListener("focus", resumeVocabularyRefresh);
+    window.addEventListener("blur", pauseVocabularyRefresh);
+    return () => {
+      document.removeEventListener("visibilitychange", resumeVocabularyRefresh);
+      window.removeEventListener("focus", resumeVocabularyRefresh);
+      window.removeEventListener("blur", pauseVocabularyRefresh);
+    };
+  }, [scheduleVocabularyPoll]);
   useEffect(
     () => () => {
       if (completionTimer.current) clearTimeout(completionTimer.current);
+      if (vocabularyTimer.current) clearTimeout(vocabularyTimer.current);
     },
     [],
   );
@@ -131,21 +224,33 @@ export function TagSuggestionsPanel({
     loadingRef.current = true;
     void (async () => {
       try {
-        const status = await api<{ enabled: boolean }>("ai", {
+        const status = await api<{
+          enabled: boolean;
+          vocabularyPending: number;
+        }>("ai", {
           signal: controller.signal,
         });
-        if (
-          controller.signal.aborted ||
-          generation !== reviewGeneration.current
-        )
+        if (controller.signal.aborted) return;
+        if (generation !== reviewGeneration.current || reviewInFlight.current) {
+          if (reviewInFlight.current) refreshQueued.current = true;
           return;
+        }
         setEnabled(status.enabled);
         if (!status.enabled) {
+          finishVocabularyRefresh();
           setItems([]);
           setProposals([]);
           setHasLoaded(true);
           return;
         }
+        if (status.vocabularyPending > 0) {
+          setLoadError("");
+          beginVocabularyRefresh();
+          scheduleVocabularyPoll();
+          return;
+        }
+        if (vocabularyTimer.current) clearTimeout(vocabularyTimer.current);
+        vocabularyTimer.current = null;
         const [result, proposalResult] = await Promise.all([
           api<{ items: Suggestion[] }>("ai/suggestions", {
             signal: controller.signal,
@@ -156,29 +261,59 @@ export function TagSuggestionsPanel({
         ]);
         if (
           !controller.signal.aborted &&
-          generation === reviewGeneration.current
+          generation === reviewGeneration.current &&
+          !reviewInFlight.current
         ) {
           setItems(result.items);
           setProposals(proposalResult.items);
           setHasLoaded(true);
-        }
+          finishVocabularyRefresh();
+        } else if (!controller.signal.aborted && reviewInFlight.current)
+          refreshQueued.current = true;
       } catch {
         if (
           !controller.signal.aborted &&
-          generation === reviewGeneration.current
+          generation === reviewGeneration.current &&
+          !reviewInFlight.current
         ) {
           setLoadError("Could not load tag suggestions.");
-        }
+        } else if (!controller.signal.aborted && reviewInFlight.current)
+          refreshQueued.current = true;
       } finally {
         if (!controller.signal.aborted) {
-          loadingRef.current = false;
-          if (refreshQueued.current) scheduleRefresh();
-          else setLoading(false);
+          if (reviewInFlight.current) {
+            loadingRef.current = false;
+            refreshQueued.current = true;
+            setLoading(false);
+          } else if (generation !== reviewGeneration.current) {
+            if (refreshQueued.current) {
+              loadingRef.current = false;
+              scheduleRefresh();
+            }
+          } else {
+            loadingRef.current = false;
+            if (vocabularyRefreshRef.current) scheduleVocabularyPoll();
+            if (refreshQueued.current) scheduleRefresh();
+            else setLoading(false);
+          }
         }
       }
     })();
     return () => controller.abort();
-  }, [version, scheduleRefresh]);
+  }, [
+    version,
+    scheduleRefresh,
+    scheduleVocabularyPoll,
+    beginVocabularyRefresh,
+    finishVocabularyRefresh,
+  ]);
+
+  function retryVocabularyRefresh() {
+    vocabularyStartedAt.current = Date.now();
+    vocabularyPollAttempt.current = 0;
+    beginVocabularyRefresh();
+    refresh(true);
+  }
 
   async function openResult(id: string, result: SearchResult) {
     if (busy || reviewInFlight.current) return;
@@ -220,8 +355,10 @@ export function TagSuggestionsPanel({
   }
 
   async function decide(item: Suggestion, decision: "accept" | "reject") {
-    if (busy || reviewInFlight.current) return;
+    if (busy || reviewInFlight.current || vocabularyRefreshRef.current) return;
     reviewInFlight.current = true;
+    reviewGeneration.current++;
+    refreshQueued.current = true;
     let reviewed = false;
     setBusy(true);
     setActionError(null);
@@ -232,7 +369,6 @@ export function TagSuggestionsPanel({
         method: "POST",
         body: "{}",
       });
-      reviewGeneration.current++;
       reviewed = true;
       setItems((current) =>
         current.filter((suggestion) => suggestion.id !== item.id),
@@ -253,8 +389,10 @@ export function TagSuggestionsPanel({
             : "Could not update this suggestion. Refresh and try again.",
       });
     } finally {
+      reviewGeneration.current++;
       reviewInFlight.current = false;
       setBusy(false);
+      if (vocabularyRefreshRef.current) scheduleVocabularyPoll();
       if (reviewed || refreshQueued.current) {
         if (loadingRef.current) refreshQueued.current = true;
         else refresh(true);
@@ -266,8 +404,10 @@ export function TagSuggestionsPanel({
     proposal: TagProposal,
     decision: "accept" | "reject",
   ) {
-    if (busy || reviewInFlight.current) return;
+    if (busy || reviewInFlight.current || vocabularyRefreshRef.current) return;
     reviewInFlight.current = true;
+    reviewGeneration.current++;
+    refreshQueued.current = true;
     let reviewed = false;
     setBusy(true);
     setActionError(null);
@@ -278,8 +418,10 @@ export function TagSuggestionsPanel({
         method: "POST",
         body: "{}",
       });
-      reviewGeneration.current++;
       reviewed = true;
+      if (decision === "accept") {
+        beginVocabularyRefresh();
+      }
       setProposals((current) =>
         current.filter((item) => item.id !== proposal.id),
       );
@@ -299,14 +441,25 @@ export function TagSuggestionsPanel({
             : "Could not update this tag idea. Refresh and try again.",
       });
     } finally {
+      reviewGeneration.current++;
       reviewInFlight.current = false;
       setBusy(false);
+      if (vocabularyRefreshRef.current) scheduleVocabularyPoll();
       if (reviewed || refreshQueued.current) {
         if (loadingRef.current) refreshQueued.current = true;
         else refresh(true);
       }
     }
   }
+
+  const statusMessage = [
+    message,
+    hasLoaded && vocabularyRefreshing
+      ? "Updating tag suggestions. Existing suggestions are kept while they refresh."
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <section className="tag-suggestions-panel tasks-panel">
@@ -315,7 +468,7 @@ export function TagSuggestionsPanel({
         tabIndex={0}
         role="region"
         aria-label="Tag suggestions"
-        aria-busy={loading || busy}
+        aria-busy={loading || busy || vocabularyRefreshing}
       >
         <div className="section-content">
           <SectionHeading
@@ -324,9 +477,9 @@ export function TagSuggestionsPanel({
             onNavigation={onNavigation}
           />
           <p className="sr-only" role="status">
-            {message}
+            {statusMessage}
           </p>
-          {loadError && (
+          {loadError && !vocabularyWaitExpired && (
             <div className="tasks-error" role="alert">
               <p>{loadError}</p>
               <Button variant="outline" onClick={() => refresh()}>
@@ -334,8 +487,15 @@ export function TagSuggestionsPanel({
               </Button>
             </div>
           )}
-          {!hasLoaded && loading ? (
-            <LoadingState kind="trash" label="Loading tag suggestions" />
+          {!hasLoaded && (loading || vocabularyRefreshing) ? (
+            <LoadingState
+              kind="trash"
+              label={
+                vocabularyRefreshing
+                  ? "Updating tag suggestions"
+                  : "Loading tag suggestions"
+              }
+            />
           ) : enabled === false ? (
             <div className="tasks-empty">
               <Tags size={32} strokeWidth={1} aria-hidden="true" />
@@ -344,8 +504,29 @@ export function TagSuggestionsPanel({
                 Turn them on in Settings → System to review tag suggestions.
               </p>
             </div>
+          ) : !hasLoaded && vocabularyWaitExpired ? (
+            <div className="tasks-error" role="status">
+              <p>
+                Tag suggestions are taking longer than expected. Check again
+                when the indexer is available.
+              </p>
+              <Button variant="outline" onClick={retryVocabularyRefresh}>
+                Check again
+              </Button>
+            </div>
           ) : (
             <>
+              {vocabularyWaitExpired ? (
+                <div className="tasks-error" role="status">
+                  <p>
+                    Tag suggestions are taking longer than expected. Existing
+                    suggestions are kept until they can be refreshed.
+                  </p>
+                  <Button variant="outline" onClick={retryVocabularyRefresh}>
+                    Check again
+                  </Button>
+                </div>
+              ) : null}
               {items.length ? (
                 <ul className="tag-collection-grid tag-suggestion-grid">
                   {items.map((item) => {
@@ -381,7 +562,11 @@ export function TagSuggestionsPanel({
                             size="icon"
                             variant="ghost"
                             className="tag-suggestion-dismiss"
-                            disabled={busy}
+                            disabled={
+                              busy ||
+                              vocabularyRefreshing ||
+                              vocabularyWaitExpired
+                            }
                             aria-label={`Dismiss suggestion for ${item.tag.name} on ${title}`}
                             onClick={() => void decide(item, "reject")}
                           >
@@ -421,7 +606,11 @@ export function TagSuggestionsPanel({
                                 size="icon"
                                 variant="outline"
                                 className="tag-suggestion-approve"
-                                disabled={busy}
+                                disabled={
+                                  busy ||
+                                  vocabularyRefreshing ||
+                                  vocabularyWaitExpired
+                                }
                                 aria-label={`Add ${item.tag.name} to ${title}`}
                                 onClick={() => void decide(item, "accept")}
                               >
@@ -458,7 +647,11 @@ export function TagSuggestionsPanel({
                             size="icon"
                             variant="ghost"
                             className="tag-suggestion-dismiss"
-                            disabled={busy}
+                            disabled={
+                              busy ||
+                              vocabularyRefreshing ||
+                              vocabularyWaitExpired
+                            }
                             aria-label={`Dismiss new tag idea ${proposal.name}`}
                             onClick={() =>
                               void decideProposal(proposal, "reject")
@@ -511,7 +704,11 @@ export function TagSuggestionsPanel({
                           <footer className="tag-proposal-footer">
                             <Button
                               variant="outline"
-                              disabled={busy}
+                              disabled={
+                                busy ||
+                                vocabularyRefreshing ||
+                                vocabularyWaitExpired
+                              }
                               aria-label={`Create ${proposal.name} and tag ${proposal.itemCount} items`}
                               onClick={() =>
                                 void decideProposal(proposal, "accept")
@@ -532,7 +729,12 @@ export function TagSuggestionsPanel({
                   </ul>
                 </section>
               )}
-              {!items.length && !proposals.length && !loading && !loadError ? (
+              {!items.length &&
+              !proposals.length &&
+              !loading &&
+              !vocabularyRefreshing &&
+              !vocabularyWaitExpired &&
+              !loadError ? (
                 <div className="tasks-empty">
                   <Tags size={32} strokeWidth={1} aria-hidden="true" />
                   <h2>No tag suggestions to review</h2>

@@ -95,7 +95,7 @@ if (process.argv[2] === "gate") {
     const notes = join(directory, "notes.md");
     writeFileSync(
       notes,
-      `## Get started\n\n\`\`\`sh\ndocker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/app/data \\\n  ${image}:latest\n\`\`\`\n\nOpen http://localhost:3000 to complete setup. Keep the data volume when upgrading.\n\nLinux AMD64 and ARM64 are included; Docker selects the architecture automatically.\n\nCommit: ${sha}\n\nImage: \`${image}@${digest}\`\n\nVerified [CI run](${run.html_url}) and container onboarding, authorization and persistence on both architectures.\n`,
+      `## Get started\n\n\`\`\`sh\ndocker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/data \\\n  ${image}:latest\n\`\`\`\n\nOpen http://localhost:3000 to complete setup. Keep the data volume when upgrading.\n\nLinux AMD64 and ARM64 are included; Docker selects the architecture automatically.\n\nCommit: ${sha}\n\nImage: \`${image}@${digest}\`\n\nVerified [CI run](${run.html_url}) and container onboarding, authorization and persistence on both architectures.\n`,
     );
     const existing = releases().find((release) => release.tag_name === version);
     if (!existing)

@@ -25,13 +25,14 @@ export function aiStatus(owner: string) {
   };
   const counts = d
     .prepare(
-      "SELECT count(*) AS total,sum(c.state='indexed' AND c.model_version=? AND c.indexed_generation=c.generation) AS indexed,sum(c.state='failed') AS failed,sum(c.state='capacity') AS capacity FROM ai_content c JOIN ai_sources s USING(source_key) WHERE s.owner_id=? AND s.active=1",
+      "SELECT count(*) AS total,sum(c.state='indexed' AND c.model_version=? AND c.indexed_generation=c.generation) AS indexed,sum(c.state='failed') AS failed,sum(c.state='capacity') AS capacity,sum(c.state='indexed' AND c.model_version=? AND c.indexed_generation=c.generation AND (c.vocabulary_generation<>a.vocabulary_generation OR c.pending=1)) AS vocabulary_pending FROM ai_content c JOIN ai_sources s USING(source_key) JOIN ai_configuration a ON a.id=1 WHERE s.owner_id=? AND s.active=1",
     )
-    .get(modelVersion, owner) as {
+    .get(modelVersion, modelVersion, owner) as {
     total: number;
     indexed: number | null;
     failed: number | null;
     capacity: number | null;
+    vocabulary_pending: number | null;
   };
   return {
     enabled: Boolean(configuration.enabled),
@@ -41,6 +42,7 @@ export function aiStatus(owner: string) {
     indexed: counts.indexed ?? 0,
     failed: counts.failed ?? 0,
     capacity: counts.capacity ?? 0,
+    vocabularyPending: counts.vocabulary_pending ?? 0,
     chunkLimit: policy.chunkCapacity,
   };
 }

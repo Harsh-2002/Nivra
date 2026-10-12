@@ -62,7 +62,7 @@ jobs:
           curl --fail --silent http://localhost:3016/health > /dev/null
           node scripts/browser-post-setup.mjs
       - name: Validate image-based Compose configuration
-        run: docker compose config --quiet
+        run: docker compose -f docker-compose.yaml config --quiet
   containers:
     needs: verify
     strategy:
