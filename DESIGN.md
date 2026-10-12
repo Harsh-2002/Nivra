@@ -161,7 +161,7 @@ On narrower screens the lead and section headings step down, while body copy and
 
 ## Layout
 
-Content sits in a centered container capped at 1140px. The desktop page pairs columns for the introduction, ownership details, setup, and two compact feature panels; intermediate widths tighten the side gutters before content grids stack for mobile. Sections have measured separation, while controls stay compact.
+Content sits in a centered container capped at 1140px. The desktop page pairs columns for the introduction, ownership details and setup. Smart tagging and semantic search each use a full-width screenshot, matching the core workflow frame, with a brief description above. A concise three-part feature overview completes the product scope. Intermediate widths tighten the side gutters before content grids stack for mobile. Sections have measured separation, while controls stay compact.
 
 The implemented responsive breakpoints are 1000px, 760px, 600px, and 360px. The page begins with the Nivra wordmark and hero; theme control sits in the footer. At 760px the main two-column groups become single-column. At 600px screenshot frames use portrait captures; at 360px gutters and action gaps tighten again. The sidecar records the exact breakpoint values.
 
@@ -187,7 +187,7 @@ Controls and selected tabs have softly curved corners. Screenshot and installati
 ### Cards / Containers
 
 - **Screenshot frame:** Real application screenshots sit inside a thinly bordered, clipped frame with a quiet top bar and caption. Desktop images use the real 16:10 application capture; mobile selects the real portrait capture.
-- **Feature panels:** Two flat, bordered preview panels show optional Smart Tags and meaning-based search with real product captures using synthetic demonstration content. The panels pair short behavior-focused copy with theme-specific desktop and portrait mobile screenshots; each screenshot opens its full-size desktop image for inspection.
+- **Feature demonstrations:** Two stacked, full-width frames show optional Smart Tags and meaning-based search with real product captures using synthetic demonstration content. Each pairs short behavior-focused copy with theme-specific desktop and portrait mobile screenshots, and links to the corresponding full-size image. No inset card padding shrinks the product view.
 - **Installation panel:** The Docker command block shares the framed surface language and allows horizontal scrolling when needed. Copy feedback is announced through a live status region.
 - **Shadow strategy:** Flat; see Elevation & Depth.
 

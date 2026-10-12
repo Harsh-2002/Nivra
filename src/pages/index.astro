@@ -279,7 +279,7 @@ const command =
         <div class="connections-grid">
           {connectedFeatures.map((feature) => (
             <article class="connection-card">
-              <div class="connection-copy">
+              <div class="connection-copy workflow-copy">
                 <h3>{feature.title}</h3>
                 <p>{feature.copy}</p>
               </div>
@@ -318,7 +318,7 @@ const command =
                         <img
                           src={asset(`screenshots/${feature.id}-${theme}.webp`)}
                           srcset={`${asset(`screenshots/${feature.id}-${theme}-960.webp`)} 960w, ${asset(`screenshots/${feature.id}-${theme}.webp`)} 1440w`}
-                          sizes="(max-width: 600px) calc(100vw - 72px), (max-width: 760px) calc(100vw - 80px), (max-width: 1000px) calc((100vw - 116px) / 2), (max-width: 1219px) calc((100vw - 200px) / 2), 510px"
+                          sizes="(max-width: 600px) calc(100vw - 40px), (max-width: 1000px) calc(100vw - 48px), (max-width: 1219px) calc(100vw - 80px), 1140px"
                           width="1440"
                           height="900"
                           loading="lazy"
@@ -333,6 +333,35 @@ const command =
             </article>
           ))}
         </div>
+      </section>
+      <section
+        class="workspace-features container"
+        aria-labelledby="features-title"
+      >
+        <h2 id="features-title">Everything has a place.</h2>
+        <dl class="feature-list">
+          <div>
+            <dt>Write and keep</dt>
+            <dd>
+              Notes, journals and drawings. Bookmarks, files and images, with
+              OCR and document text extraction.
+            </dd>
+          </div>
+          <div>
+            <dt>Plan and collect</dt>
+            <dd>
+              Tasks, Kanban boards and calendar events with reminders. Public
+              forms, file uploads and exportable responses.
+            </dd>
+          </div>
+          <div>
+            <dt>Find and connect</dt>
+            <dd>
+              Tags, favorites and search. Publish notes, connect your tools
+              through MCP and the API, or install Nivra as a PWA.
+            </dd>
+          </div>
+        </dl>
       </section>
       <section
         class="ownership container"
