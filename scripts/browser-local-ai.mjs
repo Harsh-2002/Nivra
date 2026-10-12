@@ -2177,30 +2177,59 @@ try {
                   })),
                 };
               });
+            const waitForModeOption = async (
+              label,
+              { selected = false } = {},
+            ) => {
+              await page.waitForFunction(
+                ({ expectedLabel, mustBeSelected }) => {
+                  const option = [
+                    ...document.querySelectorAll('[role="option"]'),
+                  ].find(
+                    (candidate) =>
+                      candidate.textContent?.trim() === expectedLabel,
+                  );
+                  if (
+                    !option ||
+                    (mustBeSelected &&
+                      option.getAttribute("aria-selected") !== "true")
+                  )
+                    return false;
+                  const active = document.activeElement;
+                  return (
+                    option.hasAttribute("data-highlighted") ||
+                    (active?.getAttribute("role") === "option" &&
+                      active.textContent?.trim() === expectedLabel)
+                  );
+                },
+                { expectedLabel: label, mustBeSelected: selected },
+                { timeout: 3000, polling: "raf" },
+              );
+            };
+            const waitForAiModePatch = () =>
+              page
+                .waitForResponse(
+                  (response) =>
+                    new URL(response.url()).pathname === "/api/v1/ai" &&
+                    response.request().method() === "PATCH",
+                )
+                .then(
+                  (response) => ({ response }),
+                  (error) => ({ error }),
+                );
+            const requireAiModePatch = async (responsePromise) => {
+              const result = await responsePromise;
+              if (result.error) throw result.error;
+              return result.response;
+            };
+            await waitForModeOption("Review suggestions", {
+              selected: true,
+            });
             console.log(
               `${name} ${width} ${theme}: mode menu after open ${JSON.stringify(await taggingModeKeyboardState())}`,
             );
             await page.keyboard.press("ArrowDown");
-            await page.waitForFunction(
-              () => {
-                const automaticOption = [
-                  ...document.querySelectorAll('[role="option"]'),
-                ].find(
-                  (option) =>
-                    option.textContent?.trim() === "Automatic tagging",
-                );
-                const highlighted =
-                  automaticOption?.getAttribute("data-highlighted");
-                const active = document.activeElement;
-                return (
-                  (highlighted !== null && highlighted !== undefined) ||
-                  (active?.getAttribute("role") === "option" &&
-                    active.textContent?.trim() === "Automatic tagging")
-                );
-              },
-              undefined,
-              { timeout: 3000, polling: "raf" },
-            );
+            await waitForModeOption("Automatic tagging");
             const highlightedMode = await taggingModeKeyboardState();
             console.log(
               `${name} ${width} ${theme}: mode menu after ArrowDown ${JSON.stringify(highlightedMode)}`,
@@ -2293,11 +2322,6 @@ try {
               "Re-enabling smart features should retain automatic mode",
             );
 
-            const manualModeResponsePromise = page.waitForResponse(
-              (response) =>
-                new URL(response.url()).pathname === "/api/v1/ai" &&
-                response.request().method() === "PATCH",
-            );
             await modeControl.focus();
             await page.keyboard.press("Space");
             await page
@@ -2306,9 +2330,16 @@ try {
                 exact: true,
               })
               .waitFor();
+            await waitForModeOption("Automatic tagging", {
+              selected: true,
+            });
             await page.keyboard.press("ArrowUp");
+            await waitForModeOption("Review suggestions");
+            const manualModeResponsePromise = waitForAiModePatch();
             await page.keyboard.press("Enter");
-            const manualModeResponse = await manualModeResponsePromise;
+            const manualModeResponse = await requireAiModePatch(
+              manualModeResponsePromise,
+            );
             assert.equal(manualModeResponse.status(), 200);
             await localAiSettings
               .getByText(
