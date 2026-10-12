@@ -201,45 +201,83 @@ try {
       }
       async function verifyDesktopSidebarCollapse() {
         if (width < 1024) return;
-        const workspace = page.locator(".workspace");
         const desktopNavigation = page.locator(".desktop-navigation");
         await desktopNavigation.waitFor({ state: "visible" });
-        await desktopNavigation
-          .getByRole("button", { name: "Collapse sidebar", exact: true })
-          .click();
-        await page.locator(".workspace.rail-hidden").waitFor();
+        const waitForRailWidth = (expectedWidth) =>
+          page.waitForFunction((expected) => {
+            const rail = document.querySelector(".desktop-navigation");
+            return (
+              rail &&
+              Math.abs(rail.getBoundingClientRect().width - expected) < 1
+            );
+          }, expectedWidth);
+        const assertTargetSize = async (button, label) => {
+          const bounds = await button.boundingBox();
+          assert.ok(bounds, `${label} must have a visible target`);
+          assert.ok(
+            bounds.width >= 44 && bounds.height >= 44,
+            `${label} target must be at least 44×44px; got ${bounds.width}×${bounds.height}px`,
+          );
+        };
+        const collapse = desktopNavigation.getByRole("button", {
+          name: "Collapse sidebar",
+          exact: true,
+        });
+        await assertTargetSize(collapse, "Collapse sidebar");
+        await collapse.focus();
+        await collapse.click();
+        await waitForRailWidth(64);
         assert.equal(
-          await desktopNavigation.count(),
-          0,
-          "Collapsing the sidebar must hide its navigation rail",
+          await desktopNavigation.evaluate((element) =>
+            element.classList.contains("is-collapsed"),
+          ),
+          true,
+          "Collapsing the sidebar must retain its compact navigation rail",
         );
-        const expand = page.getByRole("button", {
-          name: "Open navigation",
+        const expand = desktopNavigation.getByRole("button", {
+          name: "Expand sidebar",
           exact: true,
         });
         await expand.waitFor({ state: "visible" });
+        await assertTargetSize(expand, "Expand sidebar");
         assert.equal(
-          await expand.locator(".navigation-expand-icon").isVisible(),
-          true,
-          "Desktop sidebar expansion should use the simple arrow icon",
+          await expand.locator("svg.lucide-chevron-right").count(),
+          1,
+          "The compact rail should use a right-chevron expansion control",
         );
         assert.equal(
-          await expand.locator(".navigation-menu-icon").isVisible(),
-          false,
-          "Desktop sidebar expansion should not use the mobile menu icon",
+          await page
+            .getByRole("button", { name: "Open navigation", exact: true })
+            .count(),
+          0,
+          "Desktop expansion should not add a floating header control",
+        );
+        assert.equal(
+          await expand.evaluate(
+            (element) => element === document.activeElement,
+          ),
+          true,
+          "Keyboard focus should remain on the sidebar control after collapsing",
         );
         await expand.click();
-        await page.locator(".workspace:not(.rail-hidden)").waitFor();
-        await desktopNavigation.waitFor({ state: "visible" });
-        await desktopNavigation
-          .getByRole("button", { name: "Collapse sidebar", exact: true })
-          .waitFor({ state: "visible" });
+        await waitForRailWidth(216);
+        const restoredCollapse = desktopNavigation.getByRole("button", {
+          name: "Collapse sidebar",
+          exact: true,
+        });
+        await restoredCollapse.waitFor({ state: "visible" });
+        await assertTargetSize(restoredCollapse, "Collapse sidebar");
         assert.equal(
-          await workspace.evaluate((element) =>
-            element.classList.contains("rail-hidden"),
+          await restoredCollapse.locator("svg.lucide-chevron-left").count(),
+          1,
+          "The expanded rail should use a left-chevron collapse control",
+        );
+        assert.equal(
+          await restoredCollapse.evaluate(
+            (element) => element === document.activeElement,
           ),
-          false,
-          "Expanding the sidebar must restore the navigation rail",
+          true,
+          "Keyboard focus should remain on the sidebar control after expanding",
         );
       }
       async function sidebarLabelStarts(suggestionsLocator, tagLocator) {

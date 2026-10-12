@@ -9,7 +9,8 @@ import {
   Search,
   Plus,
   SlidersHorizontal as SettingsIcon,
-  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   MoreHorizontal,
   Pencil,
   ArrowUpDown,
@@ -84,12 +85,48 @@ import { sectionCache } from "@/lib/section-cache";
 import { matches, shortcuts } from "@/lib/shortcuts";
 import { Shortcut, ShortcutKeys } from "./shortcut";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./ui/tooltip";
+import {
   workspacePath,
   workspaceView,
   workspaceSurface,
   cleanWorkspaceUrl,
   type WorkspaceView,
 } from "@/lib/workspace-routes";
+
+function NavigationTooltip({
+  enabled,
+  label,
+  children,
+}: {
+  enabled: boolean;
+  label: string;
+  children: React.ReactElement;
+}) {
+  const [tooltipState, setTooltipState] = useState({ enabled, open: false });
+  if (tooltipState.enabled !== enabled) {
+    setTooltipState({ enabled, open: false });
+  }
+  return (
+    <Tooltip
+      open={enabled && tooltipState.open}
+      onOpenChange={(nextOpen) =>
+        setTooltipState({ enabled, open: enabled && nextOpen })
+      }
+    >
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      {enabled && (
+        <TooltipContent side="right" sideOffset={8}>
+          {label}
+        </TooltipContent>
+      )}
+    </Tooltip>
+  );
+}
 
 export function Workspace({
   owner,
@@ -153,8 +190,54 @@ export function Workspace({
   const [drawer, setDrawer] = useState(false);
   const [navigationContent, setNavigationContent] =
     useState<HTMLDivElement | null>(null);
+  const desktopNavigation = useRef<HTMLElement>(null);
   const navigationAction = useRef<(() => void) | null>(null);
   const tagMenuAction = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (sidebar || !tag) return;
+    const navigation = desktopNavigation.current;
+    if (!navigation || !navigation.getClientRects().length) return;
+    let frame = 0;
+    let previousWidth = Number.NaN;
+    let stableFrames = 0;
+    const revealSelectedTag = () => {
+      const width = navigation.getBoundingClientRect().width;
+      if (width > 64.5 || width !== previousWidth) {
+        previousWidth = width;
+        stableFrames = 0;
+        frame = window.requestAnimationFrame(revealSelectedTag);
+        return;
+      }
+      if (stableFrames < 2) {
+        stableFrames += 1;
+        frame = window.requestAnimationFrame(revealSelectedTag);
+        return;
+      }
+      const scrollArea =
+        navigation?.querySelector<HTMLElement>(".navigation-scroll");
+      const selectedTag = navigation?.querySelector<HTMLElement>(
+        ".tag-nav-row.active",
+      );
+      if (!scrollArea || !selectedTag || !scrollArea.clientHeight) return;
+      const tagScrollArea = selectedTag.closest<HTMLElement>(".tag-navigation");
+      if (tagScrollArea?.clientHeight) {
+        const area = tagScrollArea.getBoundingClientRect();
+        const row = selectedTag.getBoundingClientRect();
+        const top = area.top + tagScrollArea.clientTop;
+        const bottom = top + tagScrollArea.clientHeight;
+        if (row.bottom > bottom) tagScrollArea.scrollTop += row.bottom - bottom;
+        else if (row.top < top) tagScrollArea.scrollTop -= top - row.top;
+      }
+      const area = scrollArea.getBoundingClientRect();
+      const row = selectedTag.getBoundingClientRect();
+      const top = area.top + scrollArea.clientTop;
+      const bottom = top + scrollArea.clientHeight;
+      if (row.bottom > bottom) scrollArea.scrollTop += row.bottom - bottom;
+      else if (row.top < top) scrollArea.scrollTop -= top - row.top;
+    };
+    frame = window.requestAnimationFrame(revealSelectedTag);
+    return () => window.cancelAnimationFrame(frame);
+  }, [sidebar, tag, tags.length]);
   function afterNavigation(action: () => void, fromMenu = false) {
     if (!drawer) {
       if (fromMenu) tagMenuAction.current = action;
@@ -700,165 +783,214 @@ export function Workspace({
     <div className="navigation">
       <header className="workspace-brand">
         <Mark small />
-        <span>Nivra</span>
+        <span className="workspace-brand-label">Nivra</span>
       </header>
-      <div
-        className="navigation-scroll"
-        tabIndex={0}
-        role="region"
-        aria-label="Navigation links"
-      >
-        <button
-          className="nav-item workspace-search"
-          aria-label="Search"
-          onClick={() => {
-            setDrawer(false);
-            globalSearch.current?.open();
-          }}
+      <TooltipProvider delayDuration={350}>
+        <div
+          className="navigation-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Navigation links"
         >
-          <Search size={16} />
-          Search
-          <Shortcut chord={shortcuts.search} className="nav-shortcut" />
-        </button>
-        <nav aria-label="Workspace navigation">
-          {[
-            { id: "overview", label: "Overview", Icon: Grid2X2 },
-            { id: "favorites", label: "Favorites", Icon: Heart },
-            { id: "all", label: "Notes", Icon: StickyNote },
-            { id: "journal", label: "Journal", Icon: NotebookPen },
-            { id: "tasks", label: "Tasks", Icon: SquareCheckBig },
-            { id: "calendar", label: "Calendar", Icon: CalendarDays },
-            { id: "bookmarks", label: "Bookmarks", Icon: LibraryBig },
-            { id: "artifacts", label: "Artifacts", Icon: Layers },
-            { id: "forms", label: "Forms", Icon: ClipboardList },
-            { id: "trash", label: "Trash", Icon: Trash },
-          ].map(({ id, label, Icon }) => (
+          <NavigationTooltip enabled={!sidebar && !drawer} label="Search">
             <button
-              key={id}
-              className={`nav-item ${view === id && !tag ? "active" : ""}`}
-              aria-current={view === id && !tag ? "page" : undefined}
-              onClick={() => void filter(id)}
+              className="nav-item workspace-search"
+              aria-label="Search"
+              onClick={() => {
+                setDrawer(false);
+                globalSearch.current?.open();
+              }}
             >
-              <Icon size={18} strokeWidth={1.6} />
-              {label}
+              <Search size={18} />
+              <span className="nav-item-label">Search</span>
+              <Shortcut chord={shortcuts.search} className="nav-shortcut" />
             </button>
-          ))}
-        </nav>
-        <div className="tags-heading">
-          <span>Tags</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Create tag"
-            onClick={() => afterNavigation(() => setTagDialog({ name: "" }))}
-          >
-            <Plus size={14} />
-          </Button>
-        </div>
-        <button
-          className={`nav-item tags-suggestions-row ${view === "tag-suggestions" && !tag ? "active" : ""}`}
-          aria-label="Tag suggestions"
-          aria-current={view === "tag-suggestions" && !tag ? "page" : undefined}
-          onClick={() => afterNavigation(() => void filter("tag-suggestions"))}
-        >
-          <Tags size={18} strokeWidth={1.6} />
-          Tag suggestions
-        </button>
-        <div className="tag-navigation">
-          {tags.map((item) => (
-            <div
-              key={item.id}
-              className={`tag-nav-row ${tag === item.id ? "active" : ""}`}
-            >
-              <button onClick={() => void filter("all", item.id)}>
-                <span className="tag-dot" data-color={item.color} />
-                <span>{item.name}</span>
-              </button>
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    aria-label={`Actions for ${item.name}`}
-                    className="tag-menu"
-                  >
-                    <MoreHorizontal size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="start"
-                  portalContainer={drawer ? navigationContent : undefined}
-                  onCloseAutoFocus={() => {
-                    const action = tagMenuAction.current;
-                    tagMenuAction.current = null;
-                    if (action) requestAnimationFrame(action);
-                  }}
+          </NavigationTooltip>
+          <nav aria-label="Workspace navigation">
+            {[
+              { id: "overview", label: "Overview", Icon: Grid2X2 },
+              { id: "favorites", label: "Favorites", Icon: Heart },
+              { id: "all", label: "Notes", Icon: StickyNote },
+              { id: "journal", label: "Journal", Icon: NotebookPen },
+              { id: "tasks", label: "Tasks", Icon: SquareCheckBig },
+              { id: "calendar", label: "Calendar", Icon: CalendarDays },
+              { id: "bookmarks", label: "Bookmarks", Icon: LibraryBig },
+              { id: "artifacts", label: "Artifacts", Icon: Layers },
+              { id: "forms", label: "Forms", Icon: ClipboardList },
+              { id: "trash", label: "Trash", Icon: Trash },
+            ].map(({ id, label, Icon }) => (
+              <NavigationTooltip
+                key={id}
+                enabled={!sidebar && !drawer}
+                label={label}
+              >
+                <button
+                  className={`nav-item ${view === id && !tag ? "active" : ""}`}
+                  aria-label={label}
+                  aria-current={view === id && !tag ? "page" : undefined}
+                  onClick={() => void filter(id)}
                 >
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      afterNavigation(() => setTagDialog(item), true)
-                    }
-                  >
-                    <Pencil size={14} />
-                    Edit tag
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      afterNavigation(() => void deleteTag(item), true)
-                    }
-                  >
-                    <Trash2 size={14} />
-                    Delete tag
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
-          {!tags.length && (
+                  <Icon size={18} strokeWidth={1.6} />
+                  <span className="nav-item-label">{label}</span>
+                </button>
+              </NavigationTooltip>
+            ))}
+          </nav>
+          <div className="tags-heading">
+            <span className="tags-label">Tags</span>
+            <NavigationTooltip enabled={!sidebar && !drawer} label="Create tag">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Create tag"
+                onClick={() =>
+                  afterNavigation(() => setTagDialog({ name: "" }))
+                }
+              >
+                <Plus size={14} />
+              </Button>
+            </NavigationTooltip>
+          </div>
+          <NavigationTooltip
+            enabled={!sidebar && !drawer}
+            label="Tag suggestions"
+          >
             <button
-              className="empty-tags"
-              onClick={() => afterNavigation(() => setTagDialog({ name: "" }))}
+              className={`nav-item tags-suggestions-row ${view === "tag-suggestions" && !tag ? "active" : ""}`}
+              aria-label="Tag suggestions"
+              aria-current={
+                view === "tag-suggestions" && !tag ? "page" : undefined
+              }
+              onClick={() =>
+                afterNavigation(() => void filter("tag-suggestions"))
+              }
             >
-              Give your ideas a little order.
-              <br />
-              <span>Create your first tag</span>
+              <Tags size={18} strokeWidth={1.6} />
+              <span className="nav-item-label">Tag suggestions</span>
             </button>
-          )}
+          </NavigationTooltip>
+          <div className="tag-navigation">
+            {tags.map((item) => (
+              <div
+                key={item.id}
+                className={`tag-nav-row ${tag === item.id ? "active" : ""}`}
+                data-color={item.color}
+              >
+                <NavigationTooltip
+                  enabled={!sidebar && !drawer}
+                  label={item.name}
+                >
+                  <button
+                    aria-label={`Tag: ${item.name}`}
+                    aria-pressed={tag === item.id}
+                    onClick={() => void filter("all", item.id)}
+                  >
+                    <span className="tag-dot" data-color={item.color} />
+                    <span className="tag-nav-label">{item.name}</span>
+                  </button>
+                </NavigationTooltip>
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label={`Actions for ${item.name}`}
+                      title={`Actions for ${item.name}`}
+                      className="tag-menu"
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    portalContainer={drawer ? navigationContent : undefined}
+                    onCloseAutoFocus={() => {
+                      const action = tagMenuAction.current;
+                      tagMenuAction.current = null;
+                      if (action) requestAnimationFrame(action);
+                    }}
+                  >
+                    <DropdownMenuItem
+                      onSelect={() =>
+                        afterNavigation(() => setTagDialog(item), true)
+                      }
+                    >
+                      <Pencil size={14} />
+                      Edit tag
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() =>
+                        afterNavigation(() => void deleteTag(item), true)
+                      }
+                    >
+                      <Trash2 size={14} />
+                      Delete tag
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ))}
+            {!tags.length && (
+              <button
+                className="empty-tags"
+                onClick={() =>
+                  afterNavigation(() => setTagDialog({ name: "" }))
+                }
+              >
+                Give your ideas a little order.
+                <br />
+                <span>Create your first tag</span>
+              </button>
+            )}
+          </div>
         </div>
-      </div>
-      <div className="navigation-bottom">
-        <button
-          className="nav-item"
-          onClick={() => {
-            setDrawer(false);
-            capture.current?.open();
-          }}
-        >
-          <Zap size={16} />
-          Quick
-          <Shortcut chord={shortcuts.capture} className="nav-shortcut" />
-        </button>
-        <footer className="navigation-footer">
-          <button
-            className="nav-item"
-            onClick={() => {
-              setDrawer(false);
-              setSettingsOpen(true);
-            }}
-          >
-            <SettingsIcon size={16} />
-            Settings
-          </button>
-          <ThemeMenu />
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Collapse sidebar"
-            className="collapse-sidebar"
-            onClick={() => setSidebar(false)}
-          >
-            <ArrowLeft size={16} aria-hidden="true" />
-          </Button>
-        </footer>
-      </div>
+        <div className="navigation-bottom">
+          <NavigationTooltip enabled={!sidebar && !drawer} label="Quick">
+            <button
+              className="nav-item"
+              aria-label="Quick"
+              onClick={() => {
+                setDrawer(false);
+                capture.current?.open();
+              }}
+            >
+              <Zap size={18} />
+              <span className="nav-item-label">Quick</span>
+              <Shortcut chord={shortcuts.capture} className="nav-shortcut" />
+            </button>
+          </NavigationTooltip>
+          <footer className="navigation-footer">
+            <NavigationTooltip enabled={!sidebar && !drawer} label="Settings">
+              <button
+                className="nav-item"
+                aria-label="Settings"
+                onClick={() => {
+                  setDrawer(false);
+                  setSettingsOpen(true);
+                }}
+              >
+                <SettingsIcon size={18} />
+                <span className="nav-item-label">Settings</span>
+              </button>
+            </NavigationTooltip>
+            <ThemeMenu />
+            {!drawer && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={sidebar ? "Collapse sidebar" : "Expand sidebar"}
+                title={sidebar ? "Collapse sidebar" : "Expand sidebar"}
+                className="collapse-sidebar"
+                onClick={() => setSidebar((open) => !open)}
+              >
+                {sidebar ? (
+                  <ChevronLeft size={16} aria-hidden="true" />
+                ) : (
+                  <ChevronRight size={16} aria-hidden="true" />
+                )}
+              </Button>
+            )}
+          </footer>
+        </div>
+      </TooltipProvider>
     </div>
   );
   const title = tag
@@ -883,7 +1015,7 @@ export function Workspace({
   return (
     <main
       id="workspace-content"
-      className={`workspace ${active ? "has-note" : ""} ${sidebar ? "" : "rail-hidden"}`}
+      className={`workspace ${active ? "has-note" : ""}`}
     >
       <a
         className="skip-link"
@@ -903,7 +1035,12 @@ export function Workspace({
       >
         Skip to content
       </a>
-      {sidebar && <aside className="desktop-navigation">{navigation}</aside>}
+      <aside
+        ref={desktopNavigation}
+        className={`desktop-navigation ${sidebar ? "" : "is-collapsed"}`}
+      >
+        {navigation}
+      </aside>
       <Sheet open={drawer} onOpenChange={setDrawer}>
         <SheetContent
           ref={setNavigationContent}

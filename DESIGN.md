@@ -210,11 +210,11 @@ Destructive actions retain a reserved semantic color; it does not become a gener
 ### User-Selected Tag Metadata
 
 - **Gray** (#737373), **Red** (#ef4444), **Orange** (#f97316), **Yellow** (#eab308), **Green** (#22c55e), **Blue** (#3b82f6), **Purple** (#a855f7), and **Pink** (#ec4899) are selectable tag colors.
-- The selected color appears in a small tag dot and as a 12% tint mixed into that tag's chip surface. It remains tag metadata and does not color general workspace chrome.
+- The selected color appears in a small tag dot and as a 12% tint mixed into that tag's chip surface. In the collapsed sidebar, the selected tag may use a subtle color tint with a separate neutral active marker; no other workspace chrome uses tag colors.
 
 ### Named Rules
 
-**The Content-Color Rule.** Keep normal workspace chrome neutral. Owner-selected tag colors may appear only on their tag dot and chip; drawings, diagrams, and highlighted code may retain their own colors, while destructive color stays with that action state.
+**The Content-Color Rule.** Keep normal workspace chrome neutral. Owner-selected tag colors may appear on their tag dot and chip, and as a subtle tint on the selected tag in the collapsed sidebar with a separate neutral active marker; drawings, diagrams, and highlighted code may retain their own colors, while destructive color stays with that action state.
 
 ## Typography
 

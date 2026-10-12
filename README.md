@@ -13,6 +13,8 @@ Nivra brings notes, journals, tasks, bookmarks and files into one quiet workspac
 - **Connect:** MCP at `/mcp`, with API keys or OAuth, read-only or read/write access, and exact counts alongside paginated tools.
 - **Keep it yours:** one owner, passkey or password login, optional TOTP, encryption at rest and encrypted backups. Use the browser or install the PWA. Editing requires a connection.
 
+Smart tagging and semantic search are currently in preview on `main`.
+
 The screenshot uses demo content. See the [website](https://harsh-2002.github.io/Nivra/) for more workflows.
 
 ## Get started with Docker
