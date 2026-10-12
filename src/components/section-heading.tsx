@@ -1,5 +1,5 @@
 import { FeedbackOutlet } from "./inline-feedback";
-import { Menu } from "lucide-react";
+import { NavigationIcon } from "./navigation-icon";
 import { Button } from "./ui/button";
 
 export function SectionHeading({
@@ -22,7 +22,7 @@ export function SectionHeading({
           aria-label="Open navigation"
           onClick={onNavigation}
         >
-          <Menu size={18} />
+          <NavigationIcon />
         </Button>
       </div>
       <p>{description}</p>

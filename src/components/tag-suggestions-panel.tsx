@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bookmark,
   CalendarDays,
@@ -8,6 +8,7 @@ import {
   Layers,
   SquareCheckBig,
   Tags,
+  X,
 } from "lucide-react";
 import { ApiError, api } from "@/lib/client";
 import { useCompletion } from "@/lib/completion-client";
@@ -49,10 +50,16 @@ export function TagSuggestionsPanel({
   const [busy, setBusy] = useState(false);
   const [version, setVersion] = useState(0);
   const completionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadingRef = useRef(true);
+  const refreshQueued = useRef(false);
+  const reviewInFlight = useRef(false);
+  const reviewGeneration = useRef(0);
 
-  function refresh(preserveFeedback = false) {
+  const refresh = useCallback((preserveFeedback = false) => {
     if (completionTimer.current) clearTimeout(completionTimer.current);
     completionTimer.current = null;
+    refreshQueued.current = false;
+    loadingRef.current = true;
     setLoading(true);
     setLoadError("");
     if (!preserveFeedback) {
@@ -60,15 +67,19 @@ export function TagSuggestionsPanel({
       setMessage("");
     }
     setVersion((current) => current + 1);
-  }
+  }, []);
 
-  function scheduleRefresh() {
+  const scheduleRefresh = useCallback(() => {
+    refreshQueued.current = true;
     if (completionTimer.current) clearTimeout(completionTimer.current);
+    completionTimer.current = null;
+    if (loadingRef.current || reviewInFlight.current) return;
     completionTimer.current = setTimeout(() => {
       completionTimer.current = null;
+      if (loadingRef.current || reviewInFlight.current) return;
       refresh(true);
     }, 150);
-  }
+  }, [refresh]);
 
   useCompletion("ai", scheduleRefresh);
   useEffect(
@@ -80,12 +91,18 @@ export function TagSuggestionsPanel({
 
   useEffect(() => {
     const controller = new AbortController();
+    const generation = reviewGeneration.current;
+    loadingRef.current = true;
     void (async () => {
       try {
         const status = await api<{ enabled: boolean }>("ai", {
           signal: controller.signal,
         });
-        if (controller.signal.aborted) return;
+        if (
+          controller.signal.aborted ||
+          generation !== reviewGeneration.current
+        )
+          return;
         setEnabled(status.enabled);
         if (!status.enabled) {
           setItems([]);
@@ -95,23 +112,33 @@ export function TagSuggestionsPanel({
         const result = await api<{ items: Suggestion[] }>("ai/suggestions", {
           signal: controller.signal,
         });
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          generation === reviewGeneration.current
+        ) {
           setItems(result.items);
           setHasLoaded(true);
         }
       } catch {
-        if (!controller.signal.aborted) {
+        if (
+          !controller.signal.aborted &&
+          generation === reviewGeneration.current
+        ) {
           setLoadError("Could not load tag suggestions.");
         }
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          loadingRef.current = false;
+          if (refreshQueued.current) scheduleRefresh();
+          else setLoading(false);
+        }
       }
     })();
     return () => controller.abort();
-  }, [version]);
+  }, [version, scheduleRefresh]);
 
   async function open(item: Suggestion) {
-    if (busy) return;
+    if (busy || reviewInFlight.current) return;
     setBusy(true);
     setActionError(null);
     setMessage("");
@@ -132,7 +159,9 @@ export function TagSuggestionsPanel({
   }
 
   async function decide(item: Suggestion, decision: "accept" | "reject") {
-    if (busy) return;
+    if (busy || reviewInFlight.current) return;
+    reviewInFlight.current = true;
+    let reviewed = false;
     setBusy(true);
     setActionError(null);
     setMessage("");
@@ -142,6 +171,8 @@ export function TagSuggestionsPanel({
         method: "POST",
         body: "{}",
       });
+      reviewGeneration.current++;
+      reviewed = true;
       setItems((current) =>
         current.filter((suggestion) => suggestion.id !== item.id),
       );
@@ -150,7 +181,6 @@ export function TagSuggestionsPanel({
           ? `${item.tag.name} added to ${item.title || "Untitled"}.`
           : `Suggestion for ${item.title || "Untitled"} dismissed.`,
       );
-      refresh(true);
     } catch (error) {
       setActionError({
         itemId: item.id,
@@ -162,7 +192,12 @@ export function TagSuggestionsPanel({
             : "Could not update this suggestion. Refresh and try again.",
       });
     } finally {
+      reviewInFlight.current = false;
       setBusy(false);
+      if (reviewed || refreshQueued.current) {
+        if (loadingRef.current) refreshQueued.current = true;
+        else refresh(true);
+      }
     }
   }
 
@@ -178,17 +213,12 @@ export function TagSuggestionsPanel({
         <div className="section-content">
           <SectionHeading
             title="Tag suggestions"
-            description="Choose which suggested tags to add to your items."
+            description="Suggested matches for your existing tags."
             onNavigation={onNavigation}
           />
-          {message && (
-            <div
-              className="inline-feedback tag-suggestions-message"
-              role="status"
-            >
-              <p>{message}</p>
-            </div>
-          )}
+          <p className="sr-only" role="status">
+            {message}
+          </p>
           {loadError && (
             <div className="tasks-error" role="alert">
               <p>{loadError}</p>
@@ -209,13 +239,6 @@ export function TagSuggestionsPanel({
             </div>
           ) : (
             <>
-              <p
-                className="settings-description tag-suggestions-refresh-status"
-                role={loading && hasLoaded ? "status" : undefined}
-                aria-hidden={!loading || !hasLoaded}
-              >
-                {loading && hasLoaded ? "Updating tag suggestions…" : ""}
-              </p>
               {items.length ? (
                 <ul className="tag-collection-grid tag-suggestion-grid">
                   {items.map((item) => {
@@ -240,6 +263,23 @@ export function TagSuggestionsPanel({
                     return (
                       <li className="tag-suggestion-card" key={item.id}>
                         <article className="tag-collection-card">
+                          <button
+                            type="button"
+                            className="tag-suggestion-open"
+                            disabled={busy}
+                            aria-label={`Open ${title}`}
+                            onClick={() => void open(item)}
+                          />
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="tag-suggestion-dismiss"
+                            disabled={busy}
+                            aria-label={`Dismiss suggestion for ${item.tag.name} on ${title}`}
+                            onClick={() => void decide(item, "reject")}
+                          >
+                            <X size={16} aria-hidden="true" />
+                          </Button>
                           <div className="tag-collection-kind">
                             <Icon size={16} aria-hidden="true" />
                             <span>{type}</span>
@@ -277,30 +317,12 @@ export function TagSuggestionsPanel({
                             <div className="tag-suggestion-actions">
                               <Button
                                 size="sm"
-                                variant="ghost"
-                                disabled={busy}
-                                aria-label={`Open ${title}`}
-                                onClick={() => void open(item)}
-                              >
-                                Open
-                              </Button>
-                              <Button
-                                size="sm"
                                 variant="outline"
                                 disabled={busy}
                                 aria-label={`Add ${item.tag.name} to ${title}`}
                                 onClick={() => void decide(item, "accept")}
                               >
                                 Add tag
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={busy}
-                                aria-label={`Dismiss suggestion for ${item.tag.name} on ${title}`}
-                                onClick={() => void decide(item, "reject")}
-                              >
-                                Dismiss
                               </Button>
                             </div>
                           </footer>

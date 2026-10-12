@@ -392,7 +392,7 @@ for (const [engine, launcher] of Object.entries(engines).filter(
         assert.deepEqual(tag.aliases, ["sqlite database", "queries indexes"]);
         const waitForWorkspaceData = async (step, minSettledTagGets) => {
           await page
-            .locator(".overview-grid[data-card-count]")
+            .locator(".overview-grid[data-section-count]")
             .waitFor({ state: "visible" });
           await page
             .locator(".tag-navigation .tag-nav-row")

@@ -1,7 +1,8 @@
 "use client";
 import { LoadingState } from "./loading-state";
 import { useCompletion } from "@/lib/completion-client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Bookmark,
@@ -47,6 +48,34 @@ type OverviewDestination =
   | "artifacts"
   | "forms"
   | "tag-suggestions";
+type OverviewSection = {
+  id: string;
+  visible: boolean;
+  density: "compact" | "fill";
+  content: ReactNode;
+};
+type OverviewColumn = {
+  id: string;
+  density: "compact" | "fill";
+  sections: OverviewSection[];
+};
+function packOverviewSections(sections: OverviewSection[]): OverviewColumn[] {
+  const columns: OverviewColumn[] = [];
+  for (const section of sections) {
+    if (!section.visible) continue;
+    const previous = columns.at(-1);
+    if (section.density === "compact" && previous?.density === "compact") {
+      previous.sections.push(section);
+    } else {
+      columns.push({
+        id: `${section.density}-${section.id}`,
+        density: section.density,
+        sections: [section],
+      });
+    }
+  }
+  return columns;
+}
 export function OverviewPanel({
   onNavigation,
   onOpenNote,
@@ -173,12 +202,323 @@ export function OverviewPanel({
   const hasReview =
     (data?.review?.formResponses ?? 0) > 0 ||
     (data?.review?.tagSuggestions ?? 0) > 0;
+  const overviewSections: OverviewSection[] = data
+    ? [
+        {
+          id: "tasks",
+          visible: data.counts.open > 0,
+          density: "compact",
+          content: (
+            <section
+              className="overview-widget overview-tasks"
+              aria-labelledby="overview-tasks-title"
+            >
+              <header>
+                <h2 id="overview-tasks-title">Open tasks</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate("tasks")}
+                  aria-label="View all tasks"
+                >
+                  View all
+                  <ArrowRight size={14} />
+                </Button>
+              </header>
+              <p className="overview-task-summary">
+                {data.counts.open} open
+                {data.counts.overdue > 0
+                  ? ` · ${data.counts.overdue} overdue`
+                  : ""}
+                {" · "}
+                {data.counts.today} due today
+              </p>
+              {data.tasks.length ? (
+                <ul tabIndex={0} aria-label="Open tasks">
+                  {data.tasks.map((task) => (
+                    <li key={task.id} className="overview-task-row">
+                      <div className="overview-check">
+                        <Checkbox
+                          checked={false}
+                          disabled={!!busy}
+                          aria-label={`Complete ${task.title}`}
+                          onCheckedChange={() => void complete(task)}
+                        />
+                        {busy === task.id && (
+                          <Loader2
+                            size={12}
+                            className="animate-spin"
+                            aria-label="Completing task"
+                          />
+                        )}
+                      </div>
+                      <button
+                        className="overview-task-link"
+                        onClick={() =>
+                          onNavigate("tasks", { query: task.title })
+                        }
+                      >
+                        <strong>{task.title}</strong>
+                        <span>
+                          {task.dueDate
+                            ? task.dueDate < today
+                              ? `Overdue · ${formatDate(task.dueDate)}`
+                              : task.dueDate === today
+                                ? "Due today"
+                                : formatDate(task.dueDate)
+                            : "No due date"}
+                          {task.recurrence && (
+                            <>
+                              <Repeat2 size={12} />
+                              {task.recurrence}
+                            </>
+                          )}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="overview-empty">
+                  Nothing left open. Make room for your next task.
+                </p>
+              )}
+              {data.counts.open > data.tasks.length && (
+                <p className="overview-more">
+                  Showing{" "}
+                  <span className="overview-desktop-count">
+                    {data.tasks.length}
+                  </span>
+                  <span className="overview-mobile-count">
+                    {Math.min(5, data.tasks.length)}
+                  </span>{" "}
+                  of {data.counts.open} open tasks, newest first.
+                </p>
+              )}
+            </section>
+          ),
+        },
+        {
+          id: "calendar",
+          visible: data.calendar.length > 0,
+          density: "compact",
+          content: (
+            <section
+              className="overview-widget overview-calendar"
+              aria-labelledby="overview-calendar-title"
+            >
+              <header>
+                <h2 id="overview-calendar-title">Upcoming calendar</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate("calendar")}
+                  aria-label="Open Calendar"
+                >
+                  Calendar
+                  <ArrowRight size={14} />
+                </Button>
+              </header>
+              {data.calendar.length ? (
+                <ul tabIndex={0} aria-label="Upcoming calendar events">
+                  {data.calendar.map((event) => (
+                    <li key={event.id}>
+                      <button
+                        className="overview-note-link"
+                        onClick={() =>
+                          onNavigate("calendar", {
+                            date: event.date,
+                            openId: event.sourceId,
+                            occurrence: event.occurrence,
+                          })
+                        }
+                      >
+                        <CalendarDays size={16} />
+                        <span>
+                          <strong>{event.title}</strong>
+                          <small>
+                            {formatDate(event.date)}
+                            {event.startAt !== undefined &&
+                              ` · ${new Date(event.startAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
+                            {event.startAt === undefined &&
+                              event.label !== "Event" &&
+                              ` · ${event.label}`}
+                          </small>
+                        </span>
+                        <ArrowRight size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="overview-calendar-empty">
+                  Nothing scheduled in the next week.
+                </p>
+              )}
+            </section>
+          ),
+        },
+        {
+          id: "recent",
+          visible: recentItems.length > 0,
+          density: "fill",
+          content: (
+            <section
+              className="overview-widget overview-recent"
+              aria-labelledby="overview-recent-title"
+            >
+              <header>
+                <h2 id="overview-recent-title">Recent items</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate("all")}
+                  aria-label="View all notes"
+                >
+                  Notes
+                  <ArrowRight size={14} />
+                </Button>
+              </header>
+              {recentItems.length ? (
+                <ul tabIndex={0} aria-label="Recent items">
+                  {recentItems.map((item) => (
+                    <li key={`${item.type}:${item.id}`}>
+                      {item.type === "bookmark" ? (
+                        <a
+                          className="overview-bookmark-link"
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <Bookmark size={16} />
+                          <span>
+                            <strong>{item.title || item.url}</strong>
+                            <small>
+                              Bookmark · {item.siteName || "Saved link"}
+                            </small>
+                          </span>
+                          <ExternalLink
+                            size={14}
+                            aria-label="Opens in a new tab"
+                          />
+                        </a>
+                      ) : item.type === "note" || item.type === "journal" ? (
+                        <button
+                          className="overview-note-link"
+                          onClick={() => void onOpenNote(item.id)}
+                        >
+                          <FileText size={16} />
+                          <span>
+                            <strong>
+                              {item.title ||
+                                (item.type === "journal"
+                                  ? "Journal"
+                                  : "Untitled")}
+                            </strong>
+                            <small>
+                              {item.type === "journal"
+                                ? `Journal · ${formatDate(item.date)}`
+                                : `Note · ${new Date(item.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
+                            </small>
+                          </span>
+                          <ArrowRight size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          className="overview-note-link"
+                          onClick={() =>
+                            onNavigate("artifacts", { openId: item.id })
+                          }
+                        >
+                          <Layers size={16} />
+                          <span>
+                            <strong>{item.title || "Untitled artifact"}</strong>
+                            <small>
+                              Artifact ·{" "}
+                              {new Date(item.updatedAt).toLocaleDateString(
+                                undefined,
+                                { month: "short", day: "numeric" },
+                              )}
+                            </small>
+                          </span>
+                          <ArrowRight size={14} />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="overview-empty">Nothing saved recently.</p>
+              )}
+            </section>
+          ),
+        },
+        {
+          id: "review",
+          visible: hasReview,
+          density: "fill",
+          content: (
+            <section
+              className="overview-widget overview-review"
+              aria-labelledby="overview-review-title"
+            >
+              <header>
+                <h2 id="overview-review-title">Needs review</h2>
+              </header>
+              <ul aria-label="Items that need review">
+                {data.review?.formResponses ? (
+                  <li>
+                    <button
+                      className="overview-note-link"
+                      onClick={() => onNavigate("forms")}
+                    >
+                      <ClipboardCheck size={16} />
+                      <span>
+                        <strong>
+                          {data.review.formResponses} unreviewed form{" "}
+                          {data.review.formResponses === 1
+                            ? "response"
+                            : "responses"}
+                        </strong>
+                        <small>Forms</small>
+                      </span>
+                      <ArrowRight size={14} />
+                    </button>
+                  </li>
+                ) : null}
+                {data.review?.tagSuggestions ? (
+                  <li>
+                    <button
+                      className="overview-note-link"
+                      onClick={() => onNavigate("tag-suggestions")}
+                    >
+                      <Tag size={16} />
+                      <span>
+                        <strong>
+                          {data.review.tagSuggestions}{" "}
+                          {data.review.tagSuggestions === 1
+                            ? "tag suggestion"
+                            : "tag suggestions"}{" "}
+                          to review
+                        </strong>
+                        <small>Tags</small>
+                      </span>
+                      <ArrowRight size={14} />
+                    </button>
+                  </li>
+                ) : null}
+              </ul>
+            </section>
+          ),
+        },
+      ]
+    : [];
   const firstUse =
-    !!data &&
-    data.counts.open === 0 &&
-    data.calendar.length === 0 &&
-    recentItems.length === 0 &&
-    !hasReview;
+    !!data && !overviewSections.some((section) => section.visible);
+  const visibleSectionCount = overviewSections.filter(
+    (section) => section.visible,
+  ).length;
+  const overviewColumns = packOverviewSections(overviewSections);
   return (
     <section className="overview-panel" aria-label="Overview">
       <div
@@ -263,7 +603,11 @@ export function OverviewPanel({
           {!data && loading ? (
             <LoadingState kind="overview" label="Loading your overview" />
           ) : data && firstUse ? (
-            <div className="overview-grid" data-card-count={1}>
+            <div
+              className="overview-grid"
+              data-section-count="1"
+              data-column-count="1"
+            >
               <section
                 className="overview-widget overview-welcome"
                 aria-labelledby="overview-welcome-title"
@@ -279,287 +623,23 @@ export function OverviewPanel({
             data && (
               <div
                 className="overview-grid"
-                data-card-count={hasReview ? 3 : 2}
+                data-section-count={visibleSectionCount}
+                data-column-count={overviewColumns.length}
+                data-many-columns={
+                  overviewColumns.length > 3 ? "true" : undefined
+                }
               >
-                <section
-                  className="overview-widget overview-tasks"
-                  aria-labelledby="overview-tasks-title"
-                >
-                  <header>
-                    <h2 id="overview-tasks-title">Open tasks</h2>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onNavigate("tasks")}
-                      aria-label="View all tasks"
-                    >
-                      View all
-                      <ArrowRight size={14} />
-                    </Button>
-                  </header>
-                  <p className="overview-task-summary">
-                    {data.counts.open} open
-                    {data.counts.overdue > 0
-                      ? ` · ${data.counts.overdue} overdue`
-                      : ""}
-                    {" · "}
-                    {data.counts.today} due today
-                  </p>
-                  {data.tasks.length ? (
-                    <ul tabIndex={0} aria-label="Open tasks">
-                      {data.tasks.map((task) => (
-                        <li key={task.id} className="overview-task-row">
-                          <div className="overview-check">
-                            <Checkbox
-                              checked={false}
-                              disabled={!!busy}
-                              aria-label={`Complete ${task.title}`}
-                              onCheckedChange={() => void complete(task)}
-                            />
-                            {busy === task.id && (
-                              <Loader2
-                                size={12}
-                                className="animate-spin"
-                                aria-label="Completing task"
-                              />
-                            )}
-                          </div>
-                          <button
-                            className="overview-task-link"
-                            onClick={() =>
-                              onNavigate("tasks", { query: task.title })
-                            }
-                          >
-                            <strong>{task.title}</strong>
-                            <span>
-                              {task.dueDate
-                                ? task.dueDate < today
-                                  ? `Overdue · ${formatDate(task.dueDate)}`
-                                  : task.dueDate === today
-                                    ? "Due today"
-                                    : formatDate(task.dueDate)
-                                : "No due date"}
-                              {task.recurrence && (
-                                <>
-                                  <Repeat2 size={12} />
-                                  {task.recurrence}
-                                </>
-                              )}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="overview-empty">
-                      Nothing left open. Make room for your next task.
-                    </p>
-                  )}
-                  {data.counts.open > data.tasks.length && (
-                    <p className="overview-more">
-                      Showing{" "}
-                      <span className="overview-desktop-count">
-                        {data.tasks.length}
-                      </span>
-                      <span className="overview-mobile-count">
-                        {Math.min(5, data.tasks.length)}
-                      </span>{" "}
-                      of {data.counts.open} open tasks, newest first.
-                    </p>
-                  )}
-                  <div className="overview-subsection-heading">
-                    <h3>Upcoming calendar</h3>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onNavigate("calendar")}
-                      aria-label="Open Calendar"
-                    >
-                      Calendar
-                      <ArrowRight size={14} />
-                    </Button>
-                  </div>
-                  {data.calendar.length ? (
-                    <ul tabIndex={0} aria-label="Upcoming calendar events">
-                      {data.calendar.map((event) => (
-                        <li key={event.id}>
-                          <button
-                            className="overview-note-link"
-                            onClick={() =>
-                              onNavigate("calendar", {
-                                date: event.date,
-                                openId: event.sourceId,
-                                occurrence: event.occurrence,
-                              })
-                            }
-                          >
-                            <CalendarDays size={16} />
-                            <span>
-                              <strong>{event.title}</strong>
-                              <small>
-                                {formatDate(event.date)}
-                                {event.startAt !== undefined &&
-                                  ` · ${new Date(event.startAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
-                                {event.startAt === undefined &&
-                                  event.label !== "Event" &&
-                                  ` · ${event.label}`}
-                              </small>
-                            </span>
-                            <ArrowRight size={14} />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="overview-calendar-empty">
-                      Nothing scheduled in the next week.
-                    </p>
-                  )}
-                </section>
-                <section
-                  className="overview-widget overview-recent"
-                  aria-labelledby="overview-recent-title"
-                >
-                  <header>
-                    <h2 id="overview-recent-title">Recent items</h2>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onNavigate("all")}
-                      aria-label="View all notes"
-                    >
-                      Notes
-                      <ArrowRight size={14} />
-                    </Button>
-                  </header>
-                  {recentItems.length ? (
-                    <ul tabIndex={0} aria-label="Recent items">
-                      {recentItems.map((item) => (
-                        <li key={`${item.type}:${item.id}`}>
-                          {item.type === "bookmark" ? (
-                            <a
-                              className="overview-bookmark-link"
-                              href={item.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <Bookmark size={16} />
-                              <span>
-                                <strong>{item.title || item.url}</strong>
-                                <small>
-                                  Bookmark · {item.siteName || "Saved link"}
-                                </small>
-                              </span>
-                              <ExternalLink
-                                size={14}
-                                aria-label="Opens in a new tab"
-                              />
-                            </a>
-                          ) : item.type === "note" ||
-                            item.type === "journal" ? (
-                            <button
-                              className="overview-note-link"
-                              onClick={() => void onOpenNote(item.id)}
-                            >
-                              <FileText size={16} />
-                              <span>
-                                <strong>
-                                  {item.title ||
-                                    (item.type === "journal"
-                                      ? "Journal"
-                                      : "Untitled")}
-                                </strong>
-                                <small>
-                                  {item.type === "journal"
-                                    ? `Journal · ${formatDate(item.date)}`
-                                    : `Note · ${new Date(item.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`}
-                                </small>
-                              </span>
-                              <ArrowRight size={14} />
-                            </button>
-                          ) : (
-                            <button
-                              className="overview-note-link"
-                              onClick={() =>
-                                onNavigate("artifacts", { openId: item.id })
-                              }
-                            >
-                              <Layers size={16} />
-                              <span>
-                                <strong>
-                                  {item.title || "Untitled artifact"}
-                                </strong>
-                                <small>
-                                  Artifact ·{" "}
-                                  {new Date(item.updatedAt).toLocaleDateString(
-                                    undefined,
-                                    { month: "short", day: "numeric" },
-                                  )}
-                                </small>
-                              </span>
-                              <ArrowRight size={14} />
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="overview-empty">Nothing saved recently.</p>
-                  )}
-                </section>
-                {hasReview && (
-                  <section
-                    className="overview-widget overview-review"
-                    aria-labelledby="overview-review-title"
+                {overviewColumns.map((column) => (
+                  <div
+                    key={column.id}
+                    className="overview-column"
+                    data-density={column.density}
                   >
-                    <header>
-                      <h2 id="overview-review-title">Needs review</h2>
-                    </header>
-                    <ul aria-label="Items that need review">
-                      {data.review?.formResponses ? (
-                        <li>
-                          <button
-                            className="overview-note-link"
-                            onClick={() => onNavigate("forms")}
-                          >
-                            <ClipboardCheck size={16} />
-                            <span>
-                              <strong>
-                                {data.review.formResponses} unreviewed form{" "}
-                                {data.review.formResponses === 1
-                                  ? "response"
-                                  : "responses"}
-                              </strong>
-                              <small>Forms</small>
-                            </span>
-                            <ArrowRight size={14} />
-                          </button>
-                        </li>
-                      ) : null}
-                      {data.review?.tagSuggestions ? (
-                        <li>
-                          <button
-                            className="overview-note-link"
-                            onClick={() => onNavigate("tag-suggestions")}
-                          >
-                            <Tag size={16} />
-                            <span>
-                              <strong>
-                                {data.review.tagSuggestions}{" "}
-                                {data.review.tagSuggestions === 1
-                                  ? "tag suggestion"
-                                  : "tag suggestions"}{" "}
-                                to review
-                              </strong>
-                              <small>Tags</small>
-                            </span>
-                            <ArrowRight size={14} />
-                          </button>
-                        </li>
-                      ) : null}
-                    </ul>
-                  </section>
-                )}
+                    {column.sections.map((section) => (
+                      <Fragment key={section.id}>{section.content}</Fragment>
+                    ))}
+                  </div>
+                ))}
               </div>
             )
           )}

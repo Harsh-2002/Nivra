@@ -9,8 +9,7 @@ import {
   Search,
   Plus,
   SlidersHorizontal as SettingsIcon,
-  PanelLeftClose,
-  Menu,
+  ArrowLeft,
   MoreHorizontal,
   Pencil,
   ArrowUpDown,
@@ -73,6 +72,7 @@ import { BookmarksPanel } from "./bookmarks-panel";
 import { OverviewPanel } from "./overview-panel";
 import { ItemCollection } from "./item-collection";
 import { TagSuggestionsPanel } from "./tag-suggestions-panel";
+import { NavigationIcon } from "./navigation-icon";
 import { FeedbackOutlet } from "./inline-feedback";
 import { TrashPanel } from "./trash-panel";
 import { CalendarPanel } from "./calendar-panel";
@@ -855,7 +855,7 @@ export function Workspace({
             className="collapse-sidebar"
             onClick={() => setSidebar(false)}
           >
-            <PanelLeftClose size={16} />
+            <ArrowLeft size={16} aria-hidden="true" />
           </Button>
         </footer>
       </div>
@@ -1164,7 +1164,7 @@ export function Workspace({
                       : setSidebar(true)
                   }
                 >
-                  <Menu size={18} />
+                  <NavigationIcon />
                 </Button>
               </header>
               <p className="list-description">

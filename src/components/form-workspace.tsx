@@ -1,15 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  Copy,
-  Eye,
-  Menu,
-  Monitor,
-  Smartphone,
-  Star,
-} from "lucide-react";
+import { ArrowLeft, Copy, Eye, Monitor, Smartphone, Star } from "lucide-react";
 import { api } from "@/lib/client";
 import { publishableForm, type FormRecord } from "@/lib/forms";
 import { formRoute, type FormRoute } from "@/lib/workspace-routes";
@@ -31,6 +23,7 @@ import {
 import { ItemTagPicker } from "./item-tag-picker";
 import { DatePicker } from "./date-picker";
 import { useConfirm } from "./confirm-provider";
+import { NavigationIcon } from "./navigation-icon";
 
 export function FormWorkspace({
   onNavigation,
@@ -337,7 +330,7 @@ function FormEditor({
               aria-label="Open navigation"
               onClick={onNavigation}
             >
-              <Menu />
+              <NavigationIcon />
             </Button>
           </div>
           <header className="mb-6 flex flex-wrap items-start justify-between gap-4">

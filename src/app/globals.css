@@ -723,6 +723,17 @@ button:disabled {
 .menu-toggle {
   display: none;
 }
+.navigation-menu-icon {
+  display: none;
+}
+@media (max-width: 1023px) {
+  .navigation-menu-icon {
+    display: block;
+  }
+  .navigation-expand-icon {
+    display: none;
+  }
+}
 .rail-hidden .menu-toggle {
   display: inline-flex;
 }
@@ -3312,9 +3323,16 @@ button:disabled {
 }
 .overview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
   align-items: stretch;
+}
+.overview-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
 }
 .overview-widget {
   min-width: 0;
@@ -3455,15 +3473,38 @@ button:disabled {
     height: 100%;
   }
   .overview-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-rows: minmax(0, 1fr);
     align-items: stretch;
     gap: 20px;
+  }
+  .overview-grid[data-many-columns="true"] {
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  .overview-grid:not([data-column-count]) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .overview-grid[data-column-count="1"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .overview-grid[data-column-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-grid[data-column-count="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .overview-grid[data-many-columns="true"] {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  }
+  .overview-column {
+    height: 100%;
   }
   .overview-widget {
     display: flex;
     flex-direction: column;
     min-height: 0;
+  }
+  .overview-column > .overview-widget {
+    flex: 1 1 0;
   }
   .overview-widget > header,
   .overview-task-summary,
@@ -3477,7 +3518,13 @@ button:disabled {
   }
 }
 @media (min-width: 1024px) {
-  .overview-grid {
+  .overview-grid[data-column-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-grid[data-column-count="3"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .overview-grid:not([data-column-count]) {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .overview-content.section-content {
@@ -3499,62 +3546,22 @@ button:disabled {
     text-align: right;
   }
 }
-@media (min-width: 1280px) {
-  .overview-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-@media (min-width: 1024px) {
-  .overview-grid[data-card-count="2"],
-  .overview-grid[data-card-count="3"] {
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .overview-grid[data-column-count="3"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .overview-grid[data-card-count="1"] {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
-@media (min-width: 1024px) and (max-width: 1279px) {
-  .overview-grid[data-card-count="3"] {
-    grid-template-rows: minmax(0, 1fr) auto;
+@media (min-width: 1024px) and (max-width: 1279px) and (min-height: 600px) {
+  .overview-grid[data-column-count="3"] {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
   }
-  .overview-grid[data-card-count="3"] > .overview-review {
-    grid-column: 1 / -1;
-    max-height: clamp(120px, 22vh, 180px);
-    min-height: 0;
-    overflow: hidden;
+  .overview-grid[data-column-count="3"]
+    > .overview-column[data-density="compact"] {
+    grid-row: 1 / span 2;
   }
-  .overview-grid[data-card-count="3"] > .overview-review > ul {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-  }
-}
-@media (min-width: 1280px) {
-  .overview-grid[data-card-count="3"] {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: minmax(0, 1fr);
-  }
-  .overview-grid[data-card-count="3"] > .overview-review {
-    grid-column: auto;
-    max-height: none;
-    overflow: visible;
-  }
-}
-.overview-subsection-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.overview-subsection-heading h3 {
-  font-size: 12px;
-  font-weight: 550;
 }
 .overview-calendar-empty {
-  margin: 8px 12px 0;
+  margin: 0;
   color: var(--muted-foreground);
   font-size: 12px;
   line-height: 1.6;
@@ -3768,9 +3775,6 @@ button:disabled {
     min-height: 44px;
   }
   .overview-widget > header button {
-    min-height: 44px;
-  }
-  .overview-subsection-heading button {
     min-height: 44px;
   }
   .overview-check {
@@ -7357,21 +7361,37 @@ body .bn-mobile-formatting-toolbar {
   gap: 10px;
   min-height: 44px;
 }
-.tag-suggestions-message {
-  margin: 0 0 16px;
-}
-.tag-suggestions-refresh-status {
-  min-height: 1.65em;
-  margin: 6px 0 0;
-}
 .tag-suggestion-card {
   min-width: 0;
 }
 .tag-suggestion-card .tag-collection-card {
-  cursor: default;
+  position: relative;
 }
 .tag-suggestion-card .tag-collection-card:hover {
-  background: var(--background);
+  background: var(--accent);
+}
+.tag-suggestion-open {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  cursor: pointer;
+}
+.tag-suggestion-open:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.tag-suggestion-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  min-width: 44px;
+  min-height: 44px;
+}
+.tag-suggestion-card .tag-collection-kind,
+.tag-suggestion-title {
+  padding-right: 36px;
 }
 .tag-suggestion-title {
   margin: 0;
@@ -7414,6 +7434,8 @@ body .bn-mobile-formatting-toolbar {
   gap: 4px;
 }
 .tag-suggestion-actions button {
+  position: relative;
+  z-index: 2;
   min-width: 44px;
   min-height: 44px;
 }

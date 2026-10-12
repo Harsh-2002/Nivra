@@ -194,22 +194,64 @@ try {
         }
         return page.locator(".desktop-navigation");
       }
-      async function textStartX(locator) {
-        return locator.evaluate((element) => {
-          const walker = document.createTreeWalker(
-            element,
-            NodeFilter.SHOW_TEXT,
-          );
-          while (walker.nextNode()) {
-            const node = walker.currentNode;
-            if (!node.textContent?.trim()) continue;
-            const range = document.createRange();
-            range.selectNodeContents(node);
-            const bounds = range.getBoundingClientRect();
-            if (bounds.width) return bounds.left;
-          }
-          return null;
+      async function verifyDesktopSidebarCollapse() {
+        if (width < 1024) return;
+        const workspace = page.locator(".workspace");
+        const desktopNavigation = page.locator(".desktop-navigation");
+        await desktopNavigation.waitFor({ state: "visible" });
+        await desktopNavigation
+          .getByRole("button", { name: "Collapse sidebar", exact: true })
+          .click();
+        await page.locator(".workspace.rail-hidden").waitFor();
+        assert.equal(
+          await desktopNavigation.count(),
+          0,
+          "Collapsing the sidebar must hide its navigation rail",
+        );
+        const expand = page.getByRole("button", {
+          name: "Open navigation",
+          exact: true,
         });
+        await expand.waitFor({ state: "visible" });
+        assert.equal(
+          await expand.locator(".navigation-expand-icon").isVisible(),
+          true,
+          "Desktop sidebar expansion should use the simple arrow icon",
+        );
+        assert.equal(
+          await expand.locator(".navigation-menu-icon").isVisible(),
+          false,
+          "Desktop sidebar expansion should not use the mobile menu icon",
+        );
+        await expand.click();
+        await page.locator(".workspace:not(.rail-hidden)").waitFor();
+        await desktopNavigation.waitFor({ state: "visible" });
+        await desktopNavigation
+          .getByRole("button", { name: "Collapse sidebar", exact: true })
+          .waitFor({ state: "visible" });
+        assert.equal(
+          await workspace.evaluate((element) =>
+            element.classList.contains("rail-hidden"),
+          ),
+          false,
+          "Expanding the sidebar must restore the navigation rail",
+        );
+      }
+      async function sidebarLabelStarts(suggestionsLocator, tagLocator) {
+        const tagElement = await tagLocator.elementHandle();
+        if (!tagElement) return null;
+        return suggestionsLocator.evaluate((suggestions, tag) => {
+          const icon = suggestions.querySelector("svg");
+          const tagLabel = tag.querySelector(".tag-dot + span");
+          if (!icon || !tagLabel) return null;
+          const style = getComputedStyle(suggestions);
+          return {
+            suggestions:
+              icon.getBoundingClientRect().right +
+              Number.parseFloat(style.columnGap),
+            tag: tagLabel.getBoundingClientRect().left,
+          };
+        }, tagElement);
       }
       async function surface(label) {
         const s =
@@ -255,7 +297,7 @@ try {
           });
         if (width < 1024) {
           const sizes = await s
-            .locator(".tag-suggestion-actions button")
+            .locator(".tag-suggestion-card button")
             .evaluateAll((elements) =>
               elements.map((e) => e.getBoundingClientRect().height),
             );
@@ -264,6 +306,192 @@ try {
             "Touch actions must remain 44px",
           );
         }
+      }
+      async function verifySuggestionCardActions(suggestions, title, name) {
+        const source = suggestions.getByRole("button", {
+          name: `Open ${title}`,
+          exact: true,
+        });
+        const card = source.locator("xpath=ancestor::li[1]");
+        const dismiss = card.getByRole("button", {
+          name: `Dismiss suggestion for ${name} on ${title}`,
+          exact: true,
+        });
+        const add = card.getByRole("button", {
+          name: `Add ${name} to ${title}`,
+          exact: true,
+        });
+        await source.waitFor({ state: "visible" });
+        assert.equal(await source.count(), 1);
+        assert.equal(await dismiss.count(), 1);
+        assert.equal(await add.count(), 1);
+        assert.equal(
+          await card.locator(".tag-suggestion-actions button").count(),
+          1,
+          "Each card should expose one footer action for adding the tag",
+        );
+        const bounds = await card.evaluate((element) => {
+          const rect = (selector) => {
+            const { top, right, bottom, left, width, height } = element
+              .querySelector(selector)
+              .getBoundingClientRect();
+            return { top, right, bottom, left, width, height };
+          };
+          const article = element.querySelector(".tag-collection-card");
+          const border = getComputedStyle(article);
+          return {
+            card: rect(".tag-collection-card"),
+            source: rect("button.tag-suggestion-open"),
+            dismiss: rect("button.tag-suggestion-dismiss"),
+            add: rect(".tag-suggestion-actions button"),
+            footer: rect("footer"),
+            border: {
+              top: Number.parseFloat(border.borderTopWidth),
+              right: Number.parseFloat(border.borderRightWidth),
+              bottom: Number.parseFloat(border.borderBottomWidth),
+              left: Number.parseFloat(border.borderLeftWidth),
+            },
+          };
+        });
+        assert.ok(
+          Math.abs(bounds.source.top - bounds.card.top - bounds.border.top) <=
+            1 &&
+            Math.abs(
+              bounds.source.left - bounds.card.left - bounds.border.left,
+            ) <= 1 &&
+            Math.abs(
+              bounds.source.width -
+                (bounds.card.width - bounds.border.left - bounds.border.right),
+            ) <= 1 &&
+            Math.abs(
+              bounds.source.height -
+                (bounds.card.height - bounds.border.top - bounds.border.bottom),
+            ) <= 1,
+          `The source button should cover the card's full padding box; bounds=${JSON.stringify(bounds)}`,
+        );
+        assert.ok(
+          bounds.dismiss.top >= bounds.card.top - 1 &&
+            bounds.dismiss.top <= bounds.card.top + 12 &&
+            bounds.card.right - bounds.dismiss.right >= -1 &&
+            bounds.card.right - bounds.dismiss.right <= 12,
+          `Dismiss should remain in the card's top-right corner; bounds=${JSON.stringify(bounds)}`,
+        );
+        assert.ok(
+          bounds.add.top >= bounds.footer.top - 1 &&
+            bounds.add.bottom <= bounds.footer.bottom + 1,
+          `The single Add tag action should remain in the footer; bounds=${JSON.stringify(bounds)}`,
+        );
+      }
+      async function assertScreenReaderStatus(root, message) {
+        const status = root.getByRole("status").filter({ hasText: message });
+        await status.waitFor({ state: "attached" });
+        const rendered = await status.evaluate((element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          const clipped =
+            style.position === "absolute" &&
+            rect.width <= 1 &&
+            rect.height <= 1 &&
+            style.overflow === "hidden" &&
+            (style.clip !== "auto" || style.clipPath !== "none");
+          const hidden =
+            clipped ||
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            Number(style.opacity) === 0;
+          return {
+            hidden,
+            className: element.className,
+            width: rect.width,
+            height: rect.height,
+          };
+        });
+        assert.equal(
+          rendered.hidden,
+          true,
+          `Status should remain available to assistive technology without visible copy; status=${JSON.stringify(rendered)}`,
+        );
+        const visibleFeedback = await root
+          .locator(
+            '.inline-feedback, .tag-suggestions-message, .banner, [role="status"]',
+          )
+          .evaluateAll((elements) =>
+            elements.some((element) => {
+              const style = getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              const clipped =
+                style.position === "absolute" &&
+                rect.width <= 1 &&
+                rect.height <= 1 &&
+                style.overflow === "hidden" &&
+                (style.clip !== "auto" || style.clipPath !== "none");
+              const hidden =
+                clipped ||
+                style.display === "none" ||
+                style.visibility === "hidden" ||
+                Number(style.opacity) === 0;
+              return (
+                Boolean(element.textContent?.trim()) &&
+                !hidden &&
+                rect.width > 1 &&
+                rect.height > 1
+              );
+            }),
+          );
+        assert.equal(
+          visibleFeedback,
+          false,
+          "Suggestion progress and success messages must not render a visible banner",
+        );
+        return status;
+      }
+      async function waitForSuggestionsBusy(root, busy) {
+        const region = root.locator(
+          `[role="region"][aria-label="Tag suggestions"][aria-busy="${busy}"]`,
+        );
+        await region.waitFor({ state: "visible" });
+        return region;
+      }
+      async function assertNoVisibleSuggestionRefreshCopy(root) {
+        assert.equal(
+          await root
+            .getByText("Updating tag suggestions…", { exact: true })
+            .count(),
+          0,
+          "Background refresh must not add redundant Updating copy",
+        );
+        const visibleFeedback = await root
+          .locator(
+            '.inline-feedback, .tag-suggestions-message, .banner, [role="status"]',
+          )
+          .evaluateAll((elements) =>
+            elements.some((element) => {
+              const style = getComputedStyle(element);
+              const rect = element.getBoundingClientRect();
+              const clipped =
+                style.position === "absolute" &&
+                rect.width <= 1 &&
+                rect.height <= 1 &&
+                style.overflow === "hidden" &&
+                (style.clip !== "auto" || style.clipPath !== "none");
+              const hidden =
+                clipped ||
+                style.display === "none" ||
+                style.visibility === "hidden" ||
+                Number(style.opacity) === 0;
+              return (
+                Boolean(element.textContent?.trim()) &&
+                !hidden &&
+                rect.width > 1 &&
+                rect.height > 1
+              );
+            }),
+          );
+        assert.equal(
+          visibleFeedback,
+          false,
+          "Suggestion progress and success messages must not render a visible banner",
+        );
       }
       async function waitForWorkspaceApiIdle(stage) {
         const idleWindow = 250;
@@ -551,10 +779,8 @@ try {
               liveEvents.some((event) => event.kind === "ai"),
             `The new indexed item must arrive over the live AI completion stream; events=${JSON.stringify(liveEvents)}`,
           );
-          await panel
-            .getByRole("status")
-            .filter({ hasText: "Updating tag suggestions…" })
-            .waitFor();
+          await waitForSuggestionsBusy(panel, true);
+          await assertNoVisibleSuggestionRefreshCopy(panel);
           const refreshBounds = await grid.evaluate((element) => {
             const { top, height } = element.getBoundingClientRect();
             return { top, height };
@@ -601,10 +827,8 @@ try {
               exact: true,
             })
             .waitFor();
-          await panel
-            .getByRole("status")
-            .filter({ hasText: "Updating tag suggestions…" })
-            .waitFor({ state: "hidden" });
+          await waitForSuggestionsBusy(panel, false);
+          await assertNoVisibleSuggestionRefreshCopy(panel);
           await waitForLiveApiIdle("live suggestions refreshed");
           assert.deepEqual(liveErrors, [], "Live SSE refresh page errors");
           assert.deepEqual(
@@ -681,6 +905,7 @@ try {
       }
       try {
         await page.goto(`${base}/overview`, { waitUntil: "domcontentloaded" });
+        await verifyDesktopSidebarCollapse();
         await (
           await nav()
         )
@@ -725,10 +950,12 @@ try {
           .locator(".tag-nav-row > button:first-child")
           .filter({ hasText: tag.name })
           .first();
-        const [suggestionsTextX, assignedTagTextX] = await Promise.all([
-          textStartX(suggestionsLink),
-          textStartX(tagLabel),
-        ]);
+        const sidebarLabelPositions = await sidebarLabelStarts(
+          suggestionsLink,
+          tagLabel,
+        );
+        const suggestionsTextX = sidebarLabelPositions?.suggestions ?? null;
+        const assignedTagTextX = sidebarLabelPositions?.tag ?? null;
         assert.ok(
           suggestionsTextX !== null &&
             assignedTagTextX !== null &&
@@ -767,6 +994,7 @@ try {
           .locator(".tag-suggestion-chip")
           .getByText(tag.name, { exact: true })
           .waitFor();
+        await verifySuggestionCardActions(suggestions, title, tag.name);
         await audit(suggestions, "tag-suggestions");
         await waitForAiCompletionQuiet();
         await waitForWorkspaceApiIdle("suggestions settled before navigation");
@@ -794,9 +1022,19 @@ try {
         await waitForWorkspaceApiIdle(
           "suggestions settled before opening source",
         );
-        await suggestions
-          .getByRole("button", { name: `Open ${title}`, exact: true })
-          .click();
+        const sourceTitle = suggestions.getByRole("heading", {
+          name: title,
+          exact: true,
+        });
+        const titleBounds = await sourceTitle.boundingBox();
+        assert.ok(
+          titleBounds,
+          "The source title should be visible and clickable",
+        );
+        await page.mouse.click(
+          titleBounds.x + Math.min(12, titleBounds.width / 2),
+          titleBounds.y + titleBounds.height / 2,
+        );
         await page.locator('[aria-label="Note content"]').waitFor();
         await waitForWorkspaceApiIdle("open suggestion source");
         await (
@@ -811,10 +1049,10 @@ try {
         });
         await review.waitFor();
         await review.click();
-        await suggestions
-          .getByRole("status")
-          .filter({ hasText: `${tag.name} added to ${title}.` })
-          .waitFor();
+        await assertScreenReaderStatus(
+          suggestions,
+          `${tag.name} added to ${title}.`,
+        );
         assert.equal(await review.count(), 0);
         for (let n = 0; n < 40; n++) {
           if (
@@ -855,15 +1093,14 @@ try {
             },
           ];
           let getCount = 0;
-          let holdNextGet = false;
-          let heldItems = firstBatch;
-          let releaseHeldGet = () => {};
-          let heldGet = Promise.resolve();
-          let heldGetGate = Promise.resolve();
+          const pendingSuggestionHolds = [];
+          const allSuggestionHolds = [];
           const pendingFixtureRoutes = new Set();
           const fixtureRouteErrors = [];
           const fixtureGets = [];
           let acceptCommitted = false;
+          let pendingAcceptance = null;
+          const rejectedIds = new Set();
           await page.evaluate(() => {
             window.__tagSuggestionCompletionEvents = [];
             window.addEventListener(
@@ -878,16 +1115,32 @@ try {
             );
           });
           const holdSuggestionsGet = (items) => {
-            holdNextGet = true;
-            heldItems = items;
-            heldGet = new Promise((resolve) => {
-              resolveHeldGet = resolve;
-            });
-            heldGetGate = new Promise((resolve) => {
-              releaseHeldGet = resolve;
-            });
+            let enter;
+            let release;
+            const hold = {
+              items,
+              entered: new Promise((resolve) => (enter = resolve)),
+              gate: new Promise((resolve) => (release = resolve)),
+              enter: () => enter(),
+              release: () => release(),
+            };
+            pendingSuggestionHolds.push(hold);
+            allSuggestionHolds.push(hold);
+            return hold;
           };
-          let resolveHeldGet;
+          const holdNextAcceptance = () => {
+            let enter;
+            let release;
+            const hold = {
+              entered: new Promise((resolve) => (enter = resolve)),
+              gate: new Promise((resolve) => (release = resolve)),
+              enter: () => enter(),
+              release: () => release(),
+            };
+            pendingAcceptance = hold;
+            allSuggestionHolds.push(hold);
+            return hold;
+          };
           const fulfillSuggestions = (route, items) =>
             route.fulfill({
               status: 200,
@@ -902,12 +1155,16 @@ try {
               path === "/api/v1/ai/suggestions"
             ) {
               getCount++;
-              const held = holdNextGet;
+              const hold = pendingSuggestionHolds.shift();
+              const held = Boolean(hold);
+              const currentBatch = firstBatch.filter(
+                (item) => !rejectedIds.has(item.id),
+              );
               const responseItems = held
-                ? heldItems
+                ? hold.items
                 : acceptCommitted
                   ? nextBatch
-                  : firstBatch;
+                  : currentBatch;
               fixtureGets.push({
                 count: getCount,
                 held,
@@ -915,19 +1172,29 @@ try {
                 accepted: acceptCommitted,
                 at: Date.now(),
               });
-              if (holdNextGet) {
-                holdNextGet = false;
-                resolveHeldGet();
-                await heldGetGate;
+              if (hold) {
+                hold.enter();
+                await hold.gate;
                 return fulfillSuggestions(route, responseItems);
               }
               return fulfillSuggestions(route, responseItems);
             }
             if (
               request.method() === "POST" &&
-              /^\/api\/v1\/ai\/suggestions\/[^/]+\/accept$/.test(path)
+              /^\/api\/v1\/ai\/suggestions\/[^/]+\/(accept|reject)$/.test(path)
             ) {
-              acceptCommitted = true;
+              const [, itemId, decision] = path.match(
+                /^\/api\/v1\/ai\/suggestions\/([^/]+)\/(accept|reject)$/,
+              );
+              if (decision === "accept") {
+                acceptCommitted = true;
+                if (pendingAcceptance) {
+                  const hold = pendingAcceptance;
+                  pendingAcceptance = null;
+                  hold.enter();
+                  await hold.gate;
+                }
+              } else rejectedIds.add(itemId);
               return route.fulfill({
                 status: 200,
                 contentType: "application/json",
@@ -986,13 +1253,74 @@ try {
               "The initial suggestions batch should be complete",
             );
             await waitForAiCompletionQuiet();
+            const dismissedTitle = "Refresh sample 2";
+            const dismissedItem = firstBatch[1];
+            const sourceAction = suggestions.getByRole("button", {
+              name: `Open ${dismissedTitle}`,
+              exact: true,
+            });
+            const dismissAction = suggestions.getByRole("button", {
+              name: `Dismiss suggestion for ${dismissedItem.tag.name} on ${dismissedTitle}`,
+              exact: true,
+            });
+            const dismissedCard = dismissAction.locator(
+              "xpath=ancestor::li[1]",
+            );
+            const dismissedResponse = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/ai/suggestions" &&
+                response.request().method() === "GET"
+              );
+            });
+            await sourceAction.focus();
+            await page.keyboard.press("Tab");
+            assert.equal(
+              await dismissAction.evaluate(
+                (element) => element === document.activeElement,
+              ),
+              true,
+              "Tab should move from the stretched source button to the card dismiss action",
+            );
+            const focusOutline = await dismissAction.evaluate((element) => {
+              const style = getComputedStyle(element);
+              return {
+                style: style.outlineStyle,
+                width: Number.parseFloat(style.outlineWidth),
+              };
+            });
+            assert.ok(
+              focusOutline.style !== "none" && focusOutline.width >= 2,
+              `The focused dismiss action should have a visible focus outline; style=${JSON.stringify(focusOutline)}`,
+            );
+            await page.keyboard.press("Enter");
+            const dismissedListResponse = await dismissedResponse;
+            assert.equal(dismissedListResponse.status(), 200);
+            await assertScreenReaderStatus(
+              suggestions,
+              `Suggestion for ${dismissedTitle} dismissed.`,
+            );
+            await dismissedCard.waitFor({ state: "detached" });
+            assert.equal(
+              getCount,
+              2,
+              "Dismissal should trigger one explicit suggestions refresh",
+            );
+            assert.equal(
+              await suggestions.locator(".tag-suggestion-card").count(),
+              29,
+              "Dismissing from the card corner should remove only that suggestion",
+            );
+            await waitForWorkspaceApiIdle("dismissed suggestion refresh");
             const grid = suggestions.locator(".tag-suggestion-grid");
             const initialGridBounds = await grid.evaluate((element) => {
               const { top, height } = element.getBoundingClientRect();
               return { top, height };
             });
 
-            holdSuggestionsGet(firstBatch);
+            const backgroundHold = holdSuggestionsGet(
+              firstBatch.filter((item) => !rejectedIds.has(item.id)),
+            );
             const heldRefresh = page.waitForRequest(
               (request) => {
                 const url = new URL(request.url());
@@ -1011,11 +1339,9 @@ try {
               ),
             );
             await heldRefresh;
-            await heldGet;
-            await suggestions
-              .getByRole("status")
-              .filter({ hasText: "Updating tag suggestions…" })
-              .waitFor();
+            await backgroundHold.entered;
+            await waitForSuggestionsBusy(suggestions, true);
+            await assertNoVisibleSuggestionRefreshCopy(suggestions);
             const refreshingGridBounds = await grid.evaluate((element) => {
               const { top, height } = element.getBoundingClientRect();
               return { top, height };
@@ -1029,7 +1355,7 @@ try {
             );
             assert.equal(
               await suggestions.locator(".tag-suggestion-card").count(),
-              30,
+              29,
               `A background refresh must keep the current batch visible; GETs=${JSON.stringify(fixtureGets)}; completion events=${JSON.stringify(await page.evaluate(() => window.__tagSuggestionCompletionEvents))}`,
             );
             assert.equal(
@@ -1042,42 +1368,72 @@ try {
               true,
               "The current suggestion remains actionable while refreshing",
             );
-            releaseHeldGet();
-            await suggestions
-              .getByRole("status")
-              .filter({ hasText: "Updating tag suggestions…" })
-              .waitFor({ state: "hidden" });
 
-            holdSuggestionsGet(nextBatch);
-            const decisionRefresh = page.waitForRequest(
-              (request) => {
-                const url = new URL(request.url());
-                return (
-                  url.pathname === "/api/v1/ai/suggestions" &&
-                  request.method() === "GET"
-                );
-              },
-              { timeout: 10000 },
+            await page.evaluate(() =>
+              Array.from({ length: 5 }, () =>
+                window.dispatchEvent(
+                  new CustomEvent("nivra:ai-completion", {
+                    detail: { kind: "ai", source: "freshness-fixture" },
+                  }),
+                ),
+              ),
             );
+            await waitForAiCompletionQuiet();
+            assert.equal(
+              getCount,
+              3,
+              "Completions during one pending refresh should queue a single trailing GET",
+            );
+
+            const acceptHold = holdNextAcceptance();
+            const acceptResponsePromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                response.request().method() === "POST" &&
+                /\/api\/v1\/ai\/suggestions\/[^/]+\/accept$/.test(url.pathname)
+              );
+            });
             await suggestions
               .getByRole("button", {
                 name: "Add Fixture tag 1 to Refresh sample 1",
                 exact: true,
               })
               .click();
-            await decisionRefresh;
-            await heldGet;
-            await suggestions
-              .getByRole("status")
-              .filter({ hasText: "Updating tag suggestions…" })
-              .waitFor();
-            await suggestions
-              .getByRole("status")
-              .filter({ hasText: "Fixture tag 1 added to Refresh sample 1." })
-              .waitFor();
+            await acceptHold.entered;
+            await waitForSuggestionsBusy(suggestions, true);
+            await assertNoVisibleSuggestionRefreshCopy(suggestions);
             assert.equal(
               await suggestions.locator(".tag-suggestion-card").count(),
               29,
+              "A pending approval must leave its card in place until the response succeeds",
+            );
+            await page.evaluate(() =>
+              Array.from({ length: 5 }, () =>
+                window.dispatchEvent(
+                  new CustomEvent("nivra:ai-completion", {
+                    detail: { kind: "ai", source: "freshness-fixture" },
+                  }),
+                ),
+              ),
+            );
+            await waitForAiCompletionQuiet();
+            assert.equal(
+              getCount,
+              3,
+              "Completions during a pending review must not start parallel refreshes",
+            );
+            acceptHold.release();
+            const acceptResponse = await acceptResponsePromise;
+            assert.equal(acceptResponse.status(), 200);
+            await assertScreenReaderStatus(
+              suggestions,
+              "Fixture tag 1 added to Refresh sample 1.",
+            );
+            await waitForSuggestionsBusy(suggestions, true);
+            await assertNoVisibleSuggestionRefreshCopy(suggestions);
+            assert.equal(
+              await suggestions.locator(".tag-suggestion-card").count(),
+              28,
               "Removing a reviewed suggestion must keep the remaining cards visible",
             );
             assert.equal(
@@ -1090,17 +1446,73 @@ try {
               0,
               "The next batch must not appear empty while loading",
             );
-            releaseHeldGet();
+            const afterDecisionGridBounds = await grid.evaluate((element) => {
+              const { top, height } = element.getBoundingClientRect();
+              return { top, height };
+            });
+            const queuedHold = holdSuggestionsGet(nextBatch);
+            const staleResponsePromise = page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/ai/suggestions" &&
+                response.request().method() === "GET"
+              );
+            });
+            const queuedRequestPromise = page.waitForRequest((request) => {
+              const url = new URL(request.url());
+              return (
+                url.pathname === "/api/v1/ai/suggestions" &&
+                request.method() === "GET"
+              );
+            });
+            backgroundHold.release();
+            const staleResponse = await staleResponsePromise;
+            assert.equal(staleResponse.status(), 200);
+            await queuedRequestPromise;
+            await queuedHold.entered;
+            await waitForSuggestionsBusy(suggestions, true);
+            await assertNoVisibleSuggestionRefreshCopy(suggestions);
+            assert.equal(
+              await suggestions.locator(".tag-suggestion-card").count(),
+              28,
+              "A stale GET arriving after review must not restore the reviewed card",
+            );
+            assert.equal(
+              await suggestions
+                .getByRole("button", {
+                  name: "Add Fixture tag 1 to Refresh sample 1",
+                  exact: true,
+                })
+                .count(),
+              0,
+              "The reviewed suggestion must stay absent after the stale response",
+            );
+            const afterStaleGridBounds = await grid.evaluate((element) => {
+              const { top, height } = element.getBoundingClientRect();
+              return { top, height };
+            });
+            assert.ok(
+              Math.abs(
+                afterStaleGridBounds.top - afterDecisionGridBounds.top,
+              ) <= 1 &&
+                Math.abs(
+                  afterStaleGridBounds.height - afterDecisionGridBounds.height,
+                ) <= 1,
+              `The stale response must leave the reviewed grid unchanged; before=${JSON.stringify(afterDecisionGridBounds)} after=${JSON.stringify(afterStaleGridBounds)}`,
+            );
+            queuedHold.release();
             await suggestions
               .getByRole("button", {
                 name: "Add Queued tag to Queued suggestion sample",
                 exact: true,
               })
               .waitFor();
-            await suggestions
-              .getByRole("status")
-              .filter({ hasText: "Fixture tag 1 added to Refresh sample 1." })
-              .waitFor();
+            await waitForSuggestionsBusy(suggestions, false);
+            await assertNoVisibleSuggestionRefreshCopy(suggestions);
+            await assertScreenReaderStatus(
+              suggestions,
+              "Fixture tag 1 added to Refresh sample 1.",
+            );
             assert.equal(
               await suggestions.locator(".tag-suggestion-card").count(),
               1,
@@ -1118,14 +1530,14 @@ try {
             );
             assert.equal(
               getCount,
-              3,
+              4,
               `Reviewing a card must explicitly fetch the next suggestions batch; GETs=${JSON.stringify(fixtureGets)}; completion events=${JSON.stringify(await page.evaluate(() => window.__tagSuggestionCompletionEvents))}`,
             );
             await waitForWorkspaceApiIdle("suggestion freshness fixture");
           } catch (error) {
             freshnessError = error;
           } finally {
-            releaseHeldGet();
+            for (const hold of allSuggestionHolds) hold.release();
             try {
               while (pendingFixtureRoutes.size)
                 await Promise.allSettled([...pendingFixtureRoutes]);

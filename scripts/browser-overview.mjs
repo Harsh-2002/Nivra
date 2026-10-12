@@ -32,7 +32,7 @@ export default async function verifyOverview(page, phase, options = {}) {
   else await page.goto(base);
   const overview = page.getByRole("region", { name: "Overview", exact: true });
   const ready = () =>
-    overview.locator(".overview-grid[data-card-count]").waitFor();
+    overview.locator(".overview-grid[data-section-count]").waitFor();
   const passed = [];
   const check = (condition, name) => {
     if (!condition) throw new Error(name);
@@ -125,7 +125,9 @@ export default async function verifyOverview(page, phase, options = {}) {
       await page.goto(base);
       await ready();
       await completionStream;
-      await overview.locator('.overview-grid[data-card-count="1"]').waitFor();
+      await overview
+        .locator('.overview-grid[data-section-count="1"]')
+        .waitFor();
       check(
         await overview.getByText("Your workspace is ready").isVisible(),
         "First use presents a single concise welcome state",
@@ -179,7 +181,7 @@ export default async function verifyOverview(page, phase, options = {}) {
       await overview
         .getByRole("button", { name: new RegExp(taskTitle) })
         .waitFor();
-      await overview.locator('.overview-grid[data-card-count="2"]').waitFor();
+      await overview.locator(".overview-tasks").waitFor();
       check(
         true,
         "Session B sees Session A's task creation over SSE without reload",
@@ -254,6 +256,20 @@ export default async function verifyOverview(page, phase, options = {}) {
       };
       const event = await actorApi("events", "POST", eventInput);
       await overview.getByText(eventTitle, { exact: true }).waitFor();
+      const calendarCard = overview.locator(".overview-calendar");
+      check(
+        (await calendarCard.count()) === 1 &&
+          (await overview.locator(".overview-grid").evaluate((grid) => {
+            const tasks = grid.querySelector(".overview-tasks");
+            const calendar = grid.querySelector(".overview-calendar");
+            return (
+              !!tasks &&
+              !!calendar &&
+              tasks.parentElement === calendar.parentElement
+            );
+          })),
+        "Upcoming calendar is a separate card beside open tasks",
+      );
       await actorApi(`events/${event.id}`, "PATCH", {
         input: { ...eventInput, title: updatedEventTitle },
         revision: event.revision,
@@ -274,6 +290,9 @@ export default async function verifyOverview(page, phase, options = {}) {
         title: updatedArtifactTitle,
       });
       await overview.getByText(updatedArtifactTitle, { exact: true }).waitFor();
+      await overview
+        .locator('.overview-grid[data-section-count="3"]')
+        .waitFor();
       check(true, "Overview refreshes for a created and updated artifact");
 
       const originalTheme = (await api("settings")).theme;
@@ -296,17 +315,35 @@ export default async function verifyOverview(page, phase, options = {}) {
           });
           await page.waitForTimeout(100);
           const layout = await page.evaluate(() => ({
-            cards: Number(
+            sections: Number(
               document
                 .querySelector(".overview-grid")
-                ?.getAttribute("data-card-count"),
+                ?.getAttribute("data-section-count"),
             ),
+            columns: Number(
+              document
+                .querySelector(".overview-grid")
+                ?.getAttribute("data-column-count"),
+            ),
+            gridTracks: getComputedStyle(
+              document.querySelector(".overview-grid"),
+            ).gridTemplateColumns.split(" ").length,
             overflow: document.documentElement.scrollWidth > innerWidth + 1,
           }));
           assert.equal(
-            layout.cards,
+            layout.sections,
+            3,
+            `${theme} ${width}px should show tasks, calendar, and recent items`,
+          );
+          assert.equal(
+            layout.columns,
             2,
-            `${theme} ${width}px should show two cards`,
+            `${theme} ${width}px should preserve two ordered logical columns`,
+          );
+          assert.equal(
+            layout.gridTracks,
+            width >= 1024 ? 2 : 1,
+            `${theme} ${width}px should render columns for the available width`,
           );
           assert.equal(
             layout.overflow,
@@ -314,7 +351,7 @@ export default async function verifyOverview(page, phase, options = {}) {
             `${theme} ${width}px should not overflow`,
           );
           passed.push(
-            `${theme} ${width}px two-card overview remains responsive`,
+            `${theme} ${width}px three-section overview remains responsive`,
           );
           if (options.captureDirectory && [320, 1100, 1440].includes(width)) {
             await page
@@ -323,11 +360,36 @@ export default async function verifyOverview(page, phase, options = {}) {
             await page.screenshot({
               path: join(
                 options.captureDirectory,
-                `overview-two-${theme}-${width}.png`,
+                `overview-no-review-${theme}-${width}.png`,
               ),
             });
           }
         }
+        await page.setViewportSize({ width: 1440, height: 600 });
+        const compactCardSpace = await page
+          .locator(".overview-column[data-density='compact'] .overview-widget")
+          .evaluateAll((cards) =>
+            cards.map((card) => {
+              const list = card.querySelector("ul");
+              return {
+                listHeight: list?.getBoundingClientRect().height ?? 0,
+                listOverflow: list ? getComputedStyle(list).overflowY : "none",
+              };
+            }),
+          );
+        assert.equal(
+          compactCardSpace.length,
+          2,
+          `${theme} short desktop viewport should keep both compact cards`,
+        );
+        assert.ok(
+          compactCardSpace.every(
+            ({ listHeight, listOverflow }) =>
+              listHeight >= 40 && listOverflow === "auto",
+          ),
+          `${theme} short desktop viewport should keep usable, internally scrollable lists: ${JSON.stringify(compactCardSpace)}`,
+        );
+        passed.push(`${theme} 1440x600 compact cards retain usable list space`);
       }
       await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -398,7 +460,7 @@ export default async function verifyOverview(page, phase, options = {}) {
         },
       );
       await overview
-        .locator('.overview-grid[data-card-count="3"]')
+        .locator('.overview-grid[data-section-count="4"]')
         .waitFor({ timeout: 10000 });
       await overview.getByText(/unreviewed form response/).waitFor();
       check(
@@ -420,17 +482,35 @@ export default async function verifyOverview(page, phase, options = {}) {
           });
           await page.waitForTimeout(100);
           const layout = await page.evaluate(() => ({
-            cards: Number(
+            sections: Number(
               document
                 .querySelector(".overview-grid")
-                ?.getAttribute("data-card-count"),
+                ?.getAttribute("data-section-count"),
             ),
+            columns: Number(
+              document
+                .querySelector(".overview-grid")
+                ?.getAttribute("data-column-count"),
+            ),
+            gridTracks: getComputedStyle(
+              document.querySelector(".overview-grid"),
+            ).gridTemplateColumns.split(" ").length,
             overflow: document.documentElement.scrollWidth > innerWidth + 1,
           }));
           assert.equal(
-            layout.cards,
+            layout.sections,
+            4,
+            `${theme} ${width}px should show all four populated sections`,
+          );
+          assert.equal(
+            layout.columns,
             3,
-            `${theme} ${width}px should show three cards`,
+            `${theme} ${width}px should preserve three ordered logical columns`,
+          );
+          assert.equal(
+            layout.gridTracks,
+            width >= 1280 ? 3 : width >= 1024 ? 2 : 1,
+            `${theme} ${width}px should pack into the available CSS tracks`,
           );
           assert.equal(
             layout.overflow,
@@ -438,7 +518,7 @@ export default async function verifyOverview(page, phase, options = {}) {
             `${theme} ${width}px should not overflow`,
           );
           passed.push(
-            `${theme} ${width}px three-card overview remains responsive`,
+            `${theme} ${width}px four-section overview remains responsive`,
           );
           if (options.captureDirectory && [320, 1100, 1440].includes(width)) {
             await page
@@ -447,7 +527,7 @@ export default async function verifyOverview(page, phase, options = {}) {
             await page.screenshot({
               path: join(
                 options.captureDirectory,
-                `overview-three-${theme}-${width}.png`,
+                `overview-review-${theme}-${width}.png`,
               ),
             });
           }
@@ -669,7 +749,7 @@ export default async function verifyOverview(page, phase, options = {}) {
       delete document.visibilityState;
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    await overview.locator(".overview-grid[data-card-count]").waitFor();
+    await overview.locator(".overview-grid[data-section-count]").waitFor();
     await page.waitForTimeout(200);
     check(requests > 0, "Returning to the tab refreshes immediately");
     page.off("request", listener);
@@ -689,10 +769,15 @@ export default async function verifyOverview(page, phase, options = {}) {
       await page.waitForTimeout(250);
       const report = await page.evaluate(async () => ({
         overflow: document.documentElement.scrollWidth > innerWidth,
-        cardCount: Number(
+        sectionCount: Number(
           document
             .querySelector(".overview-grid")
-            ?.getAttribute("data-card-count"),
+            ?.getAttribute("data-section-count"),
+        ),
+        columnCount: Number(
+          document
+            .querySelector(".overview-grid")
+            ?.getAttribute("data-column-count"),
         ),
         gridColumns: getComputedStyle(
           document.querySelector(".overview-grid"),
@@ -725,10 +810,12 @@ export default async function verifyOverview(page, phase, options = {}) {
             getComputedStyle(e).opacity !== "0",
         ).length,
       }));
-      const expectedColumns =
-        width < 1024 || report.cardCount === 1
+      const expectedPackedColumns =
+        report.sectionCount === 1 ? 1 : report.sectionCount === 4 ? 3 : 2;
+      const expectedGridColumns =
+        width < 1024 || report.sectionCount === 1
           ? 1
-          : report.cardCount === 3 && width >= 1280
+          : report.sectionCount === 4 && width >= 1280
             ? 3
             : 2;
       check(
@@ -736,7 +823,8 @@ export default async function verifyOverview(page, phase, options = {}) {
           !report.nativeSelects &&
           !report.violations.length &&
           !report.smallCompletionTargets &&
-          report.gridColumns === expectedColumns,
+          report.gridColumns === expectedGridColumns &&
+          report.columnCount === expectedPackedColumns,
         `${options.theme} ${width}px layout and accessibility: ${JSON.stringify(report)}`,
       );
       await overview
