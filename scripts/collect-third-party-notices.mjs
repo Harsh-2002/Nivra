@@ -26,7 +26,6 @@ const criticalPaths = [
   "node_modules/@blocknote/react",
   "node_modules/drizzle-orm",
   "node_modules/@huggingface/tokenizers",
-  "node_modules/@tesseract.js-data/eng",
 ];
 if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch))
   throw new Error(
@@ -755,16 +754,19 @@ const tesseractPackage = await readPackageMetadata(
   path.join(sourceModules, "@tesseract.js-data/eng"),
 );
 const tesseractLockEntry = lock.packages[tesseractPackagePath];
-const tesseractReadme = await readFile(
-  path.join(sourceModules, "@tesseract.js-data/eng/README.md"),
+const rootPackage = JSON.parse(
+  await readFile(path.join(root, "package.json"), "utf8"),
 );
-const tesseractReadmeHash = createHash("sha256")
-  .update(tesseractReadme)
-  .digest("hex");
 const tesseractSourceReadmeUrl =
   "https://raw.githubusercontent.com/naptha/tessdata/806cd9adc8c6e8abc11c782db1818c990576bebc/README.md";
 const tesseractSourceReadmeHash =
   "7e83e5899fd3883f10cc44c5b1b57550910b13ee759ed9a8ac57831e960cd7dd";
+const tesseractUpstreamAssetUrl =
+  "https://raw.githubusercontent.com/naptha/tessdata/806cd9adc8c6e8abc11c782db1818c990576bebc/4.0.0_best_int/eng.traineddata.gz";
+const tesseractUpstreamAssetGitBlobSha1 =
+  "730a6a59010b9440e38dd85f9fe6b6bf0637e6eb";
+const tesseractPublishedAssetUrl =
+  "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int/eng.traineddata.gz";
 const tesseractProvenancePath = "native/tessdata-package-provenance.txt";
 const tesseractProvenanceBytes = await readFile(
   path.join(vendorLicenseDirectory, tesseractProvenancePath),
@@ -779,9 +781,18 @@ const tesseractAssetPath = "4.0.0_best_int/eng.traineddata.gz";
 const tesseractSourceAsset = await readFile(
   path.join(sourceModules, "@tesseract.js-data/eng", tesseractAssetPath),
 );
+const tesseractRuntimeAssetPath =
+  "generated/ocr/4.0.0_best_int/eng.traineddata.gz";
 const tesseractRuntimeAsset = await readFile(
-  path.join(standaloneModules, "@tesseract.js-data/eng", tesseractAssetPath),
+  path.join(standalone, tesseractRuntimeAssetPath),
 );
+let tesseractRuntimePackagePresent = false;
+try {
+  await stat(path.join(standaloneModules, "@tesseract.js-data", "eng"));
+  tesseractRuntimePackagePresent = true;
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
 const tesseractAssetHash = createHash("sha256")
   .update(tesseractSourceAsset)
   .digest("hex");
@@ -794,18 +805,19 @@ const tesseractApacheHash = createHash("sha256")
   .update(tesseractApacheLicense)
   .digest("hex");
 if (
+  rootPackage.dependencies?.["@tesseract.js-data/eng"] !== undefined ||
+  rootPackage.devDependencies?.["@tesseract.js-data/eng"] !== "1.0.0" ||
+  !tesseractLockEntry.dev ||
   tesseractPackage?.version !== "1.0.0" ||
   tesseractLockEntry?.version !== "1.0.0" ||
   tesseractLockEntry.license !== "MIT" ||
   tesseractPackage.license !== "MIT" ||
   tesseractLockEntry.integrity !==
     "sha512-mbTumm6KQPUHyzTPQaF3ObXYnx0SqqfV2nabqFVQBwD6Kl7PhGSLSzOlfFTWy0P3BjghaSKA2W9GB19Jk+ZcTg==" ||
-  tesseractReadmeHash !==
-    "adcb325473fe124291951a0a3d29fcb54b341828881570e45c42dc2a3a61a45d" ||
   tesseractPackage.repository?.url !==
     "https://github.com/naptha/tessdata.git" ||
   tesseractProvenanceHash !==
-    "fd8d928efde0bd451a5e78f4d78e6cdef8f525e99fa097d1ce1becb34d1dc2dc" ||
+    "0c599eb893da158e473368d479541f274362645c731d49b3e640f479b892909e" ||
   !tesseractProvenanceText.includes(tesseractSourceReadmeUrl) ||
   !tesseractProvenanceText.includes(tesseractSourceReadmeHash) ||
   !tesseractProvenanceText.includes(
@@ -814,31 +826,32 @@ if (
   !tesseractProvenanceText.includes(
     "https://github.com/tesseract-ocr/tessdata_best",
   ) ||
+  !tesseractProvenanceText.includes(tesseractPublishedAssetUrl) ||
+  !tesseractProvenanceText.includes(tesseractUpstreamAssetUrl) ||
+  !tesseractProvenanceText.includes(tesseractUpstreamAssetGitBlobSha1) ||
   !tesseractProvenanceText.includes(
-    "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int/eng.traineddata.gz",
+    "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
   ) ||
   tesseractAssetHash !==
     "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91" ||
   !tesseractRuntimeAsset.equals(tesseractSourceAsset) ||
+  tesseractRuntimePackagePresent ||
   tesseractApacheHash !==
     "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
 )
   throw new Error(
-    "Pinned Tesseract English data package, traced asset, or upstream data-license evidence changed.",
+    "Pinned Tesseract data asset, build-only source package, runtime exclusion, or upstream data-license evidence changed.",
   );
 const tesseractData = {
-  packagePath: tesseractPackagePath,
   packageVersion: tesseractPackage.version,
   packageIntegrity: tesseractLockEntry.integrity,
-  declaredLicense: tesseractPackage.license,
   packageRepository: tesseractPackage.repository.url,
-  packageReadmeSha256: tesseractReadmeHash,
   provenancePath: tesseractProvenancePath,
   provenanceSha256: tesseractProvenanceHash,
   provenanceText: tesseractProvenanceText,
   sourceReadmeUrl: tesseractSourceReadmeUrl,
   sourceReadmeSha256: tesseractSourceReadmeHash,
-  assetPath: tesseractAssetPath,
+  assetPath: tesseractRuntimeAssetPath,
   assetBytes: tesseractSourceAsset.byteLength,
   assetSha256: tesseractAssetHash,
   licensePath: tesseractApacheLicensePath,
@@ -1030,16 +1043,14 @@ lines.push(
   "  The model build stage writes the Apache-2.0 text available from the tokenizer package and a NOTICE with repository and revision details under /app/models/arctic/.",
   "",
   "BUNDLED OFFLINE OCR DATASET",
-  `- ${tesseractData.packagePath}@${tesseractData.packageVersion}`,
-  `  NPM package integrity: ${tesseractData.packageIntegrity}`,
-  `  Package metadata declares: ${tesseractData.declaredLicense}; package repository: ${tesseractData.packageRepository}`,
-  `  NPM package README SHA-256: ${tesseractData.packageReadmeSha256}; the package README is generic and does not provide model provenance.`,
+  `- Runtime file: ${tesseractData.assetPath} (${tesseractData.assetBytes} bytes, sha256:${tesseractData.assetSha256})`,
+  `  Build-only source package: @tesseract.js-data/eng@${tesseractData.packageVersion} (${tesseractData.packageIntegrity}); repository ${tesseractData.packageRepository}`,
+  "  The npm wrapper, package metadata and unbundled language files are excluded from the runtime image.",
   `  Upstream model provenance README: ${tesseractData.sourceReadmeUrl} sha256:${tesseractData.sourceReadmeSha256}`,
   `  Pinned provenance excerpt: src/lib/server/ai/licenses/${tesseractData.provenancePath} sha256:${tesseractData.provenanceSha256}`,
   tesseractData.provenanceText.trimEnd(),
-  `  Runtime asset: ${tesseractData.assetPath} (${tesseractData.assetBytes} bytes, sha256:${tesseractData.assetSha256})`,
   `  Upstream dataset license source: ${tesseractData.licenseSource} sha256:${tesseractData.licenseSha256}`,
-  "  The full Apache-2.0 data license is included below. The NPM package itself declares MIT but does not ship its own full MIT text; this remains a critical distribution blocker.",
+  "  The asset is distributed under the full upstream Apache-2.0 data license included below.",
   "",
   `--- Tessdata Best model-data Apache-2.0 sha256:${tesseractData.licenseSha256} ---`,
   `Source: ${tesseractData.licenseSource}`,
@@ -1134,9 +1145,12 @@ if (
   !written.includes(tesseractData.licenseSource) ||
   !written.includes(`sha256:${tesseractData.licenseSha256}`) ||
   !written.includes(tesseractData.sourceReadmeUrl) ||
+  !written.includes(tesseractUpstreamAssetUrl) ||
+  !written.includes(tesseractUpstreamAssetGitBlobSha1) ||
   !written.includes(`sha256:${tesseractData.sourceReadmeSha256}`) ||
   !written.includes(`sha256:${tesseractData.provenanceSha256}`) ||
   !written.includes(`sha256:${tesseractData.assetSha256}`) ||
+  written.includes("Installed path: node_modules/@tesseract.js-data/eng") ||
   pinnedTexts.some((item) => !written.includes(item.upstreamUrl)) ||
   pinnedTexts.some((item) => !written.includes(`sha256:${item.sha256}`)) ||
   fontLicenseResults.length !== pinnedFontTexts.length ||

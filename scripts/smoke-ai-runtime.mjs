@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 const child = fork("generated/ai-worker.cjs", [], {
   execArgv: ["--max-old-space-size=128"],
@@ -94,6 +94,10 @@ try {
 const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
 const { createWorker } = await import("tesseract.js");
 assert.ok(
+  !existsSync("node_modules/@tesseract.js-data/eng"),
+  "The Tesseract npm wrapper must not ship in the production image.",
+);
+assert.ok(
   GlobalFonts.registerFromPath(
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "NivraSmoke",
@@ -108,7 +112,7 @@ context.fillStyle = "black";
 context.font = "50px NivraSmoke";
 context.fillText("NIVRA OFFLINE TEST", 20, 100);
 const ocr = await createWorker("eng", 1, {
-  langPath: `${process.cwd()}/node_modules/@tesseract.js-data/eng/4.0.0_best_int`,
+  langPath: `${process.cwd()}/generated/ocr/4.0.0_best_int`,
   gzip: true,
   cacheMethod: "none",
 });

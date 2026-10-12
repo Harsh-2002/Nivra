@@ -6,9 +6,8 @@ import { maxTextLength } from "./extract";
 const languageDirectory = () =>
   path.join(
     /* turbopackIgnore: true */ process.cwd(),
-    "node_modules",
-    "@tesseract.js-data",
-    "eng",
+    "generated",
+    "ocr",
     "4.0.0_best_int",
   );
 const timeoutMs = 90_000;

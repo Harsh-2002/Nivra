@@ -9,3 +9,8 @@ Extracted asset provenance:
 
 Published English asset path:
 https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int/eng.traineddata.gz
+
+Exact upstream asset at the pinned `naptha/tessdata` README revision:
+https://raw.githubusercontent.com/naptha/tessdata/806cd9adc8c6e8abc11c782db1818c990576bebc/4.0.0_best_int/eng.traineddata.gz
+Upstream Git blob SHA-1: 730a6a59010b9440e38dd85f9fe6b6bf0637e6eb
+Asset SHA-256: 45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91

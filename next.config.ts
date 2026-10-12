@@ -71,7 +71,7 @@ const config: NextConfig = {
       "./node_modules/tesseract.js-core/**/*",
       "./node_modules/sharp/**/*",
       "./node_modules/@img/**/*",
-      "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/**/*",
+      "./generated/ocr/4.0.0_best_int/**/*",
       "./node_modules/{bmp-js,idb-keyval,is-url,node-fetch,regenerator-runtime,wasm-feature-detect,zlibjs}/**/*",
     ],
   },
