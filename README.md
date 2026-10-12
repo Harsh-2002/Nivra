@@ -2,24 +2,18 @@
 
 **Your thoughts, together.**
 
-Nivra brings notes, journals, tasks, bookmarks and files into one quiet workspace. Plan with Calendar and Kanban, find things with full-text search, and connect your AI agents through MCP.
+Nivra brings notes, journals, tasks, bookmarks and files into one quiet workspace. Plan with Calendar and Kanban, organize with smart tagging, find things with keyword or semantic search, and connect your agents through MCP.
 
 ![Nivra Overview showing tasks, recent notes and saved links with demo content](docs/images/overview.webp)
 
 - **Write and collect:** rich-text notes, drawings, attachments, bookmarks, tags, favourites and searchable artifacts with background OCR and thumbnails.
 - **Plan:** daily journals, task dates, recurring tasks, Kanban boards, calendar events and push reminders.
 - **Collect responses:** build and publish forms with text, choices, amounts and file uploads; review versioned responses, summaries and CSV/JSON exports.
+- **Organize and find:** optional smart tagging uses your existing tags and examples you approve. Review suggestions by default, or opt into automatic tagging, where recurring topics can become reusable tags. Optional semantic search finds related content by meaning alongside keyword search, including extracted document and OCR text.
 - **Connect:** MCP at `/mcp`, with API keys or OAuth, read-only or read/write access, and exact counts alongside paginated tools.
 - **Keep it yours:** one owner, passkey or password login, optional TOTP, encryption at rest and encrypted backups. Use the browser or install the PWA. Editing requires a connection.
 
-<details>
-<summary>See the Kanban board</summary>
-
-![Nivra Kanban board showing To do, In progress and Done columns with demo content](docs/images/kanban.webp)
-
-Screenshots use demo content.
-
-</details>
+The screenshot uses demo content. See the [website](https://harsh-2002.github.io/Nivra/) for more workflows.
 
 ## Get started with Docker
 
