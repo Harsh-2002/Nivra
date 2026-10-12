@@ -881,7 +881,7 @@ export function Workspace({
                   label={item.name}
                 >
                   <button
-                    aria-label={`Tag: ${item.name}`}
+                    aria-label={item.name}
                     aria-pressed={tag === item.id}
                     onClick={() => void filter("all", item.id)}
                   >
