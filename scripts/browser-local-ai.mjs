@@ -105,6 +105,12 @@ try {
         failedApiRequests = [],
         cancelledSearchRequests = [],
         cancelledNavigationRequests = [],
+        searchAbortErrors = new Set(["net::ERR_ABORTED", "NS_BINDING_ABORTED"]),
+        navigationAbortErrors = new Set([
+          "net::ERR_ABORTED",
+          "NS_BINDING_ABORTED",
+          "Load request cancelled",
+        ]),
         navigationCancellationPaths = new Set(),
         pendingApiRequests = new Set();
       let lastWorkspaceApiActivity = Date.now();
@@ -136,13 +142,10 @@ try {
           path: url.pathname,
           error: request.failure()?.errorText,
         };
-        const knownAbort = ["net::ERR_ABORTED", "NS_BINDING_ABORTED"].includes(
-          failure.error,
-        );
         if (
           failure.method === "GET" &&
           failure.path === "/api/v1/search" &&
-          knownAbort
+          searchAbortErrors.has(failure.error)
         )
           cancelledSearchRequests.push({
             ...failure,
@@ -152,7 +155,7 @@ try {
         else if (
           failure.method === "GET" &&
           navigationCancellationPaths.has(failure.path) &&
-          knownAbort
+          navigationAbortErrors.has(failure.error)
         )
           cancelledNavigationRequests.push(failure);
         else failedApiRequests.push(failure);
