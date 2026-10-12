@@ -58,6 +58,7 @@ import {
   listSuggestions,
   decideSuggestion,
 } from "./ai/service";
+import { listTagProposals, decideTagProposal } from "./ai/tagging";
 import { apiInputs } from "./api-schemas";
 
 type Attachment = {
@@ -387,11 +388,17 @@ async function handleWorkspaceInternal(
           .object({
             enabled: z.boolean(),
             revision: z.number().int().positive(),
+            taggingMode: z.enum(["manual", "automatic"]).optional(),
           })
           .strict()
           .parse(await json(request));
         return response(
-          await configureAi(owner.id, input.enabled, input.revision),
+          await configureAi(
+            owner.id,
+            input.enabled,
+            input.revision,
+            input.taggingMode,
+          ),
         );
       }
       if (id === "suggestions" && method === "GET" && !action)
@@ -408,6 +415,26 @@ async function handleWorkspaceInternal(
           .parse(await json(request));
         return response(
           decideSuggestion(
+            owner.id,
+            z.string().uuid().parse(action),
+            path[3] === "accept" ? "accepted" : "rejected",
+          ),
+        );
+      }
+      if (id === "tag-proposals" && method === "GET" && !action)
+        return response(listTagProposals(owner.id));
+      if (
+        id === "tag-proposals" &&
+        action &&
+        method === "POST" &&
+        ["accept", "reject"].includes(path[3])
+      ) {
+        throttle(`ai-tag-proposal:${owner.id}`);
+        z.object({})
+          .strict()
+          .parse(await json(request));
+        return response(
+          decideTagProposal(
             owner.id,
             z.string().uuid().parse(action),
             path[3] === "accept" ? "accepted" : "rejected",

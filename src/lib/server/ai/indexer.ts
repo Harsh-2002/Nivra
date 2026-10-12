@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import type Database from "better-sqlite3";
 import { dataDir, sqlite } from "../db";
 import { enqueueJob, type JobContext } from "../jobs";
 import { EmbeddingWorker } from "./runtime";
@@ -11,7 +12,9 @@ import {
   textChunkCount,
   textChunks,
 } from "./content";
-import { cosine, policy, tagCandidates, type TagVocabulary } from "./policy";
+import { hasOwnerTagCorrection, prepareAdaptiveTagMatch } from "./matching";
+import { policy } from "./policy";
+import { processIndexedTagging } from "./tagging";
 import { extractAttachment } from "./extract-attachments";
 const global = globalThis as unknown as {
   nivraAi?: {
@@ -129,6 +132,35 @@ export async function stopAi() {
   const current = global.nivraAi;
   if (current) await stopState(current);
 }
+
+export function refreshIndexedTaggingQueue(database: Database.Database) {
+  return database
+    .transaction(() => {
+      const revisions = database
+        .prepare(
+          "SELECT learned_tag_revision,matcher_queue_revision FROM ai_configuration WHERE id=1",
+        )
+        .get() as {
+        learned_tag_revision: number;
+        matcher_queue_revision: number;
+      };
+      if (revisions.learned_tag_revision === revisions.matcher_queue_revision)
+        return false;
+      database
+        .prepare(
+          "UPDATE ai_content SET pending=1,failures=0,retry_after=0 WHERE state='indexed' AND pending=0",
+        )
+        .run();
+      database
+        .prepare(
+          "UPDATE ai_configuration SET matcher_queue_revision=learned_tag_revision WHERE id=1 AND learned_tag_revision=?",
+        )
+        .run(revisions.learned_tag_revision);
+      return true;
+    })
+    .immediate();
+}
+
 export function queueSemanticWork() {
   if (!aiEnabled()) return;
   const d = sqlite();
@@ -139,6 +171,7 @@ export function queueSemanticWork() {
     ).run(modelVersion);
     current.planned = true;
   }
+  refreshIndexedTaggingQueue(d);
   const queued = (
     d
       .prepare(
@@ -189,7 +222,16 @@ export async function processSemantic({ job, commit, signal }: JobContext) {
     started = Date.now(),
     deadline = started + 60_000;
   let publicReservation = 0;
-  if (source.item_kind === "response") {
+  const reviewedResponse =
+    source.item_kind === "response" &&
+    Boolean(
+      d
+        .prepare(
+          "SELECT 1 FROM form_responses r JOIN forms f ON f.id=r.form_id WHERE r.id=? AND r.reviewed=1 AND r.trashed_at IS NULL AND f.owner_id=? AND f.trashed_at IS NULL",
+        )
+        .get(source.item_id, source.owner_id),
+    );
+  if (source.item_kind === "response" && !reviewedResponse) {
     publicReservation = started + 1_800_000;
     const reserved = d
       .prepare(
@@ -301,35 +343,42 @@ export async function processSemantic({ job, commit, signal }: JobContext) {
       for (let i = 0; i < 384; i++) mean[i] += v[i] / vectors.length;
     const norm = Math.hypot(...mean);
     if (norm) for (let i = 0; i < 384; i++) mean[i] /= norm;
-    const vocabulary = (
-      d.prepare("SELECT id,name,aliases FROM tags ORDER BY name,id").all() as {
-        id: string;
-        name: string;
-        aliases: string;
-      }[]
-    ).map((tag) => ({ ...tag, aliases: JSON.parse(tag.aliases) as string[] }));
-    const scored: { tag: TagVocabulary; score: number; support: number }[] = [];
-    for (const candidate of tagCandidates(text, vocabulary)) {
-      if (signal?.aborted || Date.now() > deadline)
-        throw new Error("Indexing deadline exceeded.");
-      const label = await aiOperation(
-          (worker) =>
-            worker.encode(
-              candidate.tag.name + ": " + candidate.tag.aliases.join(" "),
-            ),
-          deadline,
-        ),
-        score = cosine(mean, label);
-      if (score >= policy.semanticThreshold)
-        scored.push({ ...candidate, score });
-    }
-    scored.sort(
-      (a, b) =>
-        b.score - a.score ||
-        b.support - a.support ||
-        a.tag.name.localeCompare(b.tag.name),
-    );
-    commit(() => {
+    const preparation =
+      chunkCount &&
+      norm &&
+      (source.item_kind !== "response" || reviewedResponse)
+        ? await prepareAdaptiveTagMatch({
+            ownerId: job.owner_id,
+            sourceKey: source.source_key,
+            sourceFingerprint: hash,
+            itemKind: source.item_kind,
+            itemId: source.item_id,
+            text,
+            meanVector: mean,
+            deadline,
+            signal,
+            encode: (label, labelDeadline) =>
+              aiOperation(
+                (worker) =>
+                  worker.encode(
+                    label,
+                    false,
+                    Math.max(1, labelDeadline - Date.now()),
+                  ),
+                labelDeadline,
+              ),
+          })
+        : {
+            ready: true as const,
+            learnedRevision: (
+              d
+                .prepare(
+                  "SELECT learned_tag_revision FROM ai_configuration WHERE id=1",
+                )
+                .get() as { learned_tag_revision: number }
+            ).learned_tag_revision,
+          };
+    const committed = commit(() => {
       const current = sourceFor(job.target_id);
       if (
         !aiEnabled() ||
@@ -384,7 +433,7 @@ export async function processSemantic({ job, commit, signal }: JobContext) {
         }
       }
       d.prepare(
-        "UPDATE ai_content SET pending=0,state=?,owner_id=?,item_kind=?,item_id=?,fingerprint=?,model_version=?,indexed_generation=?,vocabulary_generation=?,failures=0,retry_after=0 WHERE source_key=?",
+        "UPDATE ai_content SET pending=1,state=?,owner_id=?,item_kind=?,item_id=?,fingerprint=?,model_version=?,indexed_generation=?,vocabulary_generation=?,failures=0,retry_after=0 WHERE source_key=?",
       ).run(
         chunkCount ? "indexed" : "empty",
         current.owner_id,
@@ -399,41 +448,125 @@ export async function processSemantic({ job, commit, signal }: JobContext) {
       d.prepare("DELETE FROM ai_suggestions WHERE source_key=?").run(
         current.source_key,
       );
-      const proposal = scored.find(
-        (candidate) =>
-          !d
+      const revision = (
+        d
+          .prepare(
+            "SELECT learned_tag_revision FROM ai_configuration WHERE id=1",
+          )
+          .get() as { learned_tag_revision: number }
+      ).learned_tag_revision;
+      const reviewedNow =
+        current.item_kind !== "response" ||
+        Boolean(
+          d
             .prepare(
-              "SELECT 1 FROM ai_decisions WHERE source_key=? AND fingerprint=? AND tag_id=? AND tag_fingerprint=? AND decision=?",
+              "SELECT 1 FROM form_responses r JOIN forms f ON f.id=r.form_id WHERE r.id=? AND r.reviewed=1 AND r.trashed_at IS NULL AND f.owner_id=? AND f.trashed_at IS NULL",
             )
-            .get(
-              current.source_key,
-              hash,
-              candidate.tag.id,
-              fingerprint(
-                candidate.tag.name.normalize("NFKC").trim().toLowerCase(),
-              ),
-              "rejected",
-            ) &&
-          !d
-            .prepare(
-              `SELECT 1 FROM ${current.item_kind}_tags WHERE ${current.item_kind}_id=? AND tag_id=?`,
-            )
-            .get(current.item_id, candidate.tag.id),
-      );
-      if (proposal)
-        d.prepare("INSERT INTO ai_suggestions VALUES(?,?,?,?,?,?,?,?,?)").run(
-          current.source_key,
-          randomUUID(),
-          generation,
-          hash,
-          proposal.score,
-          modelVersion,
-          configuration.vocabulary_generation,
-          proposal.tag.id,
-          Date.now(),
+            .get(current.item_id, current.owner_id),
         );
+      const reviewStable =
+        current.item_kind !== "response" || reviewedResponse === reviewedNow;
+      const ownerCorrection = hasOwnerTagCorrection(current.source_key, hash);
+      if (
+        reviewStable &&
+        reviewedNow &&
+        !ownerCorrection &&
+        preparation.ready &&
+        revision === preparation.learnedRevision &&
+        preparation.match
+      ) {
+        const tag = preparation.match.tag;
+        const tagFingerprint = fingerprint(
+          tag.name.normalize("NFKC").trim().toLowerCase(),
+        );
+        const rejected = d
+          .prepare(
+            "SELECT 1 FROM ai_decisions WHERE source_key=? AND fingerprint=? AND tag_id=? AND tag_fingerprint=? AND decision='rejected'",
+          )
+          .get(current.source_key, hash, tag.id, tagFingerprint);
+        const assigned = d
+          .prepare(
+            `SELECT 1 FROM ${current.item_kind}_tags WHERE ${current.item_kind}_id=? AND tag_id=?`,
+          )
+          .get(current.item_id, tag.id);
+        if (!rejected && !assigned) {
+          d.prepare("INSERT INTO ai_suggestions VALUES(?,?,?,?,?,?,?,?,?)").run(
+            current.source_key,
+            randomUUID(),
+            generation,
+            hash,
+            preparation.match.score,
+            modelVersion,
+            configuration.vocabulary_generation,
+            tag.id,
+            Date.now(),
+          );
+        }
+      }
+      d.prepare("UPDATE ai_content SET pending=? WHERE source_key=?").run(
+        reviewStable &&
+          preparation.ready &&
+          revision === preparation.learnedRevision
+          ? 0
+          : 1,
+        current.source_key,
+      );
       return "indexed";
     });
+    if (!committed) return;
+    if (
+      preparation.ready &&
+      !preparation.ownerCorrection &&
+      !hasOwnerTagCorrection(source.source_key, hash) &&
+      (source.item_kind !== "response" || reviewedResponse) &&
+      (
+        d
+          .prepare(
+            "SELECT learned_tag_revision FROM ai_configuration WHERE id=1",
+          )
+          .get() as { learned_tag_revision: number }
+      ).learned_tag_revision === preparation.learnedRevision &&
+      chunkCount > 0
+    ) {
+      let result: "processed" | "stale" = "stale";
+      try {
+        result = processIndexedTagging({
+          ownerId: job.owner_id,
+          sourceKey: source.source_key,
+          generation,
+          fingerprint: hash,
+          itemKind: source.item_kind as
+            | "note"
+            | "task"
+            | "bookmark"
+            | "artifact"
+            | "event"
+            | "form"
+            | "response",
+          itemId: source.item_id,
+          text,
+          meanVector: mean,
+          matches: preparation.match
+            ? [
+                {
+                  tagId: preparation.match.tag.id,
+                  score: preparation.match.score,
+                  support: preparation.match.support,
+                  automaticEligible: preparation.match.automaticEligible,
+                  origin: preparation.match.origin,
+                },
+              ]
+            : [],
+          learnedRevision: preparation.learnedRevision,
+        });
+      } catch {
+        result = "stale";
+      }
+      if (result === "stale")
+        d.prepare(
+          "UPDATE ai_content SET pending=1 WHERE source_key=? AND state='indexed' AND generation=? AND indexed_generation=? AND fingerprint=?",
+        ).run(source.source_key, generation, generation, hash);
+    }
   } catch {
     commit(() => {
       if (!aiEnabled() || signal?.aborted) return "cancelled";

@@ -4,6 +4,7 @@ import { bookmarks, notes, tasks } from "./schema";
 import { calendarRange } from "./calendar";
 import { addDays } from "../calendar";
 import { modelVersion } from "./ai/model";
+import { listTagProposals } from "./ai/tagging";
 import type { Overview } from "../types";
 
 export function workspaceOverview(
@@ -207,5 +208,8 @@ function reviewCounts(owner: string): NonNullable<Overview["review"]> {
         count: number;
       })
     : { count: 0 };
-  return { formResponses: forms.count, tagSuggestions: suggestions.count };
+  return {
+    formResponses: forms.count,
+    tagSuggestions: suggestions.count + listTagProposals(owner).items.length,
+  };
 }

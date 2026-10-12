@@ -1,3 +1,4 @@
+import { recordTagDeletion } from "./ai/tagging";
 import { remapDocument } from "@/lib/document";
 import {
   artifactFile,
@@ -27,6 +28,7 @@ import {
   assignItemTags,
   favoriteItems,
   itemTagState,
+  recordExplicitNoteTagSet,
   taggedItems,
   taggedTypes,
 } from "@/lib/server/item-tags";
@@ -727,8 +729,13 @@ async function executeContentInternal(
       return result({ id, name, color, aliases });
     }
     if (method === "DELETE" && id) {
-      database.prepare("DELETE FROM tags WHERE id=?").run(id);
-      return result({ ok: true });
+      return database
+        .transaction(() => {
+          recordTagDeletion(owner.id, id);
+          database.prepare("DELETE FROM tags WHERE id=?").run(id);
+          return result({ ok: true });
+        })
+        .immediate();
     }
   }
   if (area === "notes") {
@@ -793,6 +800,9 @@ async function executeContentInternal(
                 JSON.stringify(previous.document))
           )
             checkpoint(previous);
+          const addedTags = input.tags
+            ? recordExplicitNoteTagSet(owner.id, id, input.tags)
+            : [];
           database
             .prepare(
               "UPDATE notes SET title=?,document=?,text=?,favorite=?,editor_width=?,trashed_at=?,revision=revision+1,updated_at=? WHERE id=? AND revision=?",
@@ -813,11 +823,28 @@ async function executeContentInternal(
               input.revision,
             );
           if (input.tags) {
-            database.prepare("DELETE FROM note_tags WHERE note_id=?").run(id);
-            for (const tag of new Set(input.tags))
-              database
-                .prepare("INSERT INTO note_tags VALUES(?,?)")
-                .run(id, tag);
+            const currentTags = new Set(
+              (
+                database
+                  .prepare("SELECT tag_id FROM note_tags WHERE note_id=?")
+                  .all(id) as { tag_id: string }[]
+              ).map((row) => row.tag_id),
+            );
+            const desiredTags = new Set(input.tags);
+            const finalTags = new Set([
+              ...[...currentTags].filter((tag) => desiredTags.has(tag)),
+              ...addedTags,
+            ]);
+            const remove = database.prepare(
+              "DELETE FROM note_tags WHERE note_id=? AND tag_id=?",
+            );
+            for (const tag of currentTags)
+              if (!finalTags.has(tag)) remove.run(id, tag);
+            const insert = database.prepare(
+              "INSERT INTO note_tags(note_id,tag_id) VALUES(?,?)",
+            );
+            for (const tag of finalTags)
+              if (!currentTags.has(tag)) insert.run(id, tag);
           }
           syncNoteLinks(id, document);
           return needNote(id);

@@ -4,6 +4,7 @@ import { sqlite } from "./db";
 import { HttpError } from "./http";
 import { completionEvent } from "./jobs";
 import { ftsQuery } from "./validation";
+import { fingerprint, sourceFor, sourceText } from "./ai/content";
 import type { Tag, TaggedItem } from "../types";
 
 export const taggedTypes = [
@@ -68,11 +69,19 @@ export function assignItemTags(
       for (const tag of unique)
         if (!d.prepare("SELECT 1 FROM tags WHERE id=?").get(tag))
           throw new HttpError(400, "A selected tag no longer exists.");
-      d.prepare(`DELETE FROM ${type}_tags WHERE ${type}_id=?`).run(id);
+      const before = new Set(current.tags.map((tag) => tag.id));
+      const after = new Set(unique);
+      const added = new Set([...after].filter((tag) => !before.has(tag)));
+      const removed = new Set([...before].filter((tag) => !after.has(tag)));
+      const remove = d.prepare(
+        `DELETE FROM ${type}_tags WHERE ${type}_id=? AND tag_id=?`,
+      );
+      for (const tag of removed) remove.run(id, tag);
       const insert = d.prepare(
         `INSERT INTO ${type}_tags(${type}_id,tag_id) VALUES(?,?)`,
       );
-      for (const tag of unique) insert.run(id, tag);
+      for (const tag of added) insert.run(id, tag);
+      recordAutomationFeedback(d, owner, type, id, added, removed);
       d.prepare(
         type === "response"
           ? "UPDATE form_responses SET revision=revision+1 WHERE id=?"
@@ -85,6 +94,173 @@ export function assignItemTags(
         type === "form" ? "forms" : "changed",
       );
       return itemTagState(owner, type, id);
+    })
+    .immediate();
+}
+
+function recordAutomationFeedback(
+  d: ReturnType<typeof sqlite>,
+  owner: string,
+  type: TaggedType,
+  id: string,
+  added: Set<string>,
+  removed: Set<string>,
+) {
+  if (!added.size && !removed.size) return false;
+  let changed = false;
+  if (added.size) {
+    const promote = d.prepare(
+      `UPDATE ai_auto_assignments SET approved=1
+       WHERE approved=0 AND tag_id IN (${[...added].map(() => "?").join(",")})
+         AND source_key IN (
+           SELECT source_key FROM ai_sources
+           WHERE owner_id=? AND item_kind=? AND item_id=? AND active=1
+         )`,
+    );
+    changed = promote.run(...added, owner, type, id).changes > 0 || changed;
+  }
+
+  const write = d.prepare(
+    "INSERT OR IGNORE INTO ai_decisions(source_key,fingerprint,tag_id,tag_fingerprint,decision,created_at) VALUES(?,?,?,?,?,?)",
+  );
+  const now = Date.now();
+  const tagName = d.prepare("SELECT name FROM tags WHERE id=?");
+  const sources = currentIndexedSources(d, owner, type, id);
+  for (const [ids, decision] of [
+    [added, "accepted"],
+    [removed, "rejected"],
+  ] as const) {
+    for (const tagId of ids) {
+      const tag = tagName.get(tagId) as { name: string } | undefined;
+      if (!tag) continue;
+      const tagFingerprint = fingerprintTagName(tag.name);
+      for (const source of sources) {
+        d.prepare(
+          "DELETE FROM ai_decisions WHERE source_key=? AND fingerprint=? AND tag_id=? AND tag_fingerprint=? AND decision=?",
+        ).run(
+          source.source_key,
+          source.fingerprint,
+          tagId,
+          tagFingerprint,
+          decision === "accepted" ? "rejected" : "accepted",
+        );
+        write.run(
+          source.source_key,
+          source.fingerprint,
+          tagId,
+          tagFingerprint,
+          decision,
+          now,
+        );
+      }
+    }
+  }
+  return changed;
+}
+
+function currentIndexedSources(
+  d: ReturnType<typeof sqlite>,
+  owner: string,
+  type: TaggedType,
+  id: string,
+) {
+  const rows = d
+    .prepare(
+      "SELECT s.source_key,c.fingerprint FROM ai_sources s JOIN ai_content c USING(source_key) WHERE s.owner_id=? AND s.item_kind=? AND s.item_id=? AND s.active=1 AND c.state='indexed' AND c.indexed_generation=c.generation AND c.fingerprint IS NOT NULL",
+    )
+    .all(owner, type, id) as { source_key: string; fingerprint: string }[];
+  return rows.filter((row) => {
+    const source = sourceFor(row.source_key);
+    return Boolean(
+      source &&
+      source.owner_id === owner &&
+      source.item_kind === type &&
+      source.item_id === id &&
+      source.active &&
+      fingerprint(sourceText(source)) === row.fingerprint,
+    );
+  });
+}
+
+export function recordExplicitNoteTagSet(
+  owner: string,
+  noteId: string,
+  desiredTagIds: string[],
+) {
+  const d = sqlite();
+  return d
+    .transaction(() => {
+      if (
+        !d
+          .prepare("SELECT 1 FROM notes WHERE id=? AND owner_id=?")
+          .get(noteId, owner)
+      )
+        throw new HttpError(404, "This note was not found.");
+      const desired = [...new Set(desiredTagIds)];
+      for (const tagId of desired)
+        if (!d.prepare("SELECT 1 FROM tags WHERE id=?").get(tagId))
+          throw new HttpError(400, "A selected tag no longer exists.");
+      const before = new Set(
+        (
+          d
+            .prepare("SELECT tag_id FROM note_tags WHERE note_id=?")
+            .all(noteId) as { tag_id: string }[]
+        ).map(({ tag_id }) => tag_id),
+      );
+      const after = new Set(desired);
+      const added = new Set([...after].filter((tag) => !before.has(tag)));
+      const removed = new Set([...before].filter((tag) => !after.has(tag)));
+      recordAutomationFeedback(d, owner, "note", noteId, added, removed);
+      return [...added];
+    })
+    .immediate();
+}
+
+function fingerprintTagName(name: string) {
+  return fingerprint(name.normalize("NFKC").trim().toLowerCase());
+}
+
+export function approveAutomaticItemTag(
+  owner: string,
+  type: TaggedType,
+  id: string,
+  tagId: string,
+) {
+  const d = sqlite();
+  return d
+    .transaction(() => {
+      itemTagState(owner, type, id);
+      const rows = d
+        .prepare(
+          "SELECT aa.source_key,aa.tag_id,c.fingerprint,t.name FROM ai_auto_assignments aa JOIN ai_sources s USING(source_key) JOIN ai_content c USING(source_key) JOIN tags t ON t.id=aa.tag_id WHERE s.owner_id=? AND s.item_kind=? AND s.item_id=? AND s.active=1 AND aa.tag_id=? AND c.state='indexed' AND c.indexed_generation=c.generation AND aa.generation=c.generation AND aa.fingerprint=c.fingerprint",
+        )
+        .all(owner, type, id, tagId) as {
+        source_key: string;
+        tag_id: string;
+        fingerprint: string;
+        name: string;
+      }[];
+      const now = Date.now();
+      for (const row of rows) {
+        const tagFingerprint = fingerprintTagName(row.name);
+        d.prepare(
+          "UPDATE ai_auto_assignments SET approved=1 WHERE source_key=? AND tag_id=? AND approved=0",
+        ).run(row.source_key, row.tag_id);
+        d.prepare(
+          "DELETE FROM ai_decisions WHERE source_key=? AND fingerprint=? AND tag_id=? AND tag_fingerprint=? AND decision='rejected'",
+        ).run(row.source_key, row.fingerprint, row.tag_id, tagFingerprint);
+        d.prepare(
+          "INSERT OR IGNORE INTO ai_decisions(source_key,fingerprint,tag_id,tag_fingerprint,decision,created_at) VALUES(?,?,?,?,?,?)",
+        ).run(
+          row.source_key,
+          row.fingerprint,
+          row.tag_id,
+          tagFingerprint,
+          "accepted",
+          now,
+        );
+      }
+      return { ok: true };
     })
     .immediate();
 }

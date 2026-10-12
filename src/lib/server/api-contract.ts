@@ -996,6 +996,7 @@ export function openApiDocument() {
 const aiStatus = z
   .object({
     enabled: z.boolean(),
+    taggingMode: z.enum(["manual", "automatic"]),
     revision: z.number().int().positive(),
     total: z.number().int().nonnegative(),
     indexed: z.number().int().nonnegative(),
@@ -1014,7 +1015,11 @@ add(
 add("ai", "PATCH", "Enable or disable local AI", aiStatus, {
   access: "owner",
   input: z
-    .object({ enabled: z.boolean(), revision: z.number().int().positive() })
+    .object({
+      enabled: z.boolean(),
+      revision: z.number().int().positive(),
+      taggingMode: z.enum(["manual", "automatic"]).optional(),
+    })
     .strict(),
 });
 add(
@@ -1056,6 +1061,60 @@ for (const action of ["accept", "reject"])
     action === "accept"
       ? "Merge an approved tag into current assignments"
       : "Dismiss a private tag suggestion",
+    apiOutputs.ok,
+    { access: "owner", input: empty },
+  );
+
+add(
+  "ai/tag-proposals",
+  "GET",
+  "Read private proposals for reusable new tags",
+  z
+    .object({
+      items: z
+        .array(
+          z
+            .object({
+              id: idSchema,
+              name: z.string().min(1).max(60),
+              color: z.literal("gray"),
+              itemCount: z.number().int().min(3),
+              items: z
+                .array(
+                  z
+                    .object({
+                      itemId: idSchema,
+                      type: z.enum([
+                        "note",
+                        "task",
+                        "bookmark",
+                        "artifact",
+                        "event",
+                        "form",
+                        "response",
+                      ]),
+                      title: z.string(),
+                      formId: idSchema.optional(),
+                    })
+                    .strict(),
+                )
+                .max(3),
+              createdAt: z.number().int().nonnegative(),
+            })
+            .strict(),
+        )
+        .max(30),
+    })
+    .strict(),
+  { access: "owner" },
+);
+for (const action of ["accept", "reject"])
+  add(
+    `ai/tag-proposals/{id}/${action}`,
+    "POST",
+    action === "accept"
+      ? "Create or reuse an approved tag and merge its assignments"
+      : "Dismiss a reusable tag proposal",
     apiOutputs.ok,
     { access: "owner", input: empty },
   );

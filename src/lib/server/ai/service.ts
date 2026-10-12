@@ -1,16 +1,28 @@
 import { sqlite } from "../db";
 import { HttpError } from "../http";
-import { assignItemTags, itemTagState, type TaggedType } from "../item-tags";
+import {
+  approveAutomaticItemTag,
+  assignItemTags,
+  itemTagState,
+  type TaggedType,
+} from "../item-tags";
 import { completionEvent, wakeJobs } from "../jobs";
 import { fingerprint, sourceFor, sourceText } from "./content";
 import { aiEnabled, stopAi } from "./indexer";
 import { modelVersion } from "./model";
 import { policy } from "./policy";
+export type TaggingMode = "manual" | "automatic";
 export function aiStatus(owner: string) {
   const d = sqlite();
   const configuration = d
-    .prepare("SELECT enabled,revision FROM ai_configuration WHERE id=1")
-    .get() as { enabled: number; revision: number };
+    .prepare(
+      "SELECT enabled,revision,tagging_mode FROM ai_configuration WHERE id=1",
+    )
+    .get() as {
+    enabled: number;
+    revision: number;
+    tagging_mode: TaggingMode;
+  };
   const counts = d
     .prepare(
       "SELECT count(*) AS total,sum(c.state='indexed' AND c.model_version=? AND c.indexed_generation=c.generation) AS indexed,sum(c.state='failed') AS failed,sum(c.state='capacity') AS capacity FROM ai_content c JOIN ai_sources s USING(source_key) WHERE s.owner_id=? AND s.active=1",
@@ -24,6 +36,7 @@ export function aiStatus(owner: string) {
   return {
     enabled: Boolean(configuration.enabled),
     revision: configuration.revision,
+    taggingMode: configuration.tagging_mode,
     total: counts.total,
     indexed: counts.indexed ?? 0,
     failed: counts.failed ?? 0,
@@ -35,16 +48,32 @@ export async function configureAi(
   owner: string,
   enabled: boolean,
   revision: number,
+  taggingMode?: TaggingMode,
 ) {
+  if (
+    taggingMode !== undefined &&
+    taggingMode !== "manual" &&
+    taggingMode !== "automatic"
+  )
+    throw new HttpError(400, "Choose a supported tagging mode.");
   const d = sqlite();
   d.transaction(() => {
+    const current = d
+      .prepare("SELECT tagging_mode FROM ai_configuration WHERE id=1")
+      .get() as { tagging_mode: TaggingMode };
     const changed = d
       .prepare(
-        "UPDATE ai_configuration SET enabled=?,revision=revision+1 WHERE id=1 AND revision=?",
+        "UPDATE ai_configuration SET enabled=?,tagging_mode=coalesce(?,tagging_mode),revision=revision+1 WHERE id=1 AND revision=?",
       )
-      .run(Number(enabled), revision);
+      .run(Number(enabled), taggingMode ?? null, revision);
     if (!changed.changes)
       throw new HttpError(409, "AI settings changed. Reload and try again.");
+    const taggingModeChanged =
+      taggingMode !== undefined && current.tagging_mode !== taggingMode;
+    if (taggingModeChanged)
+      d.prepare(
+        "UPDATE ai_content SET pending=1,failures=0,retry_after=0 WHERE state='indexed' AND EXISTS(SELECT 1 FROM ai_sources s WHERE s.source_key=ai_content.source_key AND s.active=1)",
+      ).run();
     if (enabled)
       d.prepare(
         "UPDATE ai_content SET failures=0,retry_after=0 WHERE state='failed'",
@@ -90,7 +119,7 @@ function proposals(owner: string) {
     .join(" OR ");
   const rows = d
     .prepare(
-      `SELECT p.*,t.name,t.color,s.item_kind,s.item_id,s.title FROM ai_suggestions p JOIN tags t ON t.id=p.tag_id JOIN ai_content c USING(source_key) JOIN ai_sources s USING(source_key) JOIN ai_configuration a ON a.id=1 WHERE s.owner_id=? AND s.active=1 AND p.generation=c.generation AND c.indexed_generation=c.generation AND p.model_version=? AND p.vocabulary_generation=a.vocabulary_generation AND NOT (${assigned}) ORDER BY p.score DESC,p.created_at DESC,p.id LIMIT 100`,
+      `SELECT p.*,t.name,t.color,s.item_kind,s.item_id,s.title FROM ai_suggestions p JOIN tags t ON t.id=p.tag_id JOIN ai_content c USING(source_key) JOIN ai_sources s USING(source_key) JOIN ai_configuration a ON a.id=1 WHERE s.owner_id=? AND s.active=1 AND p.generation=c.generation AND c.indexed_generation=c.generation AND p.model_version=? AND p.vocabulary_generation=a.vocabulary_generation AND NOT EXISTS(SELECT 1 FROM ai_decisions decision WHERE decision.source_key=p.source_key AND decision.fingerprint=p.fingerprint AND decision.decision='rejected') AND NOT (${assigned}) ORDER BY p.score DESC,p.created_at DESC,p.id LIMIT 100`,
     )
     .all(owner, modelVersion) as Proposal[];
   const seen = new Set<string>();
@@ -189,6 +218,13 @@ export function decideSuggestion(
           proposal.item_id,
           current.revision,
           [...current.tags.map((tag) => tag.id), proposal.tag_id],
+        );
+      else if (decision === "accepted")
+        approveAutomaticItemTag(
+          owner,
+          proposal.item_kind,
+          proposal.item_id,
+          proposal.tag_id,
         );
       d.prepare(
         "INSERT OR REPLACE INTO ai_decisions(source_key,fingerprint,tag_id,tag_fingerprint,proposal_id,decision,created_at) VALUES(?,?,?,?,?,?,?)",

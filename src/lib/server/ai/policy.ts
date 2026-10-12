@@ -1,4 +1,44 @@
 export type TagVocabulary = { id: string; name: string; aliases: string[] };
+export function literalTagEvidence(text: string, tags: TagVocabulary[]) {
+  type PhraseNode = { next: Map<string, PhraseNode>; owners: Set<string> };
+  const root: PhraseNode = { next: new Map(), owners: new Set() };
+  for (const tag of tags) {
+    for (const label of [tag.name, ...tag.aliases]) {
+      const phrase = tokens(label).map(stem);
+      if (
+        phrase.length === 0 ||
+        !phrase.some((word) => word.length > 2 && !searchStopwords.has(word))
+      )
+        continue;
+      let node = root;
+      for (const word of phrase) {
+        let next = node.next.get(word);
+        if (!next) {
+          next = { next: new Map(), owners: new Set() };
+          node.next.set(word, next);
+        }
+        node = next;
+      }
+      node.owners.add(tag.id);
+    }
+  }
+  const matchedTags = new Set<string>();
+  let active = new Set<PhraseNode>();
+  for (const [word] of text.matchAll(/[a-z][a-z0-9_-]*/gi)) {
+    const cue = stem(word.toLowerCase());
+    const next = new Set<PhraseNode>();
+    const first = root.next.get(cue);
+    if (first) next.add(first);
+    for (const node of active) {
+      const continuation = node.next.get(cue);
+      if (continuation) next.add(continuation);
+    }
+    for (const node of next)
+      for (const owner of node.owners) matchedTags.add(owner);
+    active = next;
+  }
+  return matchedTags;
+}
 export const policy = {
   minWords: 3,
   minSupport: 2,
@@ -8,6 +48,19 @@ export const policy = {
   cacheBytes: 192 * 1024 * 1024,
   chunkCapacity: 100_000,
   queryMs: 3000,
+} as const;
+export const adaptiveTaggingPolicy = {
+  minimumScore: 0.34,
+  ambiguityMargin: 0.055,
+  automaticMinimumScore: 0.6,
+  automaticMargin: 0.14,
+  automaticMinimumSupport: 2,
+  automaticLabelMinimumScore: 0.78,
+  automaticLabelMargin: 0.18,
+  labelEmbeddingsPerJob: 12,
+  profilesPerJob: 24,
+  examplesPerTag: 8,
+  chunksPerExample: 3,
 } as const;
 export const tokens = (text: string) =>
   text.toLowerCase().match(/[a-z][a-z0-9_-]*/g) ?? [];

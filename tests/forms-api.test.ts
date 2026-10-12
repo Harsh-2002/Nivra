@@ -11,6 +11,7 @@ test("Forms HTTP contract isolates public submissions, scoped content and privat
   process.env.NIVRA_PUBLIC_URL = "http://localhost:3000";
   const { GET } = await import("../src/app/api/v1/[...path]/route");
   const { sqlite } = await import("../src/lib/server/db");
+  const d = sqlite();
   const { stopJobWorker } = await import("../src/lib/server/jobs");
   const { operationFor } = await import("../src/lib/server/api-contract");
   let cookie = "";
@@ -325,11 +326,94 @@ test("Forms HTTP contract isolates public submissions, scoped content and privat
         write.key,
       ),
     );
+    const sharedTag = randomUUID();
+    const automaticTag = randomUUID();
+    const manualTag = randomUUID();
+    d.prepare(
+      "INSERT INTO tags(id,name,color) VALUES(?,'Shared automatic','gray'),(?,'Unreviewed automatic','gray'),(?,'Manual response','gray')",
+    ).run(sharedTag, automaticTag, manualTag);
+    for (const tagId of [sharedTag, automaticTag, manualTag])
+      d.prepare(
+        "INSERT INTO response_tags(response_id,tag_id) VALUES(?,?)",
+      ).run(accepted.id, tagId);
+    const ownerId = (
+      d.prepare("SELECT owner_id FROM forms WHERE id=?").get(form.id) as {
+        owner_id: string;
+      }
+    ).owner_id;
+    const responseSource = `response:${accepted.id}`;
+    const attachmentSource = `form-file:${reserved.id}`;
+    for (const sourceKey of [responseSource, attachmentSource])
+      d.prepare(
+        "UPDATE ai_content SET owner_id=?,item_kind='response',item_id=?,state='indexed',indexed_generation=generation,fingerprint='fixture-fingerprint',pending=0 WHERE source_key=?",
+      ).run(ownerId, accepted.id, sourceKey);
+    const generation = (sourceKey: string) =>
+      (
+        d
+          .prepare("SELECT generation FROM ai_content WHERE source_key=?")
+          .get(sourceKey) as { generation: number }
+      ).generation;
+    const addAutomation = d.prepare(
+      "INSERT INTO ai_auto_assignments(source_key,tag_id,generation,fingerprint,approved,created_at) VALUES(?,?,?,?,?,?)",
+    );
+    addAutomation.run(
+      responseSource,
+      sharedTag,
+      generation(responseSource),
+      "fixture-fingerprint",
+      0,
+      Date.now(),
+    );
+    addAutomation.run(
+      attachmentSource,
+      sharedTag,
+      generation(attachmentSource),
+      "fixture-fingerprint",
+      1,
+      Date.now(),
+    );
+    for (const sourceKey of [responseSource, attachmentSource])
+      addAutomation.run(
+        sourceKey,
+        automaticTag,
+        generation(sourceKey),
+        "fixture-fingerprint",
+        0,
+        Date.now(),
+      );
+    const unreviewed = await body(
+      await call(
+        `forms/${form.id}/responses/${accepted.id}`,
+        "PATCH",
+        { revision: updated.revision, reviewed: false },
+        write.key,
+      ),
+    );
+    assert.equal(unreviewed.reviewed, false);
+    assert.equal(unreviewed.revision, updated.revision + 1);
+    assert.deepEqual(
+      new Set(
+        (
+          d
+            .prepare("SELECT tag_id FROM response_tags WHERE response_id=?")
+            .all(accepted.id) as { tag_id: string }[]
+        ).map(({ tag_id }) => tag_id),
+      ),
+      new Set([sharedTag, manualTag]),
+    );
+    assert.deepEqual(
+      d
+        .prepare(
+          "SELECT source_key,tag_id,approved FROM ai_auto_assignments WHERE source_key IN(?,?) ORDER BY source_key,tag_id",
+        )
+        .all(responseSource, attachmentSource),
+      [{ source_key: attachmentSource, tag_id: sharedTag, approved: 1 }],
+    );
     await body(
       await call(
         `forms/${form.id}/responses/${accepted.id}`,
         "DELETE",
-        { revision: updated.revision },
+        { revision: unreviewed.revision },
         write.key,
       ),
     );
@@ -338,7 +422,7 @@ test("Forms HTTP contract isolates public submissions, scoped content and privat
         await call(
           `forms/${form.id}/responses/${accepted.id}`,
           "PATCH",
-          { revision: updated.revision + 1, reviewed: false },
+          { revision: unreviewed.revision + 1, reviewed: false },
           write.key,
         )
       ).status,

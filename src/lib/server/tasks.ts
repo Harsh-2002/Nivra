@@ -421,7 +421,19 @@ export function updateTask(
           )
           .run(occurrenceId, id);
       }
-      return enrich(task);
+      const current = db()
+        .select(fields)
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.id, id),
+            eq(tasks.ownerId, owner),
+            isNull(tasks.trashedAt),
+          ),
+        )
+        .get();
+      if (!current) throw new HttpError(404, "This task was not found.");
+      return enrich(current);
     })
     .immediate();
 }

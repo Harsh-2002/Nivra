@@ -715,6 +715,12 @@ export const aiConfiguration = sqliteTable("ai_configuration", {
   id: integer("id").primaryKey(),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
   revision: integer("revision").notNull().default(1),
+  taggingMode: text("tagging_mode")
+    .$type<"manual" | "automatic">()
+    .notNull()
+    .default("manual"),
+  learnedTagRevision: integer("learned_tag_revision").notNull().default(1),
+  matcherQueueRevision: integer("matcher_queue_revision").notNull().default(1),
   vocabularyGeneration: integer("vocabulary_generation").notNull().default(1),
   indexGeneration: integer("index_generation").notNull().default(1),
 });

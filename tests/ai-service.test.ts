@@ -10,7 +10,7 @@ test("private suggestions require approval, merge live tags, preserve rejection 
   const { sqlite } = await import("../src/lib/server/db");
   const { enqueueJob, claimJob, commitJob, stopJobWorker } =
     await import("../src/lib/server/jobs");
-  const { processSemantic, stopAi } =
+  const { processSemantic, refreshIndexedTaggingQueue, stopAi } =
     await import("../src/lib/server/ai/indexer");
   const { listSuggestions, decideSuggestion, aiStatus } =
     await import("../src/lib/server/ai/service");
@@ -29,10 +29,26 @@ test("private suggestions require approval, merge live tags, preserve rejection 
     manual = randomUUID(),
     key = "note:" + id;
   const index = async () => {
-    enqueueJob(owner, "semantic", key);
-    const job = claimJob();
-    assert.ok(job);
-    await processSemantic({ job, commit: (write) => commitJob(job, write) });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      refreshIndexedTaggingQueue(d);
+      enqueueJob(owner, "semantic", key);
+      const job = claimJob();
+      assert.ok(job);
+      await processSemantic({ job, commit: (write) => commitJob(job, write) });
+      const row = d
+        .prepare("SELECT pending FROM ai_content WHERE source_key=?")
+        .get(key) as { pending: number };
+      if (!row.pending) return;
+    }
+    assert.equal(
+      (
+        d
+          .prepare("SELECT pending FROM ai_content WHERE source_key=?")
+          .get(key) as { pending: number }
+      ).pending,
+      0,
+      "semantic work must settle after a bounded retry",
+    );
   };
   const content = async (route: string, method: string, input?: unknown) => {
     const [p, q] = route.split("?");
@@ -114,6 +130,12 @@ test("private suggestions require approval, merge live tags, preserve rejection 
     assert.equal(proposals[0].formId, undefined);
     assert.equal(listSuggestions(randomUUID()).items.length, 0);
     assignItemTags(owner, "note", id, 1, [manual]);
+    assert.ok(
+      listSuggestions(owner).items.some(
+        (proposal) => proposal.id === proposals[0].id,
+      ),
+      "an unrelated manual tag must not invalidate this source's pending suggestion",
+    );
     decideSuggestion(owner, proposals[0].id, "accepted");
     decideSuggestion(owner, proposals[0].id, "accepted");
     assert.deepEqual(
@@ -195,6 +217,19 @@ test("private suggestions require approval, merge live tags, preserve rejection 
     const revision = itemTagState(owner, "note", id).revision;
     decideSuggestion(owner, dismissed.id, "rejected");
     assert.equal(itemTagState(owner, "note", id).revision, revision);
+    const correctedReplacement = randomUUID();
+    d.prepare(
+      "INSERT INTO ai_suggestions(source_key,id,generation,fingerprint,score,model_version,vocabulary_generation,tag_id,created_at) SELECT c.source_key,?,c.generation,c.fingerprint,0.9,c.model_version,a.vocabulary_generation,?,? FROM ai_content c JOIN ai_configuration a ON a.id=1 WHERE c.source_key=?",
+    ).run(correctedReplacement, tag, Date.now(), key);
+    assert.equal(
+      listSuggestions(owner).items.length,
+      0,
+      "Owner correction immediately hides replacement guesses before the next index pass",
+    );
+    assert.throws(
+      () => decideSuggestion(owner, correctedReplacement, "accepted"),
+      (e: unknown) => e instanceof HttpError && e.status === 409,
+    );
     d.prepare("UPDATE tags SET aliases=? WHERE id=?").run(
       JSON.stringify(["database sqlite queries indexes backup"]),
       tag,

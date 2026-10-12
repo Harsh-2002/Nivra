@@ -280,24 +280,6 @@ test("overview is private, bounded, date-aware and reflects workspace changes", 
             updatedAt: now,
           })
           .run();
-        for (const [id, timestamp] of [
-          [recentNote.id, now + 5000],
-          [journal.id, now + 4000],
-          [artifact.id, now + 3000],
-          [recentBookmarkId, now + 2000],
-        ])
-          sqlite()
-            .prepare(
-              "UPDATE " +
-                (id === recentBookmarkId
-                  ? "bookmarks"
-                  : id === artifact.id
-                    ? "artifacts"
-                    : "notes") +
-                " SET updated_at=? WHERE id=?",
-            )
-            .run(timestamp, id);
-
         const event = await value("events", "POST", {
           title: "Upcoming timezone event",
           allDay: true,
@@ -446,6 +428,24 @@ test("overview is private, bounded, date-aware and reflects workspace changes", 
             sourceKey,
           );
         }
+        const recentClock = Date.now();
+        for (const [id, timestamp] of [
+          [recentNote.id, recentClock + 5000],
+          [journal.id, recentClock + 4000],
+          [artifact.id, recentClock + 3000],
+          [recentBookmarkId, recentClock + 2000],
+        ])
+          sqlite()
+            .prepare(
+              "UPDATE " +
+                (id === recentBookmarkId
+                  ? "bookmarks"
+                  : id === artifact.id
+                    ? "artifacts"
+                    : "notes") +
+                " SET updated_at=? WHERE id=?",
+            )
+            .run(timestamp, id);
         const overview = await value(
           "overview?date=2026-10-05&timezone=America%2FLos_Angeles",
         );
