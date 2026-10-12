@@ -20,6 +20,18 @@ async function api(path, method = "GET", data) {
   assert.ok(response.ok(), `${method} ${path}: ${response.status()}`);
   return response.json();
 }
+async function publicHealthHTTPStatus() {
+  let healthClient;
+  try {
+    healthClient = await request.newContext({ timeout: 2500 });
+    const response = await healthClient.get(new URL("/health", base).href);
+    return response.status();
+  } catch {
+    return null;
+  } finally {
+    if (healthClient) await healthClient.dispose().catch(() => {});
+  }
+}
 if ((await api("status")).setup) {
   await api("setup", "POST", {
     name: "Tag actions test",
@@ -54,6 +66,18 @@ try {
       });
       const page = await context.newPage();
       const errors = [];
+      const lifecycleEvents = [];
+      const recordLifecycleEvent = (event) =>
+        lifecycleEvents.push({ event, at: new Date().toISOString() });
+      const onPageCrash = () => recordLifecycleEvent("page-crash");
+      const onPageClose = () => recordLifecycleEvent("page-close");
+      const onContextClose = () => recordLifecycleEvent("context-close");
+      const onBrowserDisconnected = () =>
+        recordLifecycleEvent("browser-disconnected");
+      page.on("crash", onPageCrash);
+      page.on("close", onPageClose);
+      context.on("close", onContextClose);
+      browser.on("disconnected", onBrowserDisconnected);
       page.on("pageerror", (e) => errors.push(e.message));
       const tag = await api("tags", "POST", {
         name: `Tag test ${randomUUID().slice(0, 8)}`,
@@ -202,8 +226,25 @@ try {
           `${engine} ${width} ${colorScheme}: UI interaction failed`,
         );
         console.error(error);
+        console.error(
+          JSON.stringify({
+            diagnostic: "browser-lifecycle",
+            capturedAt: new Date().toISOString(),
+            engine,
+            viewportWidth: width,
+            colorScheme,
+            browserConnected: browser.isConnected(),
+            pageClosed: page.isClosed(),
+            lifecycleEvents,
+            publicHealthHTTPStatus: await publicHealthHTTPStatus(),
+          }),
+        );
         throw error;
       } finally {
+        page.off("crash", onPageCrash);
+        page.off("close", onPageClose);
+        context.off("close", onContextClose);
+        browser.off("disconnected", onBrowserDisconnected);
         await context.close();
         const remaining = await api("tags");
         if (remaining.items.some((item) => item.id === tag.id))
