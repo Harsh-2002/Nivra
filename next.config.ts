@@ -83,6 +83,7 @@ const config: NextConfig = {
       "./.git/**/*",
       "./node_modules/@tesseract.js-data/eng/**/*",
     ],
+    "*": ["./node_modules/@tesseract.js-data/eng/**/*"],
   },
   async headers() {
     return [

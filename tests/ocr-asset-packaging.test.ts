@@ -57,4 +57,12 @@ test("excludes the build-only language package from standalone tracing", () => {
     nextConfig,
     /outputFileTracingExcludes:[\s\S]*?\.\/node_modules\/@tesseract\.js-data\/eng\/\*\*\/\*/,
   );
+  assert.match(
+    nextConfig,
+    /outputFileTracingExcludes:[\s\S]*"\*":\s*\["\.\/node_modules\/@tesseract\.js-data\/eng\/\*\*\/\*"\]/,
+  );
+  assert.match(
+    nextConfig,
+    /outputFileTracingIncludes:[\s\S]*?\.\/generated\/ocr\/4\.0\.0_best_int\/\*\*\/\*/,
+  );
 });
