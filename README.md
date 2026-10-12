@@ -4,7 +4,13 @@
 
 Nivra brings notes, journals, tasks, bookmarks and files into one quiet workspace. Plan with Calendar and Kanban, organize with smart tagging, find things with keyword or semantic search, and connect your agents through MCP.
 
-![Nivra Overview showing tasks, recent notes and saved links with demo content](docs/images/overview.webp)
+<picture>
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="docs/images/overview-mobile-dark.webp">
+  <source media="(max-width: 600px)" srcset="docs/images/overview-mobile.webp">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.webp">
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/overview.webp">
+  <img alt="Nivra Overview with tasks, upcoming events and recent workspace items, using demonstration content" src="docs/images/overview.webp">
+</picture>
 
 - **Write and collect:** rich-text notes, drawings, attachments, bookmarks, tags, favourites and searchable artifacts with background OCR and thumbnails.
 - **Plan:** daily journals, task dates, recurring tasks, Kanban boards, calendar events and push reminders.
