@@ -105,7 +105,11 @@ try {
         failedApiRequests = [],
         cancelledSearchRequests = [],
         cancelledNavigationRequests = [],
-        searchAbortErrors = new Set(["net::ERR_ABORTED", "NS_BINDING_ABORTED"]),
+        searchAbortErrors = new Set([
+          "net::ERR_ABORTED",
+          "NS_BINDING_ABORTED",
+          "Load request cancelled",
+        ]),
         navigationAbortErrors = new Set([
           "net::ERR_ABORTED",
           "NS_BINDING_ABORTED",
