@@ -129,6 +129,39 @@ export type Connections = {
   bookmarks: { id: string; title: string; url: string }[];
 };
 
+export type OverviewRecentItem =
+  | {
+      id: string;
+      type: "note";
+      title: string;
+      updatedAt: number;
+    }
+  | {
+      id: string;
+      type: "journal";
+      title: string;
+      date: string;
+      updatedAt: number;
+    }
+  | {
+      id: string;
+      type: "bookmark";
+      title: string;
+      url: string;
+      siteName: string;
+      updatedAt: number;
+    }
+  | {
+      id: string;
+      type: "artifact";
+      title: string;
+      updatedAt: number;
+    };
+export type OverviewRecentContent = Exclude<
+  OverviewRecentItem,
+  { type: "bookmark" }
+>;
+
 export type Overview = {
   counts: { open: number; today: number; overdue: number };
   tasks: Pick<Task, "id" | "title" | "revision" | "dueDate" | "recurrence">[];
@@ -149,35 +182,15 @@ export type Overview = {
     revision: number;
     occurrence?: string;
   }[];
-  recentItems: (
-    | {
-        id: string;
-        type: "note";
-        title: string;
-        updatedAt: number;
-      }
-    | {
-        id: string;
-        type: "journal";
-        title: string;
-        date: string;
-        updatedAt: number;
-      }
-    | {
-        id: string;
-        type: "bookmark";
-        title: string;
-        url: string;
-        siteName: string;
-        updatedAt: number;
-      }
-    | {
-        id: string;
-        type: "artifact";
-        title: string;
-        updatedAt: number;
-      }
-  )[];
+  recentItems: OverviewRecentItem[];
+  recentContent: OverviewRecentContent[];
+  recentResponses?: {
+    id: string;
+    formId: string;
+    formTitle: string;
+    createdAt: number;
+    reviewed: boolean;
+  }[];
   review?: { formResponses: number; tagSuggestions: number };
   refreshedAt: number;
 };

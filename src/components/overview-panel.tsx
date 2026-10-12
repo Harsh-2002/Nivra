@@ -91,6 +91,7 @@ export function OverviewPanel({
       date?: string;
       openId?: string;
       occurrence?: string;
+      formId?: string;
     },
   ) => void;
   onCreate: (kind: "note" | "task" | "bookmark" | "daily") => void;
@@ -198,7 +199,12 @@ export function OverviewPanel({
     }
   }
   const today = now ? localDate(now) : "";
-  const recentItems = data?.recentItems ?? [];
+  const recentItems =
+    data?.recentContent ??
+    data?.recentItems.filter((item) => item.type !== "bookmark") ??
+    [];
+  const recentBookmarks = data?.bookmarks.slice(0, 5) ?? [];
+  const recentResponses = data?.recentResponses ?? [];
   const hasReview =
     (data?.review?.formResponses ?? 0) > 0 ||
     (data?.review?.tagSuggestions ?? 0) > 0;
@@ -234,8 +240,8 @@ export function OverviewPanel({
                 {data.counts.today} due today
               </p>
               {data.tasks.length ? (
-                <ul tabIndex={0} aria-label="Open tasks">
-                  {data.tasks.map((task) => (
+                <ul aria-label="Open tasks">
+                  {data.tasks.slice(0, 5).map((task) => (
                     <li key={task.id} className="overview-task-row">
                       <div className="overview-check">
                         <Checkbox
@@ -283,16 +289,10 @@ export function OverviewPanel({
                   Nothing left open. Make room for your next task.
                 </p>
               )}
-              {data.counts.open > data.tasks.length && (
+              {data.counts.open > 5 && (
                 <p className="overview-more">
-                  Showing{" "}
-                  <span className="overview-desktop-count">
-                    {data.tasks.length}
-                  </span>
-                  <span className="overview-mobile-count">
-                    {Math.min(5, data.tasks.length)}
-                  </span>{" "}
-                  of {data.counts.open} open tasks, newest first.
+                  Showing {Math.min(5, data.tasks.length)} of {data.counts.open}{" "}
+                  open tasks, newest first.
                 </p>
               )}
             </section>
@@ -320,7 +320,7 @@ export function OverviewPanel({
                 </Button>
               </header>
               {data.calendar.length ? (
-                <ul tabIndex={0} aria-label="Upcoming calendar events">
+                <ul aria-label="Upcoming calendar events">
                   {data.calendar.map((event) => (
                     <li key={event.id}>
                       <button
@@ -368,7 +368,7 @@ export function OverviewPanel({
               aria-labelledby="overview-recent-title"
             >
               <header>
-                <h2 id="overview-recent-title">Recent items</h2>
+                <h2 id="overview-recent-title">Recent notes and files</h2>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -380,29 +380,10 @@ export function OverviewPanel({
                 </Button>
               </header>
               {recentItems.length ? (
-                <ul tabIndex={0} aria-label="Recent items">
+                <ul aria-label="Recent notes and files">
                   {recentItems.map((item) => (
                     <li key={`${item.type}:${item.id}`}>
-                      {item.type === "bookmark" ? (
-                        <a
-                          className="overview-bookmark-link"
-                          href={item.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <Bookmark size={16} />
-                          <span>
-                            <strong>{item.title || item.url}</strong>
-                            <small>
-                              Bookmark · {item.siteName || "Saved link"}
-                            </small>
-                          </span>
-                          <ExternalLink
-                            size={14}
-                            aria-label="Opens in a new tab"
-                          />
-                        </a>
-                      ) : item.type === "note" || item.type === "journal" ? (
+                      {item.type === "note" || item.type === "journal" ? (
                         <button
                           className="overview-note-link"
                           onClick={() => void onOpenNote(item.id)}
@@ -450,6 +431,110 @@ export function OverviewPanel({
               ) : (
                 <p className="overview-empty">Nothing saved recently.</p>
               )}
+            </section>
+          ),
+        },
+        {
+          id: "bookmarks",
+          visible: recentBookmarks.length > 0,
+          density: "fill",
+          content: (
+            <section
+              className="overview-widget overview-bookmarks"
+              aria-labelledby="overview-bookmarks-title"
+            >
+              <header>
+                <h2 id="overview-bookmarks-title">Recent bookmarks</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate("bookmarks")}
+                  aria-label="View all bookmarks"
+                >
+                  View all
+                  <ArrowRight size={14} />
+                </Button>
+              </header>
+              <ul aria-label="Recent bookmarks">
+                {recentBookmarks.map((item) => (
+                  <li key={item.id}>
+                    <a
+                      className="overview-bookmark-link"
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Bookmark size={16} />
+                      <span>
+                        <strong>{item.title || item.url}</strong>
+                        <small>
+                          {item.siteName && item.siteName !== item.title
+                            ? item.siteName
+                            : new Date(item.updatedAt).toLocaleDateString(
+                                undefined,
+                                { month: "short", day: "numeric" },
+                              )}
+                        </small>
+                      </span>
+                      <ExternalLink size={14} aria-label="Opens in a new tab" />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ),
+        },
+        {
+          id: "responses",
+          visible: recentResponses.length > 0,
+          density: "fill",
+          content: (
+            <section
+              className="overview-widget overview-responses"
+              aria-labelledby="overview-responses-title"
+            >
+              <header>
+                <h2 id="overview-responses-title">Recent form submissions</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onNavigate("forms")}
+                  aria-label="View all forms"
+                >
+                  Forms
+                  <ArrowRight size={14} />
+                </Button>
+              </header>
+              <ul aria-label="Recent form submissions">
+                {recentResponses.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      className="overview-note-link"
+                      onClick={() =>
+                        onNavigate("forms", {
+                          formId: item.formId,
+                          openId: item.id,
+                        })
+                      }
+                    >
+                      <ClipboardCheck size={16} />
+                      <span>
+                        <strong>{item.formTitle || "Untitled form"}</strong>
+                        <small>
+                          {new Date(item.createdAt).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}{" "}
+                          · {item.reviewed ? "Reviewed" : "New"}
+                        </small>
+                      </span>
+                      <ArrowRight size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </section>
           ),
         },

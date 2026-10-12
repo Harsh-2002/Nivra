@@ -326,22 +326,52 @@ test("overview is private, bounded, date-aware and reflects workspace changes", 
         const insertResponse = sqlite().prepare(
           "INSERT INTO form_responses(id,form_id,version_id,answers,search_text,retry_key,request_hash,created_at) VALUES(?,?,?,'{}','',?,?,?)",
         );
-        const responseIds = [randomUUID(), randomUUID(), randomUUID()];
-        for (const id of responseIds)
+        const responseIds = Array.from({ length: 10 }, () => randomUUID());
+        for (const [index, id] of responseIds.entries())
           insertResponse.run(
             id,
             formId,
             versionId,
             `retry-${id}`,
             `hash-${id}`,
-            now,
+            now + index,
           );
-        sqlite()
-          .prepare("UPDATE form_responses SET reviewed=1 WHERE id=?")
-          .run(responseIds[1]);
+        for (const id of responseIds.slice(0, 8))
+          sqlite()
+            .prepare("UPDATE form_responses SET reviewed=1 WHERE id=?")
+            .run(id);
         sqlite()
           .prepare("UPDATE form_responses SET trashed_at=? WHERE id=?")
-          .run(now, responseIds[2]);
+          .run(now, responseIds[9]);
+
+        const trashedFormId = randomUUID();
+        const trashedVersionId = randomUUID();
+        const trashedResponseId = randomUUID();
+        sqlite()
+          .prepare(
+            "INSERT INTO forms(id,owner_id,title,description,definition,status,created_at,updated_at) VALUES(?,?,?,'','{}','published',?,?)",
+          )
+          .run(trashedFormId, owner, "Trashed response source", now, now);
+        sqlite()
+          .prepare(
+            "INSERT INTO form_versions(id,form_id,revision,definition,created_at) VALUES(?,?,1,'{}',?)",
+          )
+          .run(trashedVersionId, trashedFormId, now);
+        sqlite()
+          .prepare(
+            "INSERT INTO form_responses(id,form_id,version_id,answers,search_text,retry_key,request_hash,created_at) VALUES(?,?,?,'{}','',?,?,?)",
+          )
+          .run(
+            trashedResponseId,
+            trashedFormId,
+            trashedVersionId,
+            `retry-${trashedResponseId}`,
+            `hash-${trashedResponseId}`,
+            now + 20,
+          );
+        sqlite()
+          .prepare("UPDATE forms SET trashed_at=? WHERE id=?")
+          .run(now + 21, trashedFormId);
 
         const suggestedNote = await value("notes", "POST", {
           title: "Tag review target",
@@ -433,6 +463,27 @@ test("overview is private, bounded, date-aware and reflects workspace changes", 
             .map((item: { type: string }) => item.type),
           ["note", "journal", "artifact", "bookmark"],
         );
+        assert.deepEqual(
+          overview.recentContent
+            .slice(0, 3)
+            .map((item: { type: string }) => item.type),
+          ["note", "journal", "artifact"],
+        );
+        assert.equal(overview.recentContent.length, 8);
+        assert.ok(
+          overview.recentContent.every(
+            (item: { type: string }) => item.type !== "bookmark",
+          ),
+        );
+        assert.ok(
+          overview.recentContent.some(
+            (item: { id: string }) =>
+              !overview.recentItems.some(
+                (legacy: { id: string }) => legacy.id === item.id,
+              ),
+          ),
+          "recentContent can fill its bound with non-bookmark items while legacy mixed recents retain their original bound",
+        );
         assert.equal(
           overview.recentItems[1].date,
           "2026-10-05",
@@ -440,6 +491,65 @@ test("overview is private, bounded, date-aware and reflects workspace changes", 
         );
         assert.ok(
           overview.recentItems.length <= 8 && overview.calendar.length <= 5,
+        );
+        assert.equal(overview.recentResponses.length, 5);
+        assert.deepEqual(
+          overview.recentResponses,
+          responseIds
+            .slice(4, 9)
+            .reverse()
+            .map((id, index) => ({
+              id,
+              formId,
+              formTitle: "Review form",
+              createdAt: now + 8 - index,
+              reviewed: index !== 0,
+            })),
+        );
+        assert.ok(
+          !overview.recentResponses.some(
+            (response: { id: string }) =>
+              response.id === responseIds[9] ||
+              response.id === trashedResponseId,
+          ),
+          "trashed responses and responses under trashed forms are omitted",
+        );
+        assert.ok(
+          overview.recentResponses.every(
+            (response: object) =>
+              Object.keys(response).sort().join(",") ===
+              "createdAt,formId,formTitle,id,reviewed",
+          ),
+          "recent form metadata excludes answers, files, and other private response content",
+        );
+        const { extraOutputs } =
+          await import("../src/lib/server/api-extra-schemas");
+        assert.deepEqual(extraOutputs.overview.parse(overview), overview);
+        assert.equal(
+          extraOutputs.overview.safeParse({
+            ...overview,
+            recentResponses: [
+              ...overview.recentResponses,
+              overview.recentResponses[0],
+            ],
+          }).success,
+          false,
+          "the overview response schema caps recent form metadata at five items",
+        );
+        const emptyOwnerOverview = workspaceOverview(
+          randomUUID(),
+          "2026-10-05",
+          "UTC",
+          true,
+        );
+        assert.deepEqual(emptyOwnerOverview.recentResponses, []);
+        assert.equal(
+          Object.hasOwn(
+            workspaceOverview(owner, "2026-10-05"),
+            "recentResponses",
+          ),
+          false,
+          "direct callers keep the previous default owner-only metadata behavior",
         );
         assert.ok(!("suggestions" in overview));
         const agentOverview = await executeContent({
@@ -460,6 +570,23 @@ test("overview is private, bounded, date-aware and reflects workspace changes", 
         assert.ok(
           !("review" in (agentOverview.data as object)),
           "review counts stay out of the agent-visible overview DTO",
+        );
+        assert.ok(
+          !("recentResponses" in (agentOverview.data as object)),
+          "recent response metadata stays out of the agent-visible overview DTO",
+        );
+        assert.ok(
+          !(
+            (agentOverview.data as { recentContent: unknown[] })
+              .recentContent ?? []
+          ).some(
+            (item) =>
+              typeof item === "object" &&
+              item !== null &&
+              "type" in item &&
+              item.type === "bookmark",
+          ),
+          "agent recentContent contains no duplicate bookmark entries",
         );
         assert.equal(
           (await call("overview?date=2026-10-05&timezone=Invalid%2FZone"))

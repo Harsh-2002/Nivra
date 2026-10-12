@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { chromium } from "playwright";
+import { chromium, firefox, webkit } from "playwright";
 
 export default async function verifyOverview(page, phase, options = {}) {
   const base = options.base ?? new URL(page.url()).origin;
@@ -84,6 +84,8 @@ export default async function verifyOverview(page, phase, options = {}) {
       bookmarks: [],
       calendar: [],
       recentItems: [],
+      recentContent: [],
+      recentResponses: [],
       refreshedAt: Date.now(),
     };
     const firstUseRoute = (route) =>
@@ -93,13 +95,25 @@ export default async function verifyOverview(page, phase, options = {}) {
         body: JSON.stringify(emptyOverview),
       });
     let revealReview = false;
+    let revealBookmarks = false;
     let activeHold = null;
     let overviewCalls = 0;
+    let latestOverview = null;
     const overviewRoute = async (route) => {
       overviewCalls++;
       const response = await route.fetch();
       const data = await response.json();
-      if (!revealReview) delete data.review;
+      if (!revealBookmarks) {
+        data.bookmarks = [];
+        data.recentItems = (data.recentItems ?? []).filter(
+          (item) => item.type !== "bookmark",
+        );
+      }
+      if (!revealReview) {
+        delete data.review;
+        data.recentResponses = [];
+      }
+      latestOverview = data;
       if (activeHold) {
         const hold = activeHold;
         hold.enter();
@@ -137,6 +151,18 @@ export default async function verifyOverview(page, phase, options = {}) {
           .locator(".overview-grid > .overview-widget")
           .count()) === 1,
         "First use avoids repeated empty-card prompts",
+      );
+      check(
+        (await overview
+          .getByRole("heading", { name: "Recent bookmarks" })
+          .count()) === 0 &&
+          (await overview
+            .getByRole("heading", { name: "Recent form submissions" })
+            .count()) === 0 &&
+          (await overview
+            .getByRole("heading", { name: "Recent notes and files" })
+            .count()) === 0,
+        "Empty recent-content collections do not create empty Overview cards",
       );
       await page.unroute(overviewPath, firstUseRoute);
       await page.route(overviewPath, overviewRoute);
@@ -290,19 +316,80 @@ export default async function verifyOverview(page, phase, options = {}) {
         title: updatedArtifactTitle,
       });
       await overview.getByText(updatedArtifactTitle, { exact: true }).waitFor();
-      await overview
-        .locator('.overview-grid[data-section-count="3"]')
-        .waitFor();
       check(true, "Overview refreshes for a created and updated artifact");
+
+      const bookmark = await actorApi("bookmarks", "POST", {
+        url: `https://overview-${stamp}.example.invalid/?item=${stamp}`,
+      });
+      revealBookmarks = true;
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      const bookmarkHeading = overview.getByRole("heading", {
+        name: "Recent bookmarks",
+        exact: true,
+      });
+      await bookmarkHeading.waitFor();
+      const bookmarkLink = overview.locator(`a[href="${bookmark.url}"]`);
+      await bookmarkLink.waitFor();
+      assert.equal(
+        (await bookmarkLink.locator("strong").textContent())?.trim(),
+        bookmark.title,
+        "Recent bookmark shows its saved title",
+      );
+      const bookmarkRel = (await bookmarkLink.getAttribute("rel")) ?? "";
+      assert.equal(await bookmarkLink.getAttribute("target"), "_blank");
+      assert.ok(
+        bookmarkRel.split(/\s+/).includes("noopener") &&
+          bookmarkRel.split(/\s+/).includes("noreferrer"),
+        "Recent bookmark opens its exact stored URL safely in a new tab",
+      );
+      await overview
+        .getByRole("heading", { name: "Recent notes and files", exact: true })
+        .waitFor();
+      const visibleCards = await overview
+        .locator(".overview-widget")
+        .evaluateAll((cards) =>
+          cards.map((card) => card.querySelector("h2")?.textContent?.trim()),
+        );
+      assert.ok(
+        visibleCards.includes("Recent bookmarks") &&
+          visibleCards.includes("Recent notes and files"),
+        "Bookmarks and notes/files are rendered as independent Overview cards",
+      );
+      assert.ok(
+        latestOverview.bookmarks.some((item) => item.id === bookmark.id),
+        "The bookmark is present in the owner Overview DTO",
+      );
+      check(
+        true,
+        "A saved bookmark appears in its own conditional Overview card",
+      );
+      assert.equal(
+        await overview
+          .getByRole("heading", {
+            name: "Recent form submissions",
+            exact: true,
+          })
+          .count(),
+        0,
+        "The submissions card stays absent before any response exists",
+      );
 
       const originalTheme = (await api("settings")).theme;
       async function setTheme(theme) {
         const label = theme[0].toUpperCase() + theme.slice(1);
         await page.getByRole("button", { name: /Color theme:/ }).click();
         await page.getByRole("menuitemradio", { name: label }).click();
+        const resolvedTheme =
+          theme === "system"
+            ? await page.evaluate(() =>
+                window.matchMedia("(prefers-color-scheme: dark)").matches
+                  ? "dark"
+                  : "light",
+              )
+            : theme;
         await page.waitForFunction(
           (value) => document.documentElement.classList.contains(value),
-          theme,
+          resolvedTheme,
         );
         await ready();
       }
@@ -315,46 +402,53 @@ export default async function verifyOverview(page, phase, options = {}) {
           });
           await page.waitForTimeout(100);
           const layout = await page.evaluate(() => ({
-            sections: Number(
-              document
-                .querySelector(".overview-grid")
-                ?.getAttribute("data-section-count"),
-            ),
-            columns: Number(
-              document
-                .querySelector(".overview-grid")
-                ?.getAttribute("data-column-count"),
-            ),
             gridTracks: getComputedStyle(
               document.querySelector(".overview-grid"),
             ).gridTemplateColumns.split(" ").length,
             overflow: document.documentElement.scrollWidth > innerWidth + 1,
+            visibleRows: {
+              content: [
+                ...document.querySelectorAll(".overview-recent li"),
+              ].filter((item) => item.getClientRects().length > 0).length,
+              bookmarks: [
+                ...document.querySelectorAll(".overview-bookmarks li"),
+              ].filter((item) => item.getClientRects().length > 0).length,
+              responses: [
+                ...document.querySelectorAll(".overview-responses li"),
+              ].filter((item) => item.getClientRects().length > 0).length,
+            },
           }));
-          assert.equal(
-            layout.sections,
-            3,
-            `${theme} ${width}px should show tasks, calendar, and recent items`,
-          );
-          assert.equal(
-            layout.columns,
-            2,
-            `${theme} ${width}px should preserve two ordered logical columns`,
-          );
-          assert.equal(
-            layout.gridTracks,
-            width >= 1024 ? 2 : 1,
-            `${theme} ${width}px should render columns for the available width`,
-          );
           assert.equal(
             layout.overflow,
             false,
             `${theme} ${width}px should not overflow`,
           );
+          assert.ok(
+            layout.gridTracks >= 1 && layout.gridTracks <= 3,
+            `${theme} ${width}px should pack Overview cards into a readable grid: ${JSON.stringify(layout)}`,
+          );
+          if (width < 1024)
+            assert.equal(
+              layout.gridTracks,
+              1,
+              `${theme} ${width}px should stack Overview cards on narrow screens`,
+            );
+          if (width >= 1280)
+            assert.ok(
+              layout.gridTracks >= 2,
+              `${theme} ${width}px should use available desktop width`,
+            );
+          assert.ok(
+            layout.visibleRows.bookmarks <= 5 &&
+              layout.visibleRows.responses <= 5 &&
+              layout.visibleRows.content <= (width < 768 ? 5 : 8),
+            `${theme} ${width}px keeps recent card lists bounded: ${JSON.stringify(layout.visibleRows)}`,
+          );
           passed.push(
-            `${theme} ${width}px three-section overview remains responsive`,
+            `${theme} ${width}px populated Overview remains responsive`,
           );
           if (options.captureDirectory && [320, 1100, 1440].includes(width)) {
-            await page
+            await overview
               .locator(".overview-scroll")
               .evaluate((element) => (element.scrollTop = 0));
             await page.screenshot({
@@ -365,31 +459,6 @@ export default async function verifyOverview(page, phase, options = {}) {
             });
           }
         }
-        await page.setViewportSize({ width: 1440, height: 600 });
-        const compactCardSpace = await page
-          .locator(".overview-column[data-density='compact'] .overview-widget")
-          .evaluateAll((cards) =>
-            cards.map((card) => {
-              const list = card.querySelector("ul");
-              return {
-                listHeight: list?.getBoundingClientRect().height ?? 0,
-                listOverflow: list ? getComputedStyle(list).overflowY : "none",
-              };
-            }),
-          );
-        assert.equal(
-          compactCardSpace.length,
-          2,
-          `${theme} short desktop viewport should keep both compact cards`,
-        );
-        assert.ok(
-          compactCardSpace.every(
-            ({ listHeight, listOverflow }) =>
-              listHeight >= 40 && listOverflow === "auto",
-          ),
-          `${theme} short desktop viewport should keep usable, internally scrollable lists: ${JSON.stringify(compactCardSpace)}`,
-        );
-        passed.push(`${theme} 1440x600 compact cards retain usable list space`);
       }
       await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -450,7 +519,7 @@ export default async function verifyOverview(page, phase, options = {}) {
       });
       const privateAnswer = `Private response ${stamp}`;
       revealReview = true;
-      await actorApi(
+      const submittedResponse = await actorApi(
         `public/forms/${published.publicToken}/responses`,
         "POST",
         {
@@ -459,19 +528,70 @@ export default async function verifyOverview(page, phase, options = {}) {
           answers: { [fieldId]: privateAnswer },
         },
       );
+      const responseId = submittedResponse.id;
       await overview
-        .locator('.overview-grid[data-section-count="4"]')
+        .getByRole("heading", {
+          name: "Recent form submissions",
+          exact: true,
+        })
         .waitFor({ timeout: 10000 });
+      await overview
+        .getByText(form.definition.title, { exact: true })
+        .waitFor();
       await overview.getByText(/unreviewed form response/).waitFor();
+      assert.equal(await overview.locator(".overview-responses").count(), 1);
+      assert.equal(await overview.locator(".overview-review").count(), 1);
+      const responseMetadata = latestOverview.recentResponses.find(
+        (item) => item.id === responseId,
+      );
+      assert.ok(
+        responseMetadata,
+        "Overview includes the new response metadata",
+      );
+      assert.equal(responseMetadata.formId, form.id);
+      assert.equal(responseMetadata.formTitle, form.definition.title);
+      assert.equal(responseMetadata.reviewed, false);
+      assert.deepEqual(
+        Object.keys(responseMetadata).sort(),
+        ["createdAt", "formId", "formTitle", "id", "reviewed"].sort(),
+        "Recent response metadata contains identifiers and review state only",
+      );
+      assert.equal(
+        JSON.stringify(responseMetadata).includes(privateAnswer),
+        false,
+        "Response metadata excludes submitted answers",
+      );
+      assert.equal(
+        JSON.stringify(latestOverview).includes(privateAnswer),
+        false,
+        "The complete Overview payload excludes submitted answers",
+      );
       check(
         true,
-        "A public form response adds the conditional review card over SSE",
+        "A public form response adds an independent Recent form submissions card",
       );
       assert.equal(
         (await page.locator("body").innerText()).includes(privateAnswer),
         false,
-        "Overview shows the review count without exposing response text",
+        "Overview shows response metadata without exposing answer text",
       );
+      const responseButton = overview.getByRole("button", {
+        name: new RegExp(form.definition.title),
+      });
+      await responseButton.click();
+      await page.waitForURL(
+        (url) => url.pathname === `/forms/${form.id}/responses/${responseId}`,
+      );
+      await page.getByText(privateAnswer, { exact: true }).waitFor();
+      check(
+        true,
+        "Recent form submission opens the exact response through its canonical route",
+      );
+      check(
+        (await page.locator("body").innerText()).includes(privateAnswer),
+        "Submitted answer appears only after opening its response",
+      );
+      await back();
 
       for (const theme of ["light", "dark"]) {
         await setTheme(theme);
@@ -482,48 +602,70 @@ export default async function verifyOverview(page, phase, options = {}) {
           });
           await page.waitForTimeout(100);
           const layout = await page.evaluate(() => ({
-            sections: Number(
-              document
-                .querySelector(".overview-grid")
-                ?.getAttribute("data-section-count"),
-            ),
-            columns: Number(
-              document
-                .querySelector(".overview-grid")
-                ?.getAttribute("data-column-count"),
-            ),
             gridTracks: getComputedStyle(
               document.querySelector(".overview-grid"),
             ).gridTemplateColumns.split(" ").length,
             overflow: document.documentElement.scrollWidth > innerWidth + 1,
+            visibleRows: {
+              content: [
+                ...document.querySelectorAll(".overview-recent li"),
+              ].filter((item) => item.getClientRects().length > 0).length,
+              bookmarks: [
+                ...document.querySelectorAll(".overview-bookmarks li"),
+              ].filter((item) => item.getClientRects().length > 0).length,
+              responses: [
+                ...document.querySelectorAll(".overview-responses li"),
+              ].filter((item) => item.getClientRects().length > 0).length,
+            },
           }));
-          assert.equal(
-            layout.sections,
-            4,
-            `${theme} ${width}px should show all four populated sections`,
-          );
-          assert.equal(
-            layout.columns,
-            3,
-            `${theme} ${width}px should preserve three ordered logical columns`,
-          );
-          assert.equal(
-            layout.gridTracks,
-            width >= 1280 ? 3 : width >= 1024 ? 2 : 1,
-            `${theme} ${width}px should pack into the available CSS tracks`,
-          );
           assert.equal(
             layout.overflow,
             false,
             `${theme} ${width}px should not overflow`,
           );
+          assert.ok(
+            layout.gridTracks >= 1 && layout.gridTracks <= 3,
+            `${theme} ${width}px should keep populated cards in a readable grid: ${JSON.stringify(layout)}`,
+          );
+          if (width < 1024)
+            assert.equal(
+              layout.gridTracks,
+              1,
+              `${theme} ${width}px should stack cards on narrow screens`,
+            );
+          if (width >= 1280)
+            assert.ok(
+              layout.gridTracks >= 2,
+              `${theme} ${width}px should use available desktop width`,
+            );
+          assert.ok(
+            layout.visibleRows.bookmarks <= 5 &&
+              layout.visibleRows.responses <= 5 &&
+              layout.visibleRows.content <= (width < 768 ? 5 : 8),
+            `${theme} ${width}px keeps recent card lists bounded: ${JSON.stringify(layout.visibleRows)}`,
+          );
+          assert.equal(
+            await overview
+              .getByRole("heading", { name: "Recent bookmarks", exact: true })
+              .isVisible(),
+            true,
+            `${theme} ${width}px shows the Recent bookmarks card when bookmarks exist`,
+          );
+          assert.equal(
+            await overview
+              .getByRole("heading", {
+                name: "Recent form submissions",
+                exact: true,
+              })
+              .isVisible(),
+            true,
+            `${theme} ${width}px shows the Recent form submissions card when responses exist`,
+          );
           passed.push(
-            `${theme} ${width}px four-section overview remains responsive`,
+            `${theme} ${width}px Overview with independent bookmark and submission cards remains responsive`,
           );
           if (options.captureDirectory && [320, 1100, 1440].includes(width)) {
-            await page
-              .locator(".overview-scroll")
-              .evaluate((element) => (element.scrollTop = 0));
+            await page.evaluate(() => window.scrollTo(0, 0));
             await page.screenshot({
               path: join(
                 options.captureDirectory,
@@ -532,6 +674,60 @@ export default async function verifyOverview(page, phase, options = {}) {
             });
           }
         }
+        await page.setViewportSize({ width: 1440, height: 600 });
+        const pageScroll = await page.evaluate(() => {
+          const overviewRegion = document.querySelector(".overview-scroll");
+          const pageHeight = overviewRegion?.scrollHeight ?? 0;
+          const viewportHeight = overviewRegion?.clientHeight ?? 0;
+          const overflowY = overviewRegion
+            ? getComputedStyle(overviewRegion).overflowY
+            : "visible";
+          const lists = [
+            ...document.querySelectorAll(".overview-widget ul"),
+          ].map((list) => ({
+            clientHeight: list.clientHeight,
+            scrollHeight: list.scrollHeight,
+            overflowY: getComputedStyle(list).overflowY,
+          }));
+          if (overviewRegion)
+            overviewRegion.scrollTop = overviewRegion.scrollHeight;
+          return {
+            pageHeight,
+            viewportHeight,
+            scrollTop: overviewRegion?.scrollTop ?? 0,
+            pageCanScroll: !!overviewRegion && pageHeight > viewportHeight + 1,
+            overflowY,
+            atBottom:
+              !!overviewRegion &&
+              overviewRegion.scrollTop + overviewRegion.clientHeight >=
+                overviewRegion.scrollHeight - 1,
+            nestedLists: lists.filter(
+              (list) =>
+                list.scrollHeight > list.clientHeight + 1 &&
+                ["auto", "scroll"].includes(list.overflowY),
+            ).length,
+          };
+        });
+        assert.ok(
+          pageScroll.pageCanScroll &&
+            pageScroll.scrollTop > 0 &&
+            pageScroll.atBottom &&
+            ["auto", "scroll"].includes(pageScroll.overflowY),
+          `${theme} populated Overview should scroll as a workspace page: ${JSON.stringify(pageScroll)}`,
+        );
+        assert.equal(
+          pageScroll.nestedLists,
+          0,
+          `${theme} Overview lists should grow with their content instead of scrolling internally`,
+        );
+        passed.push(`${theme} 1440x600 populated Overview scrolls naturally`);
+        if (options.captureDirectory && theme === "light")
+          await page.screenshot({
+            path: join(
+              options.captureDirectory,
+              "overview-growth-bottom-light-1440.png",
+            ),
+          });
       }
       await setTheme(originalTheme);
       assert.deepEqual(pageErrors, [], "Overview page raised browser errors");
@@ -704,7 +900,12 @@ export default async function verifyOverview(page, phase, options = {}) {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await overview.getByRole("alert").waitFor();
     check(
-      await overview.getByText("Recent items", { exact: true }).isVisible(),
+      await overview
+        .getByRole("heading", {
+          name: "Recent notes and files",
+          exact: true,
+        })
+        .isVisible(),
       "Refresh failure keeps the last snapshot visible",
     );
     await page.unroute("**/api/v1/overview?*");
@@ -754,34 +955,45 @@ export default async function verifyOverview(page, phase, options = {}) {
     check(requests > 0, "Returning to the tab refreshes immediately");
     page.off("request", listener);
   } else if (phase === "responsive") {
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page
-      .getByRole("button", {
-        name: options.theme === "dark" ? "Dark" : "Light",
-        exact: true,
-      })
-      .click();
-    await page.getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    const originalTheme = (await api("settings")).theme;
+    async function applyTheme(theme) {
+      const label = theme[0].toUpperCase() + theme.slice(1);
+      await page.getByRole("button", { name: /Color theme:/ }).click();
+      await page.getByRole("menuitemradio", { name: label }).click();
+      const resolvedTheme =
+        theme === "system"
+          ? await page.evaluate(() =>
+              window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light",
+            )
+          : theme;
+      await page.waitForFunction(
+        (value) => document.documentElement.classList.contains(value),
+        resolvedTheme,
+      );
+    }
+    if (originalTheme !== options.theme) await applyTheme(options.theme);
     await page.addScriptTag({ path: options.axePath });
     for (const width of options.widths || [1440, 768, 390, 320]) {
       await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
       await page.waitForTimeout(250);
       const report = await page.evaluate(async () => ({
         overflow: document.documentElement.scrollWidth > innerWidth,
-        sectionCount: Number(
-          document
-            .querySelector(".overview-grid")
-            ?.getAttribute("data-section-count"),
-        ),
-        columnCount: Number(
-          document
-            .querySelector(".overview-grid")
-            ?.getAttribute("data-column-count"),
-        ),
         gridColumns: getComputedStyle(
           document.querySelector(".overview-grid"),
         ).gridTemplateColumns.split(" ").length,
+        pageScrollable:
+          document.scrollingElement.scrollHeight >
+          document.scrollingElement.clientHeight + 1,
+        overviewPageScroll: (() => {
+          const element = document.querySelector(".overview-scroll");
+          return (
+            !!element &&
+            element.scrollHeight > element.clientHeight + 1 &&
+            ["auto", "scroll"].includes(getComputedStyle(element).overflowY)
+          );
+        })(),
         smallCompletionTargets:
           innerWidth < 768
             ? [...document.querySelectorAll(".overview-check > button")].filter(
@@ -810,31 +1022,31 @@ export default async function verifyOverview(page, phase, options = {}) {
             getComputedStyle(e).opacity !== "0",
         ).length,
       }));
-      const expectedPackedColumns =
-        report.sectionCount === 1 ? 1 : report.sectionCount === 4 ? 3 : 2;
-      const expectedGridColumns =
-        width < 1024 || report.sectionCount === 1
-          ? 1
-          : report.sectionCount === 4 && width >= 1280
-            ? 3
-            : 2;
       check(
         !report.overflow &&
           !report.nativeSelects &&
           !report.violations.length &&
           !report.smallCompletionTargets &&
-          report.gridColumns === expectedGridColumns &&
-          report.columnCount === expectedPackedColumns,
+          report.gridColumns >= 1 &&
+          report.gridColumns <= 3 &&
+          (width >= 1024 || report.gridColumns === 1) &&
+          (!report.pageScrollable || report.overviewPageScroll),
         `${options.theme} ${width}px layout and accessibility: ${JSON.stringify(report)}`,
       );
       await overview
         .locator(".overview-scroll")
-        .evaluate((e) => (e.scrollTop = 0));
-      await page.screenshot({
-        path: `${options.captureDirectory}/overview-${options.theme}-${width}.png`,
-        fullPage: true,
-      });
+        .evaluate((element) => (element.scrollTop = 0));
+      if (options.captureDirectory)
+        await page.screenshot({
+          path: join(
+            options.captureDirectory,
+            `overview-${options.theme}-${width}.png`,
+          ),
+          fullPage: true,
+        });
     }
+    if (originalTheme !== options.theme) await applyTheme(originalTheme);
+    assert.deepEqual(pageErrors, [], "Overview rendered browser errors");
   }
   return { phase, passed };
 }
@@ -846,10 +1058,19 @@ if (
   const base = process.env.NIVRA_BROWSER_TEST_URL ?? "http://localhost:3015";
   const session = process.env.NIVRA_BROWSER_SESSION;
   const captureDirectory = process.env.NIVRA_AUDIT_OUTPUT;
+  const engine = process.env.NIVRA_OVERVIEW_ENGINE ?? "chromium";
+  const engines = { chromium, firefox, webkit };
+  const browserType = engines[engine];
+  const phase = process.env.NIVRA_OVERVIEW_PHASE ?? "live";
   assert.equal(new URL(base).port, "3015", "Disposable server required");
   assert.ok(session && existsSync(session), "Synthetic owner session required");
+  assert.ok(browserType, `Unsupported Overview browser engine: ${engine}`);
+  assert.ok(
+    phase !== "live" || engine === "chromium",
+    "Run the content-mutating Overview phase only in Chromium",
+  );
   if (captureDirectory) await mkdir(captureDirectory, { recursive: true });
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   const context = await browser.newContext({
     storageState: session,
     viewport: { width: 1440, height: 900 },
@@ -861,11 +1082,22 @@ if (
     pageErrors.push({ message: error.message, stack: error.stack }),
   );
   try {
-    const result = await verifyOverview(
-      page,
-      process.env.NIVRA_OVERVIEW_PHASE ?? "live",
-      { base, pageErrors, captureDirectory },
-    );
+    const widthValues =
+      process.env.NIVRA_OVERVIEW_WIDTHS?.split(",").map(Number);
+    const widths =
+      widthValues?.length && widthValues.every(Number.isInteger)
+        ? widthValues
+        : [320, 390, 768, 1440];
+    const theme = process.env.NIVRA_OVERVIEW_THEME ?? "light";
+    assert.ok(["light", "dark"].includes(theme), "Use light or dark theme");
+    const result = await verifyOverview(page, phase, {
+      base,
+      pageErrors,
+      captureDirectory,
+      theme,
+      widths,
+      axePath: join(process.cwd(), "node_modules", "axe-core", "axe.min.js"),
+    });
     console.log(JSON.stringify(result, null, 2));
   } finally {
     await context.close();

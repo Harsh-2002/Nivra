@@ -24,6 +24,7 @@ export function workspaceOverview(
         "SELECT count(*) AS open,coalesce(sum(due_date=?),0) AS today,coalesce(sum(due_date<?),0) AS overdue FROM tasks INDEXED BY tasks_active_counts_idx WHERE owner_id=? AND completed_at IS NULL AND trashed_at IS NULL",
       )
       .get(today, today, owner) as Overview["counts"];
+    const recentCandidates = recentCandidateItems(owner);
     return {
       counts: taskCounts,
       tasks: database
@@ -54,52 +55,10 @@ export function workspaceOverview(
         revision: item.revision,
         ...(item.occurrence ? { occurrence: item.occurrence } : {}),
       })),
-      recentItems: sqlite()
-        .prepare(
-          `SELECT id,type,title,updatedAt,url,siteName,journalDate FROM (
-             SELECT * FROM (
-               SELECT id,CASE WHEN daily_date IS NULL THEN 'note' ELSE 'journal' END AS type,title,updated_at AS updatedAt,NULL AS url,NULL AS siteName,daily_date AS journalDate
-               FROM notes INDEXED BY notes_search_order_idx WHERE owner_id=? AND kind='note' AND trashed_at IS NULL ORDER BY updated_at DESC,id LIMIT 8
-             )
-             UNION ALL
-             SELECT * FROM (
-               SELECT id,'bookmark' AS type,coalesce(nullif(title,''),url) AS title,updated_at AS updatedAt,url,site_name AS siteName,NULL AS journalDate
-               FROM bookmarks INDEXED BY bookmarks_search_order_idx WHERE owner_id=? AND trashed_at IS NULL ORDER BY updated_at DESC,id LIMIT 8
-             )
-             UNION ALL
-             SELECT * FROM (
-               SELECT id,'artifact' AS type,coalesce(nullif(name,''),title) AS title,updated_at AS updatedAt,NULL AS url,NULL AS siteName,NULL AS journalDate
-               FROM artifacts INDEXED BY artifacts_search_order_idx WHERE owner_id=? AND trashed_at IS NULL ORDER BY updated_at DESC,id LIMIT 8
-             )
-           ) ORDER BY updatedAt DESC,id LIMIT 8`,
-        )
-        .all(owner, owner, owner)
-        .map((value) => {
-          const row = value as {
-            id: string;
-            type: "note" | "journal" | "bookmark" | "artifact";
-            title: string;
-            updatedAt: number;
-            url: string | null;
-            siteName: string | null;
-            journalDate: string | null;
-          };
-          const base = {
-            id: row.id,
-            title: row.title,
-            updatedAt: row.updatedAt,
-          };
-          if (row.type === "bookmark")
-            return {
-              ...base,
-              type: row.type,
-              url: row.url ?? "",
-              siteName: row.siteName ?? "",
-            };
-          if (row.type === "journal")
-            return { ...base, type: row.type, date: row.journalDate ?? "" };
-          return { ...base, type: row.type };
-        }) as Overview["recentItems"],
+      recentItems: recentCandidates.slice(0, 8),
+      recentContent: recentCandidates
+        .filter((item) => item.type !== "bookmark")
+        .slice(0, 8),
       notes: database
         .select({
           id: notes.id,
@@ -131,10 +90,86 @@ export function workspaceOverview(
         .orderBy(desc(bookmarks.updatedAt), asc(bookmarks.id))
         .limit(20)
         .all(),
-      ...(includeOwnerReview ? { review: reviewCounts(owner) } : {}),
+      ...(includeOwnerReview
+        ? {
+            recentResponses: recentResponses(owner),
+            review: reviewCounts(owner),
+          }
+        : {}),
       refreshedAt: Date.now(),
     };
   })();
+}
+
+function recentCandidateItems(owner: string): Overview["recentItems"] {
+  return sqlite()
+    .prepare(
+      `SELECT id,type,title,updatedAt,url,siteName,journalDate FROM (
+         SELECT * FROM (
+           SELECT id,CASE WHEN daily_date IS NULL THEN 'note' ELSE 'journal' END AS type,title,updated_at AS updatedAt,NULL AS url,NULL AS siteName,daily_date AS journalDate
+           FROM notes INDEXED BY notes_search_order_idx WHERE owner_id=? AND kind='note' AND trashed_at IS NULL ORDER BY updated_at DESC,id LIMIT 8
+         )
+         UNION ALL
+         SELECT * FROM (
+           SELECT id,'bookmark' AS type,coalesce(nullif(title,''),url) AS title,updated_at AS updatedAt,url,site_name AS siteName,NULL AS journalDate
+           FROM bookmarks INDEXED BY bookmarks_search_order_idx WHERE owner_id=? AND trashed_at IS NULL ORDER BY updated_at DESC,id LIMIT 8
+         )
+         UNION ALL
+         SELECT * FROM (
+           SELECT id,'artifact' AS type,coalesce(nullif(name,''),title) AS title,updated_at AS updatedAt,NULL AS url,NULL AS siteName,NULL AS journalDate
+           FROM artifacts INDEXED BY artifacts_search_order_idx WHERE owner_id=? AND trashed_at IS NULL ORDER BY updated_at DESC,id LIMIT 8
+         )
+       ) ORDER BY updatedAt DESC,id LIMIT 24`,
+    )
+    .all(owner, owner, owner)
+    .map((value) => {
+      const row = value as {
+        id: string;
+        type: "note" | "journal" | "bookmark" | "artifact";
+        title: string;
+        updatedAt: number;
+        url: string | null;
+        siteName: string | null;
+        journalDate: string | null;
+      };
+      const base = {
+        id: row.id,
+        title: row.title,
+        updatedAt: row.updatedAt,
+      };
+      if (row.type === "bookmark")
+        return {
+          ...base,
+          type: row.type,
+          url: row.url ?? "",
+          siteName: row.siteName ?? "",
+        };
+      if (row.type === "journal")
+        return { ...base, type: row.type, date: row.journalDate ?? "" };
+      return { ...base, type: row.type };
+    }) as Overview["recentItems"];
+}
+
+function recentResponses(
+  owner: string,
+): NonNullable<Overview["recentResponses"]> {
+  const rows = sqlite()
+    .prepare(
+      `SELECT r.id,r.form_id AS formId,f.title AS formTitle,r.created_at AS createdAt,r.reviewed
+       FROM form_responses r INDEXED BY form_responses_activity
+       JOIN forms f ON f.id=r.form_id
+       WHERE r.trashed_at IS NULL AND f.owner_id=? AND f.trashed_at IS NULL
+       ORDER BY r.created_at DESC,r.id DESC
+       LIMIT 5`,
+    )
+    .all(owner) as {
+    id: string;
+    formId: string;
+    formTitle: string;
+    createdAt: number;
+    reviewed: number | boolean;
+  }[];
+  return rows.map((row) => ({ ...row, reviewed: Boolean(row.reviewed) }));
 }
 
 function reviewCounts(owner: string): NonNullable<Overview["review"]> {

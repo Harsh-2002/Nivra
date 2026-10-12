@@ -6,6 +6,7 @@ import {
   ClipboardList,
   FileText,
   Layers,
+  Plus,
   SquareCheckBig,
   Tags,
   X,
@@ -291,40 +292,41 @@ export function TagSuggestionsPanel({
                             </p>
                           )}
                           <footer>
-                            <span className="tag-suggestion-chip">
-                              <span className="tag-suggestion-chip-label">
-                                Suggested tag
-                              </span>
-                              <span
-                                className="tag-chip"
-                                data-color={item.tag.color}
-                              >
+                            <div className="tag-suggestion-actions">
+                              <span className="tag-suggestion-chip">
+                                <span className="tag-suggestion-chip-label">
+                                  Suggested tag
+                                </span>
                                 <span
-                                  className="tag-dot"
+                                  className="tag-chip"
                                   data-color={item.tag.color}
-                                  aria-hidden="true"
-                                />
-                                <span className="tag-chip-label">
-                                  {item.tag.name}
+                                >
+                                  <span
+                                    className="tag-dot"
+                                    data-color={item.tag.color}
+                                    aria-hidden="true"
+                                  />
+                                  <span className="tag-chip-label">
+                                    {item.tag.name}
+                                  </span>
                                 </span>
                               </span>
-                            </span>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="tag-suggestion-approve"
+                                disabled={busy}
+                                aria-label={`Add ${item.tag.name} to ${title}`}
+                                onClick={() => void decide(item, "accept")}
+                              >
+                                <Plus size={18} aria-hidden="true" />
+                              </Button>
+                            </div>
                             {actionError?.itemId === item.id && (
                               <p className="form-error" role="alert">
                                 {actionError.message}
                               </p>
                             )}
-                            <div className="tag-suggestion-actions">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={busy}
-                                aria-label={`Add ${item.tag.name} to ${title}`}
-                                onClick={() => void decide(item, "accept")}
-                              >
-                                Add tag
-                              </Button>
-                            </div>
                           </footer>
                         </article>
                       </li>

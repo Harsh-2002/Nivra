@@ -23,6 +23,44 @@ const checkpoint = z.object({
   createdAt: count,
   document: documentInput.optional(),
 });
+const recentNote = z.object({
+  id: idSchema,
+  type: z.literal("note"),
+  title: z.string(),
+  updatedAt: count,
+});
+const recentJournal = z.object({
+  id: idSchema,
+  type: z.literal("journal"),
+  title: z.string(),
+  date: z.string(),
+  updatedAt: count,
+});
+const recentBookmark = z.object({
+  id: idSchema,
+  type: z.literal("bookmark"),
+  title: z.string(),
+  url: z.string(),
+  siteName: z.string(),
+  updatedAt: count,
+});
+const recentArtifact = z.object({
+  id: idSchema,
+  type: z.literal("artifact"),
+  title: z.string(),
+  updatedAt: count,
+});
+const recentItems = z.discriminatedUnion("type", [
+  recentNote,
+  recentJournal,
+  recentBookmark,
+  recentArtifact,
+]);
+const recentContent = z.discriminatedUnion("type", [
+  recentNote,
+  recentJournal,
+  recentArtifact,
+]);
 export const extraOutputs = {
   settings,
   recovery: z.object({ recoveryCode: z.string() }),
@@ -97,38 +135,20 @@ export const extraOutputs = {
         }),
       )
       .max(5),
-    recentItems: z
-      .discriminatedUnion("type", [
+    recentItems: z.array(recentItems).max(8),
+    recentContent: z.array(recentContent).max(8),
+    recentResponses: z
+      .array(
         z.object({
           id: idSchema,
-          type: z.literal("note"),
-          title: z.string(),
-          updatedAt: count,
+          formId: idSchema,
+          formTitle: z.string(),
+          createdAt: count,
+          reviewed: z.boolean(),
         }),
-        z.object({
-          id: idSchema,
-          type: z.literal("journal"),
-          title: z.string(),
-          date: z.string(),
-          updatedAt: count,
-        }),
-        z.object({
-          id: idSchema,
-          type: z.literal("bookmark"),
-          title: z.string(),
-          url: z.string(),
-          siteName: z.string(),
-          updatedAt: count,
-        }),
-        z.object({
-          id: idSchema,
-          type: z.literal("artifact"),
-          title: z.string(),
-          updatedAt: count,
-        }),
-      ])
-      .array()
-      .max(8),
+      )
+      .max(5)
+      .optional(),
     review: z
       .object({ formResponses: count, tagSuggestions: count })
       .optional(),

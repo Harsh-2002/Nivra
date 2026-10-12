@@ -960,6 +960,19 @@ export function Workspace({
                   window.history.replaceState(null, "", url);
                   acceptedUrl.current = url.href;
                 }
+                if (
+                  destination === "forms" &&
+                  options?.formId &&
+                  options?.openId
+                ) {
+                  const url = new URL(
+                    `/forms/${options.formId}/responses/${options.openId}`,
+                    window.location.href,
+                  );
+                  window.history.replaceState(null, "", url);
+                  acceptedUrl.current = url.href;
+                  window.dispatchEvent(new Event("nivra:forms-route"));
+                }
                 setGeneration((n) => n + 1);
               }
             });

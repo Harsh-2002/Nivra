@@ -330,6 +330,31 @@ try {
           1,
           "Each card should expose one footer action for adding the tag",
         );
+        const addPresentation = await add.evaluate((button) => {
+          const { width, height } = button.getBoundingClientRect();
+          return {
+            text: button.innerText.trim(),
+            icons: button.querySelectorAll("svg").length,
+            width,
+            height,
+          };
+        });
+        assert.equal(
+          addPresentation.text,
+          "",
+          "The Add action should be icon-only while keeping its accessible name",
+        );
+        assert.equal(
+          addPresentation.icons,
+          1,
+          "The icon-only Add action should show one plus icon",
+        );
+        assert.ok(
+          addPresentation.width >= 43 &&
+            addPresentation.height >= 43 &&
+            Math.abs(addPresentation.width - addPresentation.height) <= 1,
+          `The Add icon should have a square 44px target; size=${JSON.stringify(addPresentation)}`,
+        );
         const bounds = await card.evaluate((element) => {
           const rect = (selector) => {
             const { top, right, bottom, left, width, height } = element
@@ -343,7 +368,9 @@ try {
             card: rect(".tag-collection-card"),
             source: rect("button.tag-suggestion-open"),
             dismiss: rect("button.tag-suggestion-dismiss"),
-            add: rect(".tag-suggestion-actions button"),
+            actions: rect(".tag-suggestion-actions"),
+            chip: rect(".tag-suggestion-chip"),
+            add: rect("button.tag-suggestion-approve"),
             footer: rect("footer"),
             border: {
               top: Number.parseFloat(border.borderTopWidth),
@@ -377,9 +404,16 @@ try {
           `Dismiss should remain in the card's top-right corner; bounds=${JSON.stringify(bounds)}`,
         );
         assert.ok(
-          bounds.add.top >= bounds.footer.top - 1 &&
-            bounds.add.bottom <= bounds.footer.bottom + 1,
-          `The single Add tag action should remain in the footer; bounds=${JSON.stringify(bounds)}`,
+          bounds.actions.top >= bounds.footer.top - 1 &&
+            bounds.actions.bottom <= bounds.footer.bottom + 1 &&
+            bounds.chip.top >= bounds.actions.top - 1 &&
+            bounds.chip.bottom <= bounds.actions.bottom + 1 &&
+            bounds.add.top >= bounds.actions.top - 1 &&
+            bounds.add.bottom <= bounds.actions.bottom + 1 &&
+            bounds.chip.right <= bounds.add.left + 1 &&
+            Math.min(bounds.chip.bottom, bounds.add.bottom) >
+              Math.max(bounds.chip.top, bounds.add.top),
+          `The suggested-tag chip and Add icon should share one footer row; bounds=${JSON.stringify(bounds)}`,
         );
       }
       async function assertScreenReaderStatus(root, message) {
