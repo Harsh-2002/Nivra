@@ -39,6 +39,14 @@ CREATE TABLE ai_tag_embeddings (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TRIGGER ai_tag_revision_clear_examples AFTER UPDATE OF revision ON ai_tag_revisions
+WHEN old.revision IS NOT new.revision
+BEGIN
+  UPDATE ai_tag_embeddings
+  SET example_owner_id=NULL,learned_revision=0,example_count=0,example_embedding=NULL
+  WHERE tag_id=new.tag_id;
+END;
+
 CREATE TABLE ai_auto_assignments (
   source_key TEXT NOT NULL REFERENCES ai_content(source_key) ON DELETE CASCADE,
   tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,

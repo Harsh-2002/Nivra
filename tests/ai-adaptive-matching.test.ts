@@ -695,6 +695,14 @@ test("0046 queues prior indexed content while preserving stored vectors and cano
     assert.equal(cachedProfile().example_count, 1);
 
     d.prepare("UPDATE notes SET trashed_at=31 WHERE id='prototype-four'").run();
+    assert.equal(
+      cachedProfile().example_owner_id,
+      null,
+      "trashing the final example clears its cached profile before any matcher job runs",
+    );
+    assert.equal(cachedProfile().learned_revision, 0);
+    assert.equal(cachedProfile().example_count, 0);
+    assert.equal(cachedProfile().example_embedding, null);
     const afterLastExample = await readyMatch();
     assert.equal(afterLastExample.ready, true);
     assert.equal(afterLastExample.match, undefined);
@@ -740,6 +748,31 @@ test("0046 queues prior indexed content while preserving stored vectors and cano
       "a cached vector from another owner is cleared before it can be considered",
     );
     assert.deepEqual(cachedProfile().embedding, vectorBuffer(0));
+
+    seedTaggedNote("prototype-permanent-final");
+    assert.equal((await readyMatch()).match?.tag.id, tagId);
+    assert.equal(cachedProfile().example_owner_id, "owner");
+    assert.equal(cachedProfile().example_count, 1);
+    d.prepare("DELETE FROM notes WHERE id='prototype-permanent-final'").run();
+    assert.equal(
+      (
+        d
+          .prepare("SELECT count(*) AS n FROM ai_content WHERE source_key=?")
+          .get("note:prototype-permanent-final") as { n: number }
+      ).n,
+      0,
+      "permanent deletion leaves no active content source",
+    );
+    assert.equal(
+      cachedProfile().example_owner_id,
+      null,
+      "permanent deletion clears the final example profile without waiting for a matcher job",
+    );
+    assert.equal(cachedProfile().learned_revision, 0);
+    assert.equal(cachedProfile().example_count, 0);
+    assert.equal(cachedProfile().example_embedding, null);
+    assert.deepEqual(cachedProfile().embedding, vectorBuffer(0));
+    assert.equal((await readyMatch()).match, undefined);
   } finally {
     delete (globalThis as { nivraSqlite?: unknown }).nivraSqlite;
     d.close();
