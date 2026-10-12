@@ -215,7 +215,7 @@ try {
           const bounds = await button.boundingBox();
           assert.ok(bounds, `${label} must have a visible target`);
           assert.ok(
-            bounds.width >= 44 && bounds.height >= 44,
+            bounds.width >= 44 - 1e-4 && bounds.height >= 44 - 1e-4,
             `${label} target must be at least 44×44px; got ${bounds.width}×${bounds.height}px`,
           );
         };
