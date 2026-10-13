@@ -121,6 +121,8 @@ export function NotePane({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mounted = useRef(true);
   const blocked = useRef(false);
+  const sourcePreparation = useRef(false);
+  const sourceSaveLease = useRef(false);
   const tools = useRef<EditorTools | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -169,66 +171,77 @@ export function NotePane({
       observer.disconnect();
     };
   }, [note.title]);
-  const flushRef = useRef<() => Promise<boolean>>(async () => true);
+  const flushRef = useRef<(allowPreparation?: boolean) => Promise<boolean>>(
+    async () => true,
+  );
   const setTools = useCallback((value: EditorTools) => {
     tools.current = value;
   }, []);
-  const flush = useCallback(async (): Promise<boolean> => {
-    if (timer.current) clearTimeout(timer.current);
-    if (saving.current) {
-      await saving.current;
-      if (blocked.current) return false;
-      return flushRef.current();
-    }
-    if (savedVersion.current === version.current) return true;
-    if (blocked.current) return false;
-    const snapshot = current.current;
-    const checkpoint = version.current;
-    setState("saving");
-    const promise = (async () => {
-      try {
-        const result = await api<Note>(`notes/${snapshot.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            revision: snapshot.revision,
-            title: snapshot.title,
-            document: snapshot.document,
-            favorite: snapshot.favorite,
-            editorWidth: snapshot.editorWidth,
-            tags: snapshot.tags.map((t) => t.id),
-          }),
-        });
-        savedVersion.current = checkpoint;
-        current.current = {
-          ...current.current,
-          revision: result.revision,
-          updatedAt: result.updatedAt,
-        };
-        if (mounted.current) {
-          setNote(current.current);
-          setState(checkpoint === version.current ? "saved" : "dirty");
-          setError("");
-        }
-        onSaved(result);
-        return true;
-      } catch (e) {
-        if (mounted.current) {
-          const conflict = e instanceof ApiError && e.status === 409;
-          setState(conflict ? "conflict" : "error");
-          setError((e as Error).message);
-          blocked.current = conflict;
-        }
+  const flush = useCallback(
+    async (allowPreparation = false): Promise<boolean> => {
+      if (
+        sourceSaveLease.current ||
+        (sourcePreparation.current && !allowPreparation)
+      )
         return false;
-      } finally {
-        saving.current = null;
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+      if (saving.current) {
+        await saving.current;
+        if (blocked.current) return false;
+        return flushRef.current(allowPreparation);
       }
-    })();
-    saving.current = promise;
-    const success = await promise;
-    if (success && savedVersion.current !== version.current)
-      return flushRef.current();
-    return success;
-  }, [onSaved]);
+      if (savedVersion.current === version.current) return true;
+      if (blocked.current) return false;
+      const snapshot = current.current;
+      const checkpoint = version.current;
+      setState("saving");
+      const promise = (async () => {
+        try {
+          const result = await api<Note>(`notes/${snapshot.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              revision: snapshot.revision,
+              title: snapshot.title,
+              document: snapshot.document,
+              favorite: snapshot.favorite,
+              editorWidth: snapshot.editorWidth,
+              tags: snapshot.tags.map((t) => t.id),
+            }),
+          });
+          savedVersion.current = checkpoint;
+          current.current = {
+            ...current.current,
+            revision: result.revision,
+            updatedAt: result.updatedAt,
+          };
+          if (mounted.current) {
+            setNote(current.current);
+            setState(checkpoint === version.current ? "saved" : "dirty");
+            setError("");
+          }
+          onSaved(result);
+          return true;
+        } catch (e) {
+          if (mounted.current) {
+            const conflict = e instanceof ApiError && e.status === 409;
+            setState(conflict ? "conflict" : "error");
+            setError((e as Error).message);
+            blocked.current = conflict;
+          }
+          return false;
+        } finally {
+          saving.current = null;
+        }
+      })();
+      saving.current = promise;
+      const success = await promise;
+      if (success && savedVersion.current !== version.current)
+        return flushRef.current(allowPreparation);
+      return success;
+    },
+    [onSaved],
+  );
   useEffect(() => {
     flushRef.current = flush;
     registerGuard(flush);
@@ -248,7 +261,8 @@ export function NotePane({
     window.addEventListener("online", reconnect);
     return () => {
       mounted.current = false;
-      if (timer.current) clearTimeout(timer.current);
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
       window.removeEventListener("beforeunload", unload);
       window.removeEventListener("online", reconnect);
     };
@@ -270,6 +284,14 @@ export function NotePane({
           latest.revision <= current.current.revision
         )
           return;
+        if (templateEditor?.source?.noteId === id) {
+          blocked.current = true;
+          setState("conflict");
+          setError(
+            "This note changed elsewhere. Keep this template form open, then reload the note after closing it.",
+          );
+          return;
+        }
         if (version.current !== savedVersion.current) {
           blocked.current = true;
           setState("conflict");
@@ -282,14 +304,92 @@ export function NotePane({
       .catch(() => {});
   });
   function change(update: Partial<Note>) {
+    if (
+      update.document &&
+      tools.current?.matchesDocument(current.current.document)
+    )
+      return;
     current.current = { ...current.current, ...update };
     setNote(current.current);
     version.current++;
     setState(blocked.current ? "conflict" : "dirty");
-    if (timer.current) clearTimeout(timer.current);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    if (sourceSaveLease.current) return;
     timer.current = setTimeout(() => {
       void flushRef.current();
     }, 750);
+  }
+  async function withPreparedSource<T>(
+    submit: (source: { noteId: string; revision: number }) => Promise<T>,
+  ): Promise<T> {
+    if (sourcePreparation.current || sourceSaveLease.current)
+      throw new Error("A template save is already in progress.");
+    sourcePreparation.current = true;
+    try {
+      const sourceNoteId = templateEditor?.source?.noteId;
+      if (!sourceNoteId || current.current.id !== sourceNoteId)
+        throw new Error("The source note is no longer open.");
+      if (blocked.current)
+        throw new Error(
+          error || "Resolve the note conflict before saving this template.",
+        );
+
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const editor = tools.current;
+        if (!editor) throw new Error("The editor is still loading.");
+        if (!editor.matchesDocument(current.current.document))
+          change({ document: editor.getDocument() });
+        if (!(await flush(true)))
+          throw new Error(
+            error || "Resolve the note save before saving this template.",
+          );
+        if (!mounted.current || current.current.id !== sourceNoteId)
+          throw new Error(
+            "The source note changed. Keep the template open and retry.",
+          );
+        if (blocked.current)
+          throw new Error(
+            error || "Resolve the note conflict before saving this template.",
+          );
+
+        if (!editor.matchesDocument(current.current.document)) {
+          change({ document: editor.getDocument() });
+          continue;
+        }
+        if (
+          timer.current ||
+          saving.current ||
+          savedVersion.current !== version.current
+        )
+          continue;
+
+        sourceSaveLease.current = true;
+        try {
+          return await submit({
+            noteId: current.current.id,
+            revision: current.current.revision,
+          });
+        } finally {
+          sourceSaveLease.current = false;
+        }
+      }
+      throw new Error(
+        "The note is still updating. Try saving the template again.",
+      );
+    } finally {
+      sourcePreparation.current = false;
+      if (
+        mounted.current &&
+        savedVersion.current !== version.current &&
+        !blocked.current
+      ) {
+        if (timer.current !== null) clearTimeout(timer.current);
+        timer.current = setTimeout(() => {
+          void flushRef.current();
+        }, 0);
+      }
+    }
   }
   function applyCanonicalNote(result: Note) {
     current.current = result;
@@ -937,6 +1037,9 @@ export function NotePane({
                   kind={templateKind}
                   initial={templateEditor.template}
                   source={templateEditor.source}
+                  withPreparedSource={
+                    templateEditor.source ? withPreparedSource : undefined
+                  }
                   onClose={() => setTemplateEditor(null)}
                   onSaved={() => {
                     setTemplateEditor(null);

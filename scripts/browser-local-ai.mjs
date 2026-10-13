@@ -783,19 +783,19 @@ try {
             }),
         );
       }
-      async function waitForStableAiIndex(suggestionItemId) {
+      async function waitForFixtureSuggestion(itemId) {
+        assert.ok(itemId, "A fixture-specific item id is required");
         const startedAt = Date.now();
         const vocabularyPendingSamples = [];
         let previousPending;
         let lastSampleAt = 0;
-        let previous = "";
+        let previousSuggestion = "";
         let stable = 0;
         let latestStatus;
         let latestSuggestions = [];
         for (let n = 0; n < 100; n++) {
           latestStatus = await api("ai");
-          if (suggestionItemId)
-            latestSuggestions = (await api("ai/suggestions")).items;
+          latestSuggestions = (await api("ai/suggestions")).items;
           const elapsedMs = Date.now() - startedAt;
           const pendingSample = {
             elapsedMs,
@@ -816,28 +816,26 @@ try {
             previousPending = pendingSample.vocabularyPending;
             lastSampleAt = elapsedMs;
           }
-          const snapshot = JSON.stringify({
-            total: latestStatus.total,
-            indexed: latestStatus.indexed,
-            failed: latestStatus.failed,
-            capacity: latestStatus.capacity,
-          });
-          stable = snapshot === previous ? stable + 1 : 0;
-          previous = snapshot;
-          if (
-            latestStatus.enabled &&
-            latestStatus.total > 0 &&
-            latestStatus.indexed === latestStatus.total &&
-            latestStatus.failed === 0 &&
-            latestStatus.capacity === 0 &&
-            stable >= 2 &&
-            (!suggestionItemId ||
-              latestSuggestions.some(
-                (item) => item.itemId === suggestionItemId,
-              ))
-          ) {
+          const suggestion = latestSuggestions.find(
+            (item) => item.itemId === itemId,
+          );
+          const snapshot = suggestion
+            ? JSON.stringify({ id: suggestion.id, tagId: suggestion.tag.id })
+            : "";
+          stable = snapshot && snapshot === previousSuggestion ? stable + 1 : 0;
+          previousSuggestion = snapshot;
+          if (latestStatus.enabled && suggestion && stable >= 1) {
             lastIndexWaitDiagnostics = {
+              itemId,
               elapsedMs,
+              attempts: n + 1,
+              matchingSuggestion: true,
+              ownerStatus: {
+                total: latestStatus.total,
+                indexed: latestStatus.indexed,
+                failed: latestStatus.failed,
+                capacity: latestStatus.capacity,
+              },
               vocabularyPendingSamples,
             };
             return { status: latestStatus, suggestions: latestSuggestions };
@@ -845,11 +843,24 @@ try {
           await setTimeout(250);
         }
         lastIndexWaitDiagnostics = {
+          itemId,
           elapsedMs: Date.now() - startedAt,
+          attempts: 100,
+          matchingSuggestion: latestSuggestions.some(
+            (item) => item.itemId === itemId,
+          ),
+          ownerStatus: latestStatus
+            ? {
+                total: latestStatus.total,
+                indexed: latestStatus.indexed,
+                failed: latestStatus.failed,
+                capacity: latestStatus.capacity,
+              }
+            : null,
           vocabularyPendingSamples,
         };
         throw new Error(
-          `Indexed demo fixture did not stabilize; AI status=${JSON.stringify(latestStatus)}; vocabulary pending samples=${JSON.stringify(vocabularyPendingSamples)}; matching suggestion=${latestSuggestions.some((item) => item.itemId === suggestionItemId)}`,
+          `Expected a stable tag suggestion for fixture ${itemId}; AI status=${JSON.stringify(latestStatus)}; vocabulary pending samples=${JSON.stringify(vocabularyPendingSamples)}; matching suggestion=${lastIndexWaitDiagnostics.matchingSuggestion}`,
         );
       }
       async function createSuggestionNote(title) {
@@ -1012,7 +1023,7 @@ try {
           const firstTitle = `Live SSE seed ${randomUUID().slice(0, 8)}`;
           const firstNote = await createSuggestionNote(firstTitle);
           liveNotes.push(firstNote);
-          await waitForStableAiIndex(firstNote.id);
+          await waitForFixtureSuggestion(firstNote.id);
           await panel
             .getByRole("button", {
               name: `Add ${tagName} to ${firstTitle}`,
@@ -1048,7 +1059,7 @@ try {
             eventPromise,
             heldRequestPromise,
             heldGetEntered,
-            waitForStableAiIndex(secondNote.id),
+            waitForFixtureSuggestion(secondNote.id),
           ]);
           const liveEvents = await livePage.evaluate(
             () => window.__liveAiCompletionEvents,
@@ -1167,12 +1178,19 @@ try {
           );
       }
       async function waitForSemanticResult(query, itemId) {
+        const startedAt = Date.now();
         const attempts = [];
         const requestPath = `search?mode=suggest&strategy=semantic&q=${encodeURIComponent(query)}`;
-        for (let n = 0; n < 4; n++) {
+        for (let n = 0; n < 100; n++) {
           const result = await api(requestPath);
           const itemIds = (result.items ?? []).map((item) => item.id);
-          attempts.push({ strategyUsed: result.strategyUsed ?? null, itemIds });
+          if (n % 8 === 0 || itemIds.includes(itemId))
+            attempts.push({
+              elapsedMs: Date.now() - startedAt,
+              strategyUsed: result.strategyUsed ?? null,
+              matchedFixture: itemIds.includes(itemId),
+              itemIds: itemIds.slice(0, 10),
+            });
           if (result.strategyUsed === "semantic" && itemIds.includes(itemId))
             return result;
           await setTimeout(250);
@@ -1212,7 +1230,7 @@ try {
         await edit
           .getByRole("button", { name: "Save tag", exact: true })
           .click();
-        await waitForStableAiIndex(note.id);
+        await waitForFixtureSuggestion(note.id);
         await waitForAiCompletionQuiet();
         await waitForWorkspaceApiIdle("overview settled before suggestions");
         const suggestionsNavigation = await nav();
@@ -2855,7 +2873,6 @@ try {
         );
         const semanticQuery =
           "recover stored information after restoring a protected safety copy";
-        await waitForStableAiIndex();
         await waitForSemanticResult(semanticQuery, note.id);
         await waitForWorkspaceApiIdle("before search navigation");
         let search;

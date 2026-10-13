@@ -133,6 +133,79 @@ try {
     });
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
+    const writeRequests = new WeakMap();
+    const writeEvents = [];
+    let writeOrder = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      const isSourcePatch =
+        request.method() === "PATCH" &&
+        url.pathname === `/api/v1/notes/${note.id}`;
+      const isTemplateCreate =
+        request.method() === "POST" && url.pathname === "/api/v1/templates";
+      if (!isSourcePatch && !isTemplateCreate) return;
+      const event = {
+        method: request.method(),
+        path: url.pathname,
+        startOrder: writeOrder++,
+        finishOrder: null,
+        status: null,
+      };
+      writeRequests.set(request, event);
+      writeEvents.push(event);
+    });
+    page.on("response", (response) => {
+      const event = writeRequests.get(response.request());
+      if (event) event.status = response.status();
+    });
+    page.on("requestfinished", (request) => {
+      const event = writeRequests.get(request);
+      if (event) event.finishOrder = writeOrder++;
+    });
+    let delayedSourcePatch = null;
+    let delayedTemplatePost = null;
+    if (width === widths[0]) {
+      let releasePatch;
+      let notifyPatch;
+      const gate = new Promise((resolve) => {
+        releasePatch = resolve;
+      });
+      const requestSeen = new Promise((resolve) => {
+        notifyPatch = resolve;
+      });
+      let holdNextPatch = true;
+      await page.route(`**/api/v1/notes/${note.id}`, async (route) => {
+        if (holdNextPatch && route.request().method() === "PATCH") {
+          holdNextPatch = false;
+          notifyPatch(route.request());
+          await gate;
+        }
+        await route.continue();
+      });
+      delayedSourcePatch = { requestSeen, release: releasePatch };
+
+      let releasePost;
+      let notifyPost;
+      const postGate = new Promise((resolve) => {
+        releasePost = resolve;
+      });
+      const postRequestSeen = new Promise((resolve) => {
+        notifyPost = resolve;
+      });
+      let holdNextPost = true;
+      await page.route("**/api/v1/templates", async (route) => {
+        if (holdNextPost && route.request().method() === "POST") {
+          holdNextPost = false;
+          notifyPost(route.request());
+          await postGate;
+        }
+        await route.continue();
+      });
+      delayedTemplatePost = {
+        requestSeen: postRequestSeen,
+        release: releasePost,
+      };
+    }
     const taskCreateRequests = [];
     page.on("request", (request) => {
       if (
@@ -237,9 +310,10 @@ try {
       await page.goto(`${base}/notes?note=${note.id}`);
       await page.getByRole("textbox", { name: "Note title" }).waitFor();
       await settle(page);
+      const currentSourceNote = await api(`notes/${note.id}`);
       assert.equal(
         await page.getByRole("textbox", { name: "Note title" }).inputValue(),
-        note.title,
+        currentSourceNote.title,
       );
 
       if (!linkedTaskId) {
@@ -322,50 +396,241 @@ try {
         await page.locator(".writing-task-link").waitFor();
       }
 
-      if (!templateNoteId) {
+      templateName = `Weekly reset ${stamp} ${width}`;
+      if (delayedSourcePatch) {
+        const title = page.getByRole("textbox", { name: "Note title" });
+        await title.fill(`Prepared source ${stamp}`);
+        const heldPatch = await delayedSourcePatch.requestSeen;
+        assert.equal(heldPatch.method(), "PATCH");
         await openMenuAction(page, "Save as template");
-        await page.getByLabel("Name", { exact: true }).fill(templateName);
+        await page.evaluate(
+          () =>
+            new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            ),
+        );
+        assert.equal(
+          await page.locator(".writing-template-editor").count(),
+          0,
+          "The template editor waits for the pending source save",
+        );
+        assert.equal(
+          writeEvents.filter(
+            (event) =>
+              event.method === "POST" && event.path === "/api/v1/templates",
+          ).length,
+          0,
+          "The template request must wait until the source save finishes",
+        );
+        const heldPatchResponse = page.waitForResponse(
+          (response) =>
+            response.request().url() === heldPatch.url() &&
+            response.request().method() === "PATCH",
+        );
+        delayedSourcePatch.release();
+        assert.ok(
+          (await heldPatchResponse).ok(),
+          "The delayed owner save should complete before template creation",
+        );
+        await page.getByLabel("Name", { exact: true }).waitFor();
+      } else {
+        await openMenuAction(page, "Save as template");
+      }
+      await page.getByLabel("Name", { exact: true }).fill(templateName);
+      const writesBeforeTemplateSave = writeEvents.length;
+      const templateResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          response.request().method() === "POST" &&
+          url.pathname === "/api/v1/templates"
+        );
+      });
+      await page
+        .getByRole("button", { name: "Save template", exact: true })
+        .click();
+      if (delayedTemplatePost) {
+        await delayedTemplatePost.requestSeen;
+        await page.evaluate(
+          () =>
+            new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            ),
+        );
+        const closeTemplate = page.getByRole("button", {
+          name: "Close template editor",
+        });
+        assert.ok(
+          await closeTemplate.isDisabled(),
+          "The template editor cannot close while its save is in flight",
+        );
+        assert.equal(
+          await page.getByLabel("Name", { exact: true }).inputValue(),
+          templateName,
+          "The template draft remains visible while the save is pending",
+        );
+        delayedTemplatePost.release();
+      }
+      assert.equal(
+        (await templateResponse).status(),
+        201,
+        "The source-backed template should save successfully",
+      );
+      await page.locator(".writing-template-picker").waitFor();
+      const templatePost = writeEvents
+        .slice(writesBeforeTemplateSave)
+        .find(
+          (event) =>
+            event.method === "POST" && event.path === "/api/v1/templates",
+        );
+      assert.ok(templatePost, "Saving a template should send its API request");
+      if (delayedSourcePatch) {
+        const sourcePatchesBeforeTemplate = writeEvents.filter(
+          (event) =>
+            event.method === "PATCH" &&
+            event.path === `/api/v1/notes/${note.id}` &&
+            event.startOrder < templatePost.startOrder,
+        );
+        assert.ok(sourcePatchesBeforeTemplate.length > 0);
+        assert.ok(
+          sourcePatchesBeforeTemplate.every(
+            (event) =>
+              event.finishOrder !== null &&
+              event.finishOrder < templatePost.startOrder,
+          ),
+          "Every owner save already in flight must finish before template creation starts",
+        );
+      }
+      const templates = await api("templates?kind=note&limit=100");
+      templateId = templates.items.find(
+        (item) => item.name === templateName,
+      )?.id;
+      assert.ok(
+        templateId,
+        "The saved template should be available in the picker",
+      );
+      templateIds.push(templateId);
+      await page
+        .locator(".writing-template-row")
+        .filter({ hasText: templateName })
+        .click();
+      await page
+        .getByRole("button", { name: "Create new note", exact: true })
+        .click();
+      await page.waitForFunction((existingId) => {
+        const noteId = new URL(location.href).searchParams.get("note");
+        return Boolean(noteId && noteId !== existingId);
+      }, note.id);
+      templateNoteId = new URL(page.url()).searchParams.get("note");
+      assert.ok(templateNoteId && templateNoteId !== note.id);
+      noteIds.push(templateNoteId);
+      const copied = await api(`notes/${templateNoteId}`);
+      const checklist = copied.document.blocks.find(
+        (item) => item.type === "checkListItem",
+      );
+      assert.ok(
+        checklist,
+        "A template converts linked tasks into checklist items",
+      );
+      assert.equal(
+        checklist.props.checked,
+        false,
+        "Template checklist items start unchecked",
+      );
+      checked += 1;
+
+      await page.goto(`${base}/notes?note=${note.id}`);
+      await page.getByRole("textbox", { name: "Note title" }).waitFor();
+      await settle(page);
+      const postLeaseTitle = `Saved after template ${stamp} ${width}`;
+      const postLeaseSave = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          response.request().method() === "PATCH" &&
+          url.pathname === `/api/v1/notes/${note.id}` &&
+          response.request().postDataJSON()?.title === postLeaseTitle
+        );
+      });
+      await page
+        .getByRole("textbox", { name: "Note title" })
+        .fill(postLeaseTitle);
+      assert.ok(
+        (await postLeaseSave).ok(),
+        "Ordinary note saves should resume after the template source lease releases",
+      );
+      assert.equal(
+        (await api(`notes/${note.id}`)).title,
+        postLeaseTitle,
+        "The post-template title should persist normally",
+      );
+      checked += 1;
+
+      if (width === widths[0]) {
+        const conflictNote = await api("notes", "POST", {
+          title: `Conflict source ${stamp}`,
+          document: {
+            schemaVersion: 1,
+            blocks: [
+              {
+                id: `conflict_${stamp}`,
+                type: "paragraph",
+                content: [{ type: "text", text: sourceText, styles: {} }],
+              },
+            ],
+          },
+        });
+        noteIds.push(conflictNote.id);
+        await page.route("**/api/v1/completions", (route) =>
+          route.fulfill({
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+            body: ": idle\n\n",
+          }),
+        );
+        await page.goto(`${base}/notes?note=${conflictNote.id}`);
+        await page.getByRole("textbox", { name: "Note title" }).waitFor();
+        await settle(page);
+        await page
+          .locator(".save-status")
+          .filter({ hasText: "Saved" })
+          .waitFor();
+        await openMenuAction(page, "Save as template");
+        const conflictTemplateName = `Keep draft ${stamp}`;
+        await page
+          .getByLabel("Name", { exact: true })
+          .fill(conflictTemplateName);
+        const latestConflictNote = await api(`notes/${conflictNote.id}`);
+        const staleRevision = latestConflictNote.revision;
+        await api(`notes/${conflictNote.id}`, "PATCH", {
+          revision: staleRevision,
+          title: `Remote edit ${stamp}`,
+        });
+        const conflictResponse = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            response.status() === 409 &&
+            ((response.request().method() === "POST" &&
+              url.pathname === "/api/v1/templates") ||
+              (response.request().method() === "PATCH" &&
+                url.pathname === `/api/v1/notes/${conflictNote.id}`))
+          );
+        });
         await page
           .getByRole("button", { name: "Save template", exact: true })
           .click();
-        await page.locator(".writing-template-picker").waitFor();
-        const templates = await api("templates?kind=note&limit=100");
-        templateId = templates.items.find(
-          (item) => item.name === templateName,
-        )?.id;
-        assert.ok(
-          templateId,
-          "The saved template should be available in the picker",
-        );
-        templateIds.push(templateId);
-        await page
-          .locator(".writing-template-row")
-          .filter({ hasText: templateName })
-          .click();
-        await page
-          .getByRole("button", { name: "Create new note", exact: true })
-          .click();
-        await page.waitForFunction((existingId) => {
-          const noteId = new URL(location.href).searchParams.get("note");
-          return Boolean(noteId && noteId !== existingId);
-        }, note.id);
-        templateNoteId = new URL(page.url()).searchParams.get("note");
-        assert.ok(templateNoteId && templateNoteId !== note.id);
-        noteIds.push(templateNoteId);
-        const copied = await api(`notes/${templateNoteId}`);
-        const checklist = copied.document.blocks.find(
-          (item) => item.type === "checkListItem",
-        );
-        assert.ok(
-          checklist,
-          "A template converts linked tasks into checklist items",
-        );
+        const staleWriteResponse = await conflictResponse;
+        assert.equal(staleWriteResponse.status(), 409);
         assert.equal(
-          checklist.props.checked,
-          false,
-          "Template checklist items start unchecked",
+          new URL(staleWriteResponse.url()).pathname,
+          "/api/v1/templates",
+          "A real remote source edit must still be rejected by the revision guard",
         );
-        checked += 1;
+        await page.getByRole("alert").waitFor();
+        assert.equal(
+          await page.getByLabel("Name", { exact: true }).inputValue(),
+          conflictTemplateName,
+          "A source conflict must preserve the user's template draft",
+        );
+        checked += 2;
       }
 
       await page.goto(`${base}/journal`);
@@ -454,7 +719,7 @@ try {
     "Writing workflows should not raise browser errors",
   );
   console.log(
-    `Writing workflows passed ${checked} checks at ${widths.join(", ")}px in ${engineName}: linked tasks, unchecked template snapshots, normalized weekly journals and review activity. Fixtures were created only on the guarded disposable server.`,
+    `Writing workflows passed ${checked} checks at ${widths.join(", ")}px in ${engineName}: linked tasks, template save ordering/conflicts, unchecked template snapshots, normalized weekly journals and review activity. Fixtures were created only on the guarded disposable server.`,
   );
   console.log(
     `Unsupported ${engineName} browser warnings: ${unsupportedBrowserWarnings.length}.`,

@@ -28,6 +28,7 @@ const Editor = dynamic(() => import("./editor"), {
 });
 
 type Kind = WritingTemplate["kind"];
+type TemplateSource = { noteId: string; revision: number };
 
 function templateSafeDocument(document: Document): Document {
   const visit = (blocks: unknown[]): unknown[] =>
@@ -110,13 +111,17 @@ export function TemplateEditor({
   kind,
   initial,
   source,
+  withPreparedSource,
   onClose,
   onSaved,
   onDeleted,
 }: {
   kind: Kind;
   initial?: WritingTemplate;
-  source?: { noteId: string; revision: number };
+  source?: TemplateSource;
+  withPreparedSource?: <T>(
+    submit: (source: TemplateSource) => Promise<T>,
+  ) => Promise<T>;
   onClose: () => void;
   onSaved: (template: WritingTemplate) => void;
   onDeleted?: (id: string) => void;
@@ -138,34 +143,47 @@ export function TemplateEditor({
     setBusy(true);
     setError("");
     try {
-      const saved = initial
-        ? await api<WritingTemplate>(`templates/${initial.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              revision: initial.revision,
-              name: name.trim(),
-              description: description.trim(),
-              document: canonicalizeTaskLinks(templateSafeDocument(document)),
-            }),
-          })
-        : await api<WritingTemplate>("templates", {
+      let saved: WritingTemplate;
+      if (initial) {
+        saved = await api<WritingTemplate>(`templates/${initial.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            revision: initial.revision,
+            name: name.trim(),
+            description: description.trim(),
+            document: canonicalizeTaskLinks(templateSafeDocument(document)),
+          }),
+        });
+      } else if (source) {
+        if (!withPreparedSource)
+          throw new Error("Save the note before creating a template.");
+        saved = await withPreparedSource((currentSource) => {
+          if (currentSource.noteId !== source.noteId)
+            throw new Error(
+              "The source note changed. Reopen the template editor.",
+            );
+          return api<WritingTemplate>("templates", {
             method: "POST",
             body: JSON.stringify({
               name: name.trim(),
               description: description.trim(),
               kind,
-              ...(source
-                ? {
-                    sourceNoteId: source.noteId,
-                    sourceRevision: source.revision,
-                  }
-                : {
-                    document: canonicalizeTaskLinks(
-                      templateSafeDocument(document),
-                    ),
-                  }),
+              sourceNoteId: currentSource.noteId,
+              sourceRevision: currentSource.revision,
             }),
           });
+        });
+      } else {
+        saved = await api<WritingTemplate>("templates", {
+          method: "POST",
+          body: JSON.stringify({
+            name: name.trim(),
+            description: description.trim(),
+            kind,
+            document: canonicalizeTaskLinks(templateSafeDocument(document)),
+          }),
+        });
+      }
       onSaved(saved);
     } catch (cause) {
       setError((cause as Error).message);
@@ -227,6 +245,7 @@ export function TemplateEditor({
           size="icon"
           aria-label="Close template editor"
           onClick={onClose}
+          disabled={busy}
         >
           <X size={17} />
         </Button>

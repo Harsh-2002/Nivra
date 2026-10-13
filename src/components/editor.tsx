@@ -196,6 +196,8 @@ export type EditorTools = {
   markdown: () => string;
   taskSelection: () => TaskSelection | null;
   syncDocument: (document: Document) => void;
+  getDocument: () => Document;
+  matchesDocument: (document: Document) => boolean;
   insertDocument: (blocks: Document["blocks"]) => void;
 };
 
@@ -347,6 +349,16 @@ export default function Editor({
           next.blocks as Blocks,
         );
       },
+      getDocument: () => ({
+        schemaVersion: 1,
+        blocks: editor.document as unknown as Document["blocks"],
+      }),
+      matchesDocument: (candidate) =>
+        documentSignature(candidate) ===
+        documentSignature({
+          schemaVersion: 1,
+          blocks: editor.document as unknown as Document["blocks"],
+        }),
       insertDocument: (blocks) => {
         if (!editor.isEditable || !blocks.length) return;
         editor.insertBlocks(
@@ -423,6 +435,7 @@ export default function Editor({
               suppressedDocument.current = null;
               return;
             }
+            if (documentSignature(document) === serialized) return;
             onChange(next);
           }}
         >
