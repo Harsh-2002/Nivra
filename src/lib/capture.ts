@@ -81,6 +81,21 @@ export function sharedCapture(fields: {
 }
 
 export function bookmarklet(origin: string) {
-  const destination = new URL("/capture", origin).href;
-  return `javascript:(()=>{const p=new URLSearchParams({url:location.href,title:document.title.slice(0,300),text:String(getSelection()||'').slice(0,10000)});window.open(${JSON.stringify(destination)}+'#'+p.toString(),'_blank','noopener,noreferrer')})()`;
+  const base = new URL(origin);
+  if (
+    !["http:", "https:"].includes(base.protocol) ||
+    base.username ||
+    base.password ||
+    base.pathname !== "/" ||
+    base.search ||
+    base.hash
+  )
+    throw new Error("Use a complete HTTP or HTTPS origin without credentials.");
+  const destination = new URL("/capture", base.origin).href;
+  const literal = JSON.stringify(destination)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+  return `javascript:(()=>{const p=new URLSearchParams({url:location.href,title:document.title.slice(0,300),text:String(getSelection()||'').slice(0,10000)});window.open(${literal}+'#'+p.toString(),'_blank','noopener,noreferrer')})()`;
 }

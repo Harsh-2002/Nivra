@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 import { bookmarklet, captureInput, sharedCapture } from "../src/lib/capture";
 
 test("capture prepares bounded drafts and an uncredentialed fragment bookmarklet", () => {
@@ -40,6 +41,56 @@ test("capture prepares bounded drafts and an uncredentialed fragment bookmarklet
   assert.ok(code.includes('"https://example.org/capture"'));
   assert.ok(code.includes("'#'"));
   assert.equal(code.includes("/api/"), false);
+});
+
+test("bookmarklets reject unsafe bases and keep page text as fragment data", () => {
+  for (const origin of [
+    "javascript:alert(1)",
+    "data:text/html,unsafe",
+    "ftp://example.test",
+    "https://person:secret@example.test",
+    "https://example.test/path",
+    "https://example.test/?token=secret",
+    "https://example.test/#</script>",
+    "not a URL",
+  ])
+    assert.throws(() => bookmarklet(origin));
+
+  const title = `Quoted \"title\" </script><script>window.injected=true</script>\u2028`;
+  const selection = `Selected 'text' \\ \n \u2029`;
+  for (const origin of [
+    "https://example.test",
+    "http://localhost:3000",
+    "http://[::1]:3000",
+  ]) {
+    const calls: unknown[][] = [];
+    const window = { open: (...args: unknown[]) => calls.push(args) };
+    const code = bookmarklet(origin);
+    assert.equal(/[<\u2028\u2029]/.test(code), false);
+    runInNewContext(code.slice("javascript:".length), {
+      URLSearchParams,
+      location: { href: "https://source.example.test/article?topic=notes" },
+      document: { title },
+      getSelection: () => selection,
+      window,
+    });
+    assert.equal(calls.length, 1);
+    const [url, target, features] = calls[0];
+    const destination = new URL(url as string);
+    assert.equal(destination.origin, origin);
+    assert.equal(destination.pathname, "/capture");
+    assert.equal(destination.search, "");
+    const fields = new URLSearchParams(destination.hash.slice(1));
+    assert.equal(fields.get("title"), title);
+    assert.equal(fields.get("text"), selection);
+    assert.equal(
+      fields.get("url"),
+      "https://source.example.test/article?topic=notes",
+    );
+    assert.equal(target, "_blank");
+    assert.equal(features, "noopener,noreferrer");
+    assert.equal("injected" in window, false);
+  }
 });
 
 test("PWA sharing prepares a private review draft without saving content", async () => {
