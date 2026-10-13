@@ -30,7 +30,7 @@ const maxHighlightsPerBookmark = 1000;
 const maxHighlightTextBytes = 200_000;
 const articleBytes = 2 * 1024 * 1024;
 const fetchDeadlineMs = 15_000;
-const parseDeadlineMs = 5000;
+const readerDeadlineMs = 15_000;
 
 type BookmarkRow = {
   id: string;
@@ -349,7 +349,7 @@ function runReader(
     };
     const deadline = setTimeout(
       () => finish(new Error("Article parsing timed out.")),
-      parseDeadlineMs,
+      readerDeadlineMs,
     );
     deadline.unref();
     const abort = () => finish(new Error("Article parsing was cancelled."));
@@ -396,7 +396,7 @@ async function captureArticle(
         },
         signal,
       ),
-    parseDeadlineMs + 5_000,
+    readerDeadlineMs + 5_000,
     signal,
   );
 }
