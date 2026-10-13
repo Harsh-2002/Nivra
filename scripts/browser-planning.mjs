@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 
 export default async function verifyPlanning(page) {
   const base = new URL(page.url());
+  const configuredPhoneWidth = (process.env.NIVRA_AUDIT_WIDTHS ?? "")
+    .split(",")
+    .map(Number)
+    .find((width) => width >= 320 && width < 768 && width !== 390);
+  const phoneWidths = configuredPhoneWidth
+    ? [390, configuredPhoneWidth]
+    : [390];
   if (base.port !== "3015")
     throw new Error("Use the disposable Review Owner server on port 3015.");
   const status = await page.request.get(new URL("/api/v1/status", base).href);
@@ -33,6 +40,51 @@ export default async function verifyPlanning(page) {
     if (response.status() === 204) return null;
     return response.json();
   };
+  async function verifyMobileTaskDialog(width) {
+    const expectedViewport = { width, height: 844 };
+    await page.setViewportSize(expectedViewport);
+    check(
+      await page.locator(".schedule-time-grid").isHidden(),
+      `${width}px mobile uses the agenda instead of the desktop time grid`,
+    );
+    await button("New task").click();
+    const taskDialog = page.locator(".planning-task-dialog");
+    await taskDialog.waitFor();
+    let dialogBounds = await taskDialog.boundingBox();
+    let viewportBounds = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+    const matchesViewport = () =>
+      dialogBounds?.x === 0 &&
+      dialogBounds.y === 0 &&
+      dialogBounds.width === expectedViewport.width &&
+      dialogBounds.height === expectedViewport.height &&
+      viewportBounds.width === expectedViewport.width &&
+      viewportBounds.height === expectedViewport.height;
+    let fullScreen = matchesViewport();
+    const layoutDeadline = Date.now() + 1000;
+    while (!fullScreen && Date.now() < layoutDeadline) {
+      await page.waitForTimeout(40);
+      dialogBounds = await taskDialog.boundingBox();
+      viewportBounds = await page.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }));
+      fullScreen = matchesViewport();
+    }
+    check(
+      fullScreen,
+      `${width}px task scheduler uses exact fullscreen bounds (dialog ${JSON.stringify(dialogBounds)}, viewport ${JSON.stringify(viewportBounds)})`,
+    );
+    const touchTarget = await button("Cancel").boundingBox();
+    check(
+      touchTarget.height >= 44,
+      `${width}px mobile task scheduler actions meet the 44px target`,
+    );
+    await button("Cancel").click();
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
+  }
 
   const stamp = Date.now();
   const firstTitle = "Planning checklist " + stamp;
@@ -305,27 +357,7 @@ export default async function verifyPlanning(page) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.reload();
     await page.locator(".schedule-panel").waitFor();
-    check(
-      await page.locator(".schedule-time-grid").isHidden(),
-      "Mobile uses the agenda instead of the desktop time grid",
-    );
-    await button("New task").click();
-    const taskDialog = page.locator(".planning-task-dialog");
-    await taskDialog.waitFor();
-    const dialogBounds = await taskDialog.boundingBox();
-    check(
-      dialogBounds.x === 0 &&
-        dialogBounds.width === 390 &&
-        dialogBounds.height === 844,
-      "Task scheduler uses the full-screen mobile layout",
-    );
-    const touchTarget = await button("Cancel").boundingBox();
-    check(
-      touchTarget.height >= 44,
-      "Mobile task scheduler actions meet the 44px target",
-    );
-    await button("Cancel").click();
-    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    for (const width of phoneWidths) await verifyMobileTaskDialog(width);
     check(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,

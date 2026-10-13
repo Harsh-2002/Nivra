@@ -176,6 +176,7 @@ const context = await browser.newContext({
 const page = await context.newPage();
 page.setDefaultTimeout(15_000);
 const unsupportedBrowserWarnings = [];
+const pendingConsoleDetails = new Set();
 page.on("pageerror", (error) =>
   errors.push(`pageerror at ${page.url()}: ${error.stack ?? error.message}`),
 );
@@ -187,8 +188,46 @@ page.on("console", (message) => {
   );
   if (classification === "unsupported-feature-warning")
     unsupportedBrowserWarnings.push(message.text());
-  else if (classification === "error")
-    errors.push(`console at ${page.url()}: ${message.text()}`);
+  else if (classification === "error") {
+    const eventUrl = page.url();
+    const errorIndex =
+      errors.push(`console at ${eventUrl}: ${message.text()}`) - 1;
+    const location = message.location();
+    const detailPromise = Promise.all(
+      message.args().map((handle) =>
+        handle
+          .evaluate((value) => {
+            if (!value || typeof value !== "object")
+              return { type: typeof value };
+            const detail = {
+              type: value.constructor?.name ?? "object",
+            };
+            try {
+              if (typeof value.name === "string") detail.name = value.name;
+              if (typeof value.message === "string")
+                detail.message = value.message.slice(0, 300);
+              if (typeof value.stack === "string")
+                detail.stack = value.stack.split("\n").slice(0, 6).join("\n");
+            } catch {}
+            return detail;
+          })
+          .catch((error) => ({
+            type: "unavailable",
+            reason:
+              error instanceof Error ? error.message.slice(0, 200) : "unknown",
+          })),
+      ),
+    )
+      .then((consoleArguments) => {
+        errors[errorIndex] =
+          `console at ${eventUrl}: ${JSON.stringify({ text: message.text(), location, arguments: consoleArguments })}`;
+      })
+      .catch(() => {});
+    pendingConsoleDetails.add(detailPromise);
+    void detailPromise.finally(() =>
+      pendingConsoleDetails.delete(detailPromise),
+    );
+  }
 });
 
 const owned = { tasks: [], bookmarks: [], notes: [] };
@@ -873,6 +912,17 @@ async function verifyCapturePage() {
   const capturedNoteId = new URL(page.url()).searchParams.get("note");
   assert.ok(capturedNoteId);
   owned.notes.push(capturedNoteId);
+  const capturedPassageTitle = page.getByRole("textbox", {
+    name: "Note title",
+    exact: true,
+  });
+  const capturedPassageEditor = page.locator('[aria-label="Note content"]');
+  await capturedPassageTitle.waitFor();
+  await capturedPassageEditor.waitFor();
+  assert.ok(
+    (await capturedPassageEditor.innerText()).includes(passage),
+    "The selected passage is visible in the canonical note editor",
+  );
   const capturedNote = await api(`notes/${capturedNoteId}`);
   const serializedNote = JSON.stringify(capturedNote.document);
   check(
@@ -901,8 +951,22 @@ async function verifyCapturePage() {
   const noteId = new URL(page.url()).searchParams.get("note");
   assert.ok(noteId);
   owned.notes.push(noteId);
+  const openedNoteTitle = page.getByRole("textbox", {
+    name: "Note title",
+    exact: true,
+  });
+  const openedNoteEditor = page.locator('[aria-label="Note content"]');
+  await openedNoteTitle.waitFor();
+  await openedNoteEditor.waitFor();
+  assert.equal(await openedNoteTitle.inputValue(), noteTitle);
+  assert.ok(
+    (await openedNoteEditor.innerText()).includes(
+      "A thought saved through the capture form.",
+    ),
+    "The captured thought is visible in the canonical note editor",
+  );
   assert.equal((await api(`notes/${noteId}`)).title, noteTitle);
-  check(true, "Note capture creates and opens a canonical note");
+  check(true, "Note capture creates and opens its canonical editor");
 
   const taskTitle = `Captured action ${stamp}`;
   await page.goto(`${base}/capture`);
@@ -928,8 +992,19 @@ async function verifyCapturePage() {
   const taskId = new URL(page.url()).searchParams.get("task");
   assert.ok(taskId);
   owned.tasks.push(taskId);
+  const taskDetails = page.getByRole("dialog", {
+    name: "Task details",
+    exact: true,
+  });
+  await taskDetails.waitFor();
+  await taskDetails.locator(".task-details-title").waitFor();
+  assert.equal(
+    await taskDetails.locator(".task-details-title").innerText(),
+    taskTitle,
+    "The created task is visible in its canonical details dialog",
+  );
   assert.equal((await api(`tasks/${taskId}`)).title, taskTitle);
-  check(true, "Task capture creates and opens a canonical task");
+  check(true, "Task capture creates and opens its canonical details");
 }
 
 async function runWritingHarness() {
@@ -977,6 +1052,7 @@ try {
   await verifyCapturePage();
   await verifyQuickCapture(1440);
   await verifyQuickCapture(390);
+  await Promise.all(pendingConsoleDetails);
   await context.close();
   await browser.close();
 

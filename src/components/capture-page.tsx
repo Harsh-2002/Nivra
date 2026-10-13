@@ -52,6 +52,8 @@ export function CapturePage() {
   const confirm = useConfirm();
   const incoming = useRef({ dirty, busy, confirm });
   const incomingGeneration = useRef(0);
+  const mounted = useRef(true);
+  const statusRequest = useRef<AbortController | null>(null);
   useEffect(() => {
     incoming.current.confirm = confirm;
   }, [confirm]);
@@ -61,15 +63,24 @@ export function CapturePage() {
     theme.current = setTheme;
   }, [setTheme]);
   const refresh = useCallback(async () => {
+    if (!mounted.current) return;
+    statusRequest.current?.abort();
+    const request = new AbortController();
+    statusRequest.current = request;
     try {
-      const value = await api<CaptureStatus>("status");
+      const value = await api<CaptureStatus>("status", {
+        signal: request.signal,
+      });
+      if (!mounted.current || request.signal.aborted) return;
       setStatus(value);
       if (value.settings) theme.current(value.settings.theme);
     } catch (cause) {
-      setError((cause as Error).message);
+      if (mounted.current && !request.signal.aborted)
+        setError((cause as Error).message);
     }
   }, []);
   useEffect(() => {
+    mounted.current = true;
     let active = true;
     const receive = async () => {
       if (!active || !location.hash) return;
@@ -134,6 +145,8 @@ export function CapturePage() {
     });
     return () => {
       active = false;
+      mounted.current = false;
+      statusRequest.current?.abort();
       window.removeEventListener("hashchange", onHashChange);
     };
   }, [refresh]);

@@ -132,7 +132,7 @@ export function TasksPanel({
     const abort = new AbortController();
     void api<Task>(`tasks/${initialTaskId}`, { signal: abort.signal })
       .then((task) => {
-        setDetailTask(task);
+        if (!abort.signal.aborted) setDetailTask(task);
       })
       .catch((e) => {
         if (!abort.signal.aborted) setError((e as Error).message);

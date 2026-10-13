@@ -42,6 +42,8 @@ export function Nivra({
   } | null>(null);
   const [error, setError] = useState("");
   const signingOut = useRef(false);
+  const mounted = useRef(true);
+  const statusRequest = useRef<AbortController | null>(null);
   const { setTheme } = useTheme();
   const setThemeRef = useRef(setTheme);
   const install = useSyncExternalStore(
@@ -54,22 +56,35 @@ export function Nivra({
   }, [setTheme]);
   const refresh = useCallback(async () => {
     await Promise.resolve();
+    if (!mounted.current) return false;
+    statusRequest.current?.abort();
+    const request = new AbortController();
+    statusRequest.current = request;
     setError("");
     try {
-      const result = await api<NonNullable<typeof status>>("status");
+      const result = await api<NonNullable<typeof status>>("status", {
+        signal: request.signal,
+      });
+      if (!mounted.current || request.signal.aborted) return false;
       setStatus(result);
       if (result.settings) setThemeRef.current(result.settings.theme);
       return true;
     } catch (e) {
-      setError((e as Error).message);
+      if (mounted.current && !request.signal.aborted)
+        setError((e as Error).message);
       return false;
     }
   }, []);
   useEffect(() => {
+    mounted.current = true;
     const timer = setTimeout(() => {
       void refresh();
     }, 0);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      mounted.current = false;
+      statusRequest.current?.abort();
+    };
   }, [refresh]);
   if (!status && !error) return <LaunchScreen />;
   if (!status)
