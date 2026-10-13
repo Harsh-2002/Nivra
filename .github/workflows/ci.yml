@@ -89,7 +89,6 @@ jobs:
           docker image inspect nivra:ci --format 'Image bytes: {{.Size}}'
           node scripts/smoke-container.mjs nivra:ci
           docker run --rm --network none --cpus 1 --memory 1536m --memory-swap 1536m --read-only --tmpfs /tmp -e NIVRA_DATA_DIR=/tmp/ai-smoke --entrypoint node nivra:ci scripts/smoke-ai-runtime.mjs
-          docker run --rm --network none --cpus 1 --memory 512m --memory-swap 512m --read-only --tmpfs /tmp -v "$GITHUB_WORKSPACE/scripts/smoke-bookmark-reader.mjs:/app/scripts/smoke-bookmark-reader.mjs:ro" --entrypoint node nivra:ci scripts/smoke-bookmark-reader.mjs
 
       - name: Measure encrypted retrieval under the runtime resource limits
         run: |

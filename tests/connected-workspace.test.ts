@@ -652,6 +652,10 @@ test("connected workspace retains private search, recovery, journal and schedule
           revision: portableBoard.revision,
           archived: true,
         });
+        const readAt = Date.now();
+        sqlite()
+          .prepare("UPDATE bookmarks SET read_at=? WHERE id=?")
+          .run(readAt, bookmark.id);
         const exported = await call("export/bundle");
         const bytes = new Uint8Array(await exported.arrayBuffer());
         const manifest = JSON.parse(
@@ -673,6 +677,14 @@ test("connected workspace retains private search, recovery, journal and schedule
             item.tags.some((tag) => tag.name === "Universal organization"),
           ),
         );
+        assert.deepEqual(
+          manifest.bookmarkReading.readStates.find(
+            (item: { bookmarkId: string }) => item.bookmarkId === bookmark.id,
+          ),
+          { bookmarkId: bookmark.id, readAt },
+        );
+        assert.equal("articles" in manifest.bookmarkReading, false);
+        assert.equal("highlights" in manifest.bookmarkReading, false);
         const invalid = structuredClone(manifest);
         invalid.tasks[0].parentTaskId = invalid.tasks[0].id;
         const invalidEntries = unzipSync(bytes);
@@ -743,6 +755,89 @@ test("connected workspace retains private search, recovery, journal and schedule
         assert.match(
           JSON.stringify(copiedHistory.document),
           new RegExp(linked.noteId!),
+        );
+        const legacyManifest = structuredClone(manifest);
+        const restoredReadAt = readAt + 1_000;
+        legacyManifest.bookmarkReading = {
+          readStates: [
+            {
+              bookmarkId: bookmark.id,
+              readAt: restoredReadAt,
+              articleStatus: "ready",
+              articleGeneration: 1,
+              articleVersion: 1,
+            },
+          ],
+          articles: [
+            {
+              bookmarkId: bookmark.id,
+              version: 1,
+              sourceUrl: bookmark.url,
+              capturedAt: readAt,
+              title: "Legacy reader archive",
+              byline: null,
+              content: {
+                blocks: [
+                  {
+                    type: "paragraph",
+                    children: [
+                      { type: "text", text: "Archived article body." },
+                    ],
+                  },
+                ],
+              },
+              plainText: "Archived article body.",
+              fingerprint: "c".repeat(64),
+            },
+          ],
+          highlights: [
+            {
+              id: randomUUID(),
+              bookmarkId: bookmark.id,
+              articleVersion: 1,
+              quote: "article body",
+              prefix: "Archived ",
+              suffix: ".",
+              startOffset: 9,
+              endOffset: 21,
+              annotation: "Legacy annotation",
+              revision: 1,
+              createdAt: readAt,
+              updatedAt: readAt,
+            },
+          ],
+        };
+        const legacyEntries = unzipSync(bytes);
+        legacyEntries["manifest.json"] = strToU8(
+          JSON.stringify(legacyManifest),
+        );
+        const archiveCounts = () =>
+          sqlite()
+            .prepare(
+              "SELECT (SELECT count(*) FROM bookmark_articles WHERE bookmark_id=?) AS articles,(SELECT count(*) FROM bookmark_highlights WHERE bookmark_id=?) AS highlights",
+            )
+            .get(bookmark.id, bookmark.id) as {
+            articles: number;
+            highlights: number;
+          };
+        const beforeLegacyImport = archiveCounts();
+        const beforeLegacyState = sqlite()
+          .prepare(
+            "SELECT article_status AS articleStatus,article_version AS articleVersion FROM bookmarks WHERE id=?",
+          )
+          .get(bookmark.id) as {
+          articleStatus: string;
+          articleVersion: number;
+        };
+        await value("import/bundle", "POST", zipSync(legacyEntries));
+        assert.deepEqual(archiveCounts(), beforeLegacyImport);
+        assert.deepEqual(
+          sqlite()
+            .prepare(
+              "SELECT read_at AS readAt,article_status AS articleStatus,article_version AS articleVersion FROM bookmarks WHERE id=?",
+            )
+            .get(bookmark.id),
+          { readAt: restoredReadAt, ...beforeLegacyState },
         );
       },
     );

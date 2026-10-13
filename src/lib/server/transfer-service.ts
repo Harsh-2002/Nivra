@@ -17,11 +17,6 @@ import {
   taskScheduleIssueSchema,
   taskScheduleSchema,
 } from "../task-planning";
-import {
-  ArticleContentBoundsError,
-  articleContentSchema,
-  assertArticleContentTreeWithinBounds,
-} from "../bookmark-reading";
 import { journalPeriodSchema, writingPlainText } from "../writing";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { randomUUID } from "node:crypto";
@@ -214,22 +209,7 @@ export async function executeTransfer(
     const bookmarkReading = {
       readStates: database
         .prepare(
-          "SELECT id AS bookmarkId,read_at AS readAt,article_status AS articleStatus,article_generation AS articleGeneration,article_version AS articleVersion FROM bookmarks WHERE owner_id=? ORDER BY id",
-        )
-        .all(owner.id),
-      articles: (
-        database
-          .prepare(
-            "SELECT bookmark_id AS bookmarkId,version,source_url AS sourceUrl,captured_at AS capturedAt,title,byline,content_json AS content,plain_text AS plainText,fingerprint FROM bookmark_articles WHERE owner_id=? ORDER BY bookmark_id,version",
-          )
-          .all(owner.id) as { content: string; [key: string]: unknown }[]
-      ).map((article) => ({
-        ...article,
-        content: JSON.parse(article.content),
-      })),
-      highlights: database
-        .prepare(
-          "SELECT id,bookmark_id AS bookmarkId,article_version AS articleVersion,quote,prefix,suffix,start_offset AS startOffset,end_offset AS endOffset,annotation,revision,created_at AS createdAt,updated_at AS updatedAt FROM bookmark_highlights WHERE owner_id=? ORDER BY bookmark_id,article_version,created_at,id",
+          "SELECT id AS bookmarkId,read_at AS readAt FROM bookmarks WHERE owner_id=? ORDER BY id",
         )
         .all(owner.id),
     };
@@ -368,34 +348,39 @@ export async function executeTransfer(
     if (!entries["manifest.json"])
       throw new HttpError(400, "Choose a Nivra export bundle.");
     const importedManifest = JSON.parse(strFromU8(entries["manifest.json"]));
-    const bookmarkReading =
-      importedManifest && typeof importedManifest === "object"
-        ? (importedManifest as Record<string, unknown>).bookmarkReading
-        : undefined;
-    const importedArticles =
-      bookmarkReading && typeof bookmarkReading === "object"
-        ? (bookmarkReading as Record<string, unknown>).articles
-        : undefined;
-    if (Array.isArray(importedArticles)) {
-      if (importedArticles.length > 50_000)
-        throw new HttpError(
-          400,
-          "The bundle contains too many saved articles.",
-        );
-      try {
-        for (const article of importedArticles) {
-          if (!article || typeof article !== "object") continue;
-          assertArticleContentTreeWithinBounds(
-            (article as Record<string, unknown>).content,
-          );
-        }
-      } catch (error) {
-        if (error instanceof ArticleContentBoundsError)
+    if (
+      importedManifest &&
+      typeof importedManifest === "object" &&
+      !Array.isArray(importedManifest)
+    ) {
+      const manifestRecord = importedManifest as Record<string, unknown>;
+      const legacyReading = manifestRecord.bookmarkReading;
+      if (
+        legacyReading &&
+        typeof legacyReading === "object" &&
+        !Array.isArray(legacyReading)
+      ) {
+        // Read old v5 bundles but discard the archived reading feature data.
+        const legacyRecord = legacyReading as Record<string, unknown>;
+        if (
+          Array.isArray(legacyRecord.articles) &&
+          legacyRecord.articles.length > 50_000
+        )
           throw new HttpError(
             400,
-            "The bundle contains article content that is too deeply nested or too large.",
+            "The bundle contains too many saved articles.",
           );
-        throw error;
+        if (
+          Array.isArray(legacyRecord.highlights) &&
+          legacyRecord.highlights.length > 100_000
+        )
+          throw new HttpError(
+            400,
+            "The bundle contains too many saved article highlights.",
+          );
+        manifestRecord.bookmarkReading = {
+          readStates: legacyRecord.readStates ?? [],
+        };
       }
     }
     const manifest = z
@@ -636,56 +621,14 @@ export async function executeTransfer(
                 z.object({
                   bookmarkId: z.string().uuid(),
                   readAt: z.number().int().nonnegative().nullable(),
-                  articleStatus: z
-                    .enum(["pending", "ready", "unavailable"])
-                    .default("unavailable"),
-                  articleGeneration: z.number().int().nonnegative().default(0),
-                  articleVersion: z.number().int().nonnegative().default(0),
                 }),
               )
               .max(10000)
               .default([]),
-            articles: z
-              .array(
-                z.object({
-                  bookmarkId: z.string().uuid(),
-                  version: z.number().int().positive(),
-                  sourceUrl: z.string().url().max(4096),
-                  capturedAt: z.number().int().nonnegative(),
-                  title: z.string().max(300),
-                  byline: z.string().max(200).nullable(),
-                  content: articleContentSchema,
-                  plainText: z.string().max(200000),
-                  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-                }),
-              )
-              .max(50000)
-              .default([]),
-            highlights: z
-              .array(
-                z
-                  .object({
-                    id: z.string().uuid(),
-                    bookmarkId: z.string().uuid(),
-                    articleVersion: z.number().int().positive(),
-                    quote: z.string().min(1).max(10000),
-                    prefix: z.string().max(256),
-                    suffix: z.string().max(256),
-                    startOffset: z.number().int().min(0).max(200000),
-                    endOffset: z.number().int().min(1).max(200000),
-                    annotation: z.string().max(3000),
-                    revision: z.number().int().positive(),
-                    createdAt: z.number().int().nonnegative(),
-                    updatedAt: z.number().int().nonnegative(),
-                  })
-                  .refine((value) => value.endOffset > value.startOffset),
-              )
-              .max(100000)
-              .default([]),
           })
           .strict()
           .optional()
-          .default({ readStates: [], articles: [], highlights: [] }),
+          .default({ readStates: [] }),
         attachments: z
           .array(
             z.object({
@@ -817,84 +760,6 @@ export async function executeTransfer(
           "The bundle contains invalid bookmark reading state.",
         );
       readStateIds.add(state.bookmarkId);
-    }
-    const articleKeys = new Set<string>();
-    const articlesBySourceKey = new Map<
-      string,
-      (typeof manifest.bookmarkReading.articles)[number]
-    >();
-    for (const article of manifest.bookmarkReading.articles) {
-      const key = `${article.bookmarkId}:${article.version}`;
-      const sourceBookmark = manifest.bookmarks.find(
-        (item) => item.id === article.bookmarkId,
-      );
-      if (
-        !sourceBookmark ||
-        article.sourceUrl !== sourceBookmark.url ||
-        articleKeys.has(key)
-      )
-        throw new HttpError(
-          400,
-          "The bundle contains an invalid saved article.",
-        );
-      articleKeys.add(key);
-      articlesBySourceKey.set(key, article);
-    }
-    for (const state of manifest.bookmarkReading.readStates)
-      if (
-        (state.articleVersion > 0 &&
-          !articleKeys.has(`${state.bookmarkId}:${state.articleVersion}`)) ||
-        (state.articleStatus === "ready" && state.articleVersion === 0)
-      )
-        throw new HttpError(
-          400,
-          "The bundle contains inconsistent bookmark reading state.",
-        );
-    const highlightIds = new Set<string>();
-    const highlightTotals = new Map<string, { count: number; bytes: number }>();
-    for (const highlight of manifest.bookmarkReading.highlights) {
-      const article = articlesBySourceKey.get(
-        `${highlight.bookmarkId}:${highlight.articleVersion}`,
-      );
-      const text = article?.plainText;
-      if (
-        !bookmarkSourceIds.has(highlight.bookmarkId) ||
-        !articleKeys.has(
-          `${highlight.bookmarkId}:${highlight.articleVersion}`,
-        ) ||
-        highlightIds.has(highlight.id) ||
-        text === undefined ||
-        highlight.endOffset > text.length ||
-        text.slice(highlight.startOffset, highlight.endOffset) !==
-          highlight.quote ||
-        text.slice(
-          Math.max(0, highlight.startOffset - highlight.prefix.length),
-          highlight.startOffset,
-        ) !== highlight.prefix ||
-        text.slice(
-          highlight.endOffset,
-          highlight.endOffset + highlight.suffix.length,
-        ) !== highlight.suffix
-      )
-        throw new HttpError(
-          400,
-          "The bundle contains an invalid article highlight.",
-        );
-      highlightIds.add(highlight.id);
-      const total = highlightTotals.get(highlight.bookmarkId) ?? {
-        count: 0,
-        bytes: 0,
-      };
-      total.count++;
-      total.bytes +=
-        Buffer.byteLength(highlight.quote, "utf8") +
-        Buffer.byteLength(highlight.annotation, "utf8");
-      if (total.count > 1000 || total.bytes > 200_000)
-        throw new HttpError(
-          422,
-          "The bundle exceeds the saved-highlight limit for a bookmark.",
-        );
-      highlightTotals.set(highlight.bookmarkId, total);
     }
     const historyCounts = new Map<string, number>();
     for (const v of manifest.history) {
@@ -1349,97 +1214,17 @@ export async function executeTransfer(
               "INSERT INTO writing_preferences(owner_id,default_journal_template_id,revision,updated_at) VALUES(?,?,1,?) ON CONFLICT(owner_id) DO UPDATE SET default_journal_template_id=excluded.default_journal_template_id,revision=writing_preferences.revision+1,updated_at=excluded.updated_at",
             )
             .run(owner.id, defaultTemplateId, Date.now());
-          const bookmarkVersionMap = new Map<string, number>();
-          for (const article of manifest.bookmarkReading.articles) {
-            const bookmarkId = bookmarkIds.get(article.bookmarkId);
-            if (!bookmarkId) continue;
-            const key = `${article.bookmarkId}:${article.version}`;
-            const existingArticle = database
-              .prepare(
-                "SELECT version FROM bookmark_articles WHERE bookmark_id=? AND fingerprint=? LIMIT 1",
-              )
-              .get(bookmarkId, article.fingerprint) as
-              { version: number } | undefined;
-            const mappedVersion =
-              existingArticle?.version ??
-              (
-                database
-                  .prepare(
-                    "SELECT coalesce(max(version),0)+1 AS version FROM bookmark_articles WHERE bookmark_id=?",
-                  )
-                  .get(bookmarkId) as { version: number }
-              ).version;
-            bookmarkVersionMap.set(key, mappedVersion);
-            if (existingArticle) continue;
-            database
-              .prepare(
-                "INSERT INTO bookmark_articles(bookmark_id,owner_id,version,source_url,captured_at,title,byline,content_json,plain_text,fingerprint) VALUES(?,?,?,?,?,?,?,?,?,?)",
-              )
-              .run(
-                bookmarkId,
-                owner.id,
-                mappedVersion,
-                article.sourceUrl,
-                article.capturedAt,
-                article.title,
-                article.byline,
-                JSON.stringify(article.content),
-                article.plainText,
-                article.fingerprint,
-              );
-          }
-          for (const highlight of manifest.bookmarkReading.highlights) {
-            const bookmarkId = bookmarkIds.get(highlight.bookmarkId);
-            const articleVersion = bookmarkVersionMap.get(
-              `${highlight.bookmarkId}:${highlight.articleVersion}`,
-            );
-            if (!bookmarkId || !articleVersion) continue;
-            database
-              .prepare(
-                "INSERT INTO bookmark_highlights(id,owner_id,bookmark_id,article_version,quote,prefix,suffix,start_offset,end_offset,annotation,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-              )
-              .run(
-                randomUUID(),
-                owner.id,
-                bookmarkId,
-                articleVersion,
-                highlight.quote,
-                highlight.prefix,
-                highlight.suffix,
-                highlight.startOffset,
-                highlight.endOffset,
-                highlight.annotation,
-                highlight.revision,
-                highlight.createdAt,
-                highlight.updatedAt,
-              );
-          }
           for (const state of manifest.bookmarkReading.readStates) {
             const bookmarkId = bookmarkIds.get(state.bookmarkId);
             if (!bookmarkId) continue;
-            const importedVersion = state.articleVersion
-              ? bookmarkVersionMap.get(
-                  `${state.bookmarkId}:${state.articleVersion}`,
-                )
-              : undefined;
-            const maxVersion = (
-              database
-                .prepare(
-                  "SELECT coalesce(max(version),0) AS version FROM bookmark_articles WHERE bookmark_id=?",
-                )
-                .get(bookmarkId) as { version: number }
-            ).version;
             database
               .prepare(
-                "UPDATE bookmarks SET read_at=CASE WHEN read_at IS NULL THEN ? WHEN ? IS NULL THEN read_at ELSE max(read_at,?) END,article_version=max(article_version,?),article_status=CASE WHEN ? > 0 THEN 'ready' WHEN ?='pending' AND article_status!='ready' THEN 'unavailable' ELSE article_status END WHERE id=? AND owner_id=?",
+                "UPDATE bookmarks SET read_at=CASE WHEN read_at IS NULL THEN ? WHEN ? IS NULL THEN read_at ELSE max(read_at,?) END WHERE id=? AND owner_id=?",
               )
               .run(
                 state.readAt,
                 state.readAt,
                 state.readAt,
-                importedVersion ?? maxVersion,
-                maxVersion,
-                state.articleStatus,
                 bookmarkId,
                 owner.id,
               );

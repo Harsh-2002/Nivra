@@ -262,7 +262,7 @@ export function CalendarTaskDialog({
                     ))}
                   </ul>
                 ) : (
-                  <p className="planning-inline-status">
+                  <p className="planning-inline-status" role="status">
                     {query.trim()
                       ? "No unscheduled tasks match."
                       : "No unscheduled tasks in these results. Search by title."}

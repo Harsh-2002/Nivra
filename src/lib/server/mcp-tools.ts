@@ -1,7 +1,6 @@
 import { apiInputs } from "./api-schemas";
 import { captureInput } from "../capture";
 import { writingInputs } from "./writing-contract";
-import { articleActionSchema } from "../bookmark-reading";
 import { taskRecurrenceRuleSchema, taskScheduleSchema } from "../task-planning";
 import { journalPeriodStart } from "../writing";
 import { formApiInputs } from "./form-api-schemas";
@@ -955,114 +954,6 @@ add(
   async (i, c) => c.call("bookmarks/read-state", "POST", i),
 );
 add(
-  "get_bookmark_article",
-  "Read a saved article and its extracted text.",
-  z.object({ id, version: z.number().int().positive().optional() }),
-  false,
-  async (i, c) =>
-    c.call(
-      `bookmarks/${i.id}/article${i.version ? `?version=${i.version}` : ""}`,
-    ),
-);
-add(
-  "list_bookmark_article_versions",
-  "List saved article versions for a bookmark.",
-  z
-    .object({
-      id,
-      limit: z.number().int().min(1).max(50).optional(),
-      after: z.string().max(2048).optional(),
-    })
-    .strict(),
-  false,
-  async (i, c) => {
-    const query = new URLSearchParams();
-    if (i.limit) query.set("limit", String(i.limit));
-    if (i.after) query.set("after", String(i.after));
-    const suffix = query.size ? `?${query.toString()}` : "";
-    return c.call(`bookmarks/${i.id}/article/versions${suffix}`);
-  },
-);
-add(
-  "save_bookmark_article",
-  "Save or refresh a bookmark's readable article.",
-  z.object({ id, ...articleActionSchema.shape }),
-  true,
-  async ({ id: bookmarkId, action }, c) =>
-    c.call(`bookmarks/${bookmarkId}/article`, "POST", { action }),
-  { openWorld: true },
-);
-add(
-  "list_bookmark_highlights",
-  "List highlights from a saved article.",
-  z
-    .object({
-      id,
-      version: z.number().int().positive().optional(),
-      limit: z.number().int().min(1).max(100).optional(),
-      after: z.string().max(2048).optional(),
-    })
-    .strict(),
-  false,
-  async (i, c) => {
-    const query = new URLSearchParams();
-    if (i.version) query.set("version", String(i.version));
-    if (i.limit) query.set("limit", String(i.limit));
-    if (i.after) query.set("after", String(i.after));
-    const suffix = query.size ? `?${query.toString()}` : "";
-    return c.call(`bookmarks/${i.id}/highlights${suffix}`);
-  },
-);
-add(
-  "create_bookmark_highlight",
-  "Save a highlighted quote and optional annotation.",
-  z
-    .object({
-      id,
-      articleVersion: z.number().int().positive(),
-      quote: z.string().min(1).max(10000),
-      prefix: z.string().max(256).default(""),
-      suffix: z.string().max(256).default(""),
-      startOffset: z.number().int().nonnegative(),
-      endOffset: z.number().int().positive(),
-      annotation: z.string().max(3000).default(""),
-    })
-    .strict()
-    .refine((input) => input.endOffset > input.startOffset),
-  true,
-  async ({ id: bookmarkId, ...body }, c) =>
-    c.call(`bookmarks/${bookmarkId}/highlights`, "POST", body),
-);
-add(
-  "update_bookmark_highlight",
-  "Update an annotation or re-anchor a saved highlight.",
-  z
-    .object({
-      id,
-      highlightId: id,
-      revision,
-      annotation: z.string().max(3000).optional(),
-      reanchor: z
-        .object({
-          articleVersion: z.number().int().positive(),
-          quote: z.string().min(1).max(10000),
-          prefix: z.string().max(256).default(""),
-          suffix: z.string().max(256).default(""),
-          startOffset: z.number().int().nonnegative(),
-          endOffset: z.number().int().positive(),
-        })
-        .strict()
-        .optional(),
-    })
-    .strict()
-    .refine(
-      (input) => input.annotation !== undefined || input.reanchor !== undefined,
-    ),
-  true,
-  async ({ id: bookmarkId, highlightId, ...body }, c) =>
-    c.call(`bookmarks/${bookmarkId}/highlights/${highlightId}`, "PATCH", body),
-);
-add(
   "refresh_bookmark",
   "Refresh bookmark metadata in the background.",
   z.object({ id, revision }),
@@ -1116,8 +1007,8 @@ add(
 );
 add(
   "processing_status",
-  "Get background processing status for an artifact, bookmark or article.",
-  z.object({ id, kind: z.enum(["artifact", "bookmark", "article"]) }),
+  "Get background processing status for an artifact or bookmark.",
+  z.object({ id, kind: z.enum(["artifact", "bookmark"]) }),
   false,
   async (i, c) => {
     const row = sqlite()
@@ -1128,7 +1019,7 @@ add(
     if (!row) throw new HttpError(404, "This item was not found.");
     return sqlite()
       .prepare(
-        "SELECT kind,state,attempts FROM background_jobs WHERE owner_id=? AND target_id=? ORDER BY created_at DESC LIMIT 20",
+        "SELECT kind,state,attempts FROM background_jobs WHERE owner_id=? AND target_id=? AND kind NOT IN ('semantic','article') ORDER BY created_at DESC LIMIT 20",
       )
       .all(c.principal.ownerId, i.id);
   },

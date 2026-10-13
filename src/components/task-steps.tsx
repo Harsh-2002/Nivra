@@ -30,70 +30,95 @@ export function TaskSteps({
   const confirm = useConfirm();
   const [items, setItems] = useState<TaskStep[]>(task.steps ?? []);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [error, setError] = useState("");
   const addInput = useRef<HTMLInputElement>(null);
+  const reloadController = useRef<AbortController | null>(null);
   const version = useRef(0);
   const taskChange = useRef(onTaskChange);
   useEffect(() => {
     taskChange.current = onTaskChange;
   }, [onTaskChange]);
 
-  const reload = useCallback(
-    async (signal?: AbortSignal) => {
-      const ticket = ++version.current;
-      try {
-        const result = await api<StepsResponse>(
-          `tasks/${encodeURIComponent(task.id)}/steps`,
-          { signal },
+  const reload = useCallback(async () => {
+    reloadController.current?.abort();
+    const controller = new AbortController();
+    reloadController.current = controller;
+    const { signal } = controller;
+    const ticket = ++version.current;
+    try {
+      const result = await api<StepsResponse>(
+        `tasks/${encodeURIComponent(task.id)}/steps`,
+        { signal },
+      );
+      if (signal.aborted || ticket !== version.current) return;
+      setItems(result.items);
+      setLoaded(true);
+      setLoadError("");
+      setError("");
+      if (result.taskRevision !== task.revision) {
+        const current = await api<Task>(
+          `tasks/${encodeURIComponent(task.id)}`,
+          {
+            signal,
+          },
         );
-        if (signal?.aborted || ticket !== version.current) return;
-        setItems(result.items);
-        setLoaded(true);
-        setError("");
-        if (result.taskRevision !== task.revision) {
-          const current = await api<Task>(
-            `tasks/${encodeURIComponent(task.id)}`,
-            {
-              signal,
-            },
-          );
-          if (!signal?.aborted && ticket === version.current)
-            taskChange.current(current);
-        }
-      } catch (cause) {
-        if (!signal?.aborted && ticket === version.current) {
-          setLoaded(true);
-          setError((cause as Error).message);
-        }
+        if (!signal.aborted && ticket === version.current)
+          taskChange.current(current);
       }
-    },
-    [task.id, task.revision],
-  );
+    } catch (cause) {
+      if (!signal.aborted && ticket === version.current) {
+        setLoaded(true);
+        setLoadError((cause as Error).message);
+      }
+    } finally {
+      if (reloadController.current === controller)
+        reloadController.current = null;
+    }
+  }, [task.id, task.revision]);
 
   useEffect(() => {
-    const abort = new AbortController();
-    const timer = setTimeout(() => void reload(abort.signal), 0);
+    const timer = setTimeout(() => void reload(), 0);
     return () => {
       clearTimeout(timer);
-      abort.abort();
+      reloadController.current?.abort();
+      reloadController.current = null;
     };
   }, [reload]);
 
   async function refreshAfterConflict(cause: unknown) {
     if (cause instanceof ApiError && cause.status === 409) {
+      reloadController.current?.abort();
+      const controller = new AbortController();
+      reloadController.current = controller;
+      const ticket = ++version.current;
       try {
         const [current, steps] = await Promise.all([
-          api<Task>(`tasks/${encodeURIComponent(task.id)}`),
-          api<StepsResponse>(`tasks/${encodeURIComponent(task.id)}/steps`),
+          api<Task>(`tasks/${encodeURIComponent(task.id)}`, {
+            signal: controller.signal,
+          }),
+          api<StepsResponse>(`tasks/${encodeURIComponent(task.id)}/steps`, {
+            signal: controller.signal,
+          }),
         ]);
-        taskChange.current(current);
-        setItems(steps.items);
+        if (!controller.signal.aborted && ticket === version.current) {
+          taskChange.current(current);
+          setItems(steps.items);
+          setLoaded(true);
+          setLoadError("");
+        }
       } catch {
-        setError("This task changed elsewhere. Reload it before trying again.");
+        if (!controller.signal.aborted && ticket === version.current)
+          setError(
+            "This task changed elsewhere. Reload it before trying again.",
+          );
+      } finally {
+        if (reloadController.current === controller)
+          reloadController.current = null;
       }
     }
   }
@@ -213,7 +238,15 @@ export function TaskSteps({
         },
       );
       taskChange.current(result.task);
+      const index = items.findIndex((item) => item.id === step.id);
+      const focusStepId = items[index + 1]?.id ?? items[index - 1]?.id;
       setItems((current) => current.filter((item) => item.id !== step.id));
+      requestAnimationFrame(() => {
+        const nextFocus = focusStepId
+          ? document.getElementById(`task-step-text-${task.id}-${focusStepId}`)
+          : null;
+        (nextFocus ?? addInput.current)?.focus();
+      });
     } catch (cause) {
       await refreshAfterConflict(cause);
       setError((cause as Error).message);
@@ -223,6 +256,12 @@ export function TaskSteps({
   }
 
   const completed = items.filter((item) => item.completed).length;
+  function retryLoad() {
+    setLoadError("");
+    setError("");
+    setLoaded(false);
+    void reload();
+  }
   return (
     <section
       className="planning-steps"
@@ -232,17 +271,28 @@ export function TaskSteps({
       <div className="planning-section-heading">
         <div>
           <h3 id={`task-steps-heading-${task.id}`}>Checklist</h3>
-          <p>
-            {items.length
-              ? `${completed} of ${items.length} complete`
-              : "Break this task into smaller steps, if useful."}
-          </p>
+          {loaded && !loadError && (
+            <p>
+              {items.length
+                ? `${completed} of ${items.length} complete`
+                : "Break this task into smaller steps, if useful."}
+            </p>
+          )}
         </div>
       </div>
       {!loaded ? (
         <p className="planning-inline-status" role="status">
           Loading checklist…
         </p>
+      ) : loadError ? (
+        <div className="planning-checklist-load-error">
+          <p className="planning-inline-error" role="alert">
+            {loadError}
+          </p>
+          <Button type="button" variant="outline" onClick={retryLoad}>
+            Retry loading checklist
+          </Button>
+        </div>
       ) : items.length > 0 ? (
         <ol
           className="planning-step-list"
@@ -393,7 +443,7 @@ export function TaskSteps({
           placeholder={
             items.length >= 100 ? "Checklist limit reached" : "Add a step"
           }
-          disabled={busy || items.length >= 100}
+          disabled={busy || !loaded || !!loadError || items.length >= 100}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             guardComposition(event);
@@ -411,7 +461,13 @@ export function TaskSteps({
           type="button"
           variant="outline"
           aria-label="Add checklist step"
-          disabled={busy || !draft.trim() || items.length >= 100}
+          disabled={
+            busy ||
+            !loaded ||
+            !!loadError ||
+            !draft.trim() ||
+            items.length >= 100
+          }
           onClick={() => void createStep()}
         >
           {busy ? (

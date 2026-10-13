@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sqlite } from "./db";
 import { queueSemanticWork, canIndexLocally, stopAi } from "./ai/indexer";
 
-export type JobKind =
-  "artifact" | "bookmark" | "thumbnail" | "semantic" | "article";
+export type JobKind = "artifact" | "bookmark" | "thumbnail" | "semantic";
 export type Job = {
   id: string;
   owner_id: string;
@@ -63,10 +62,7 @@ export function enqueueJob(owner: string, kind: JobKind, target: string) {
 export function completionEvent(
   owner: string,
   kind:
-    | Exclude<JobKind, "thumbnail" | "semantic" | "article">
-    | "backup"
-    | "content"
-    | "ai",
+    Exclude<JobKind, "thumbnail" | "semantic"> | "backup" | "content" | "ai",
   target: string,
   status: string,
 ) {
@@ -92,14 +88,11 @@ export function claimJob(
         .prepare(
           `SELECT * FROM background_jobs
            WHERE (? OR kind<>'semantic')
+             AND kind<>'article'
              AND ((state='queued' AND available_at<=?) OR (state='running' AND lease_until<=?))
-             AND (kind<>'article' OR NOT EXISTS(
-               SELECT 1 FROM background_jobs held
-               WHERE held.kind='article' AND held.state='running' AND held.lease_until>?
-             ))
            ORDER BY CASE WHEN kind='thumbnail' THEN 0 WHEN kind=? THEN 1 ELSE 2 END,available_at,created_at LIMIT 1`,
         )
-        .get(Number(allowSemantic), now, now, now, preferredKind ?? null) as
+        .get(Number(allowSemantic), now, now, preferredKind ?? null) as
         Job | undefined;
       if (!row) return;
       const token = randomUUID();
@@ -149,9 +142,7 @@ export function commitJob(job: Job, write: () => string) {
             ? "ai"
             : job.kind === "thumbnail"
               ? "artifact"
-              : job.kind === "article"
-                ? "bookmark"
-                : job.kind,
+              : job.kind,
         formFile ? formFile.formId : job.target_id,
         formFile ? "forms" : status,
       );
@@ -180,10 +171,6 @@ async function execute(job: Job, signal: AbortSignal) {
       await (await import("./ai/indexer")).processSemantic(context);
     else if (job.kind === "artifact")
       await (await import("./artifact-processing")).processArtifact(context);
-    else if (job.kind === "article")
-      await (
-        await import("./bookmark-reading-service")
-      ).processBookmarkArticle(context);
     else
       await (
         await import("./storage-operations")
@@ -204,46 +191,34 @@ async function execute(job: Job, signal: AbortSignal) {
       return;
     }
     if (job.attempts >= maxAttempts) {
-      if (job.kind === "article") {
-        const { articleJobFailure } =
-          await import("./bookmark-reading-service");
-        commitJob(job, () => {
-          articleJobFailure(
-            job.owner_id,
-            job.target_id,
-            job.generation ?? null,
-          );
-          return "failed";
-        });
-      } else
-        commitJob(job, () => {
-          if (job.kind === "semantic") return "failed";
-          if (job.kind === "artifact")
-            sqlite()
-              .prepare(
-                "UPDATE artifacts SET extraction='failed',updated_at=? WHERE id=? AND owner_id=? AND extraction='pending' AND trashed_at IS NULL",
-              )
-              .run(Date.now(), job.target_id, job.owner_id);
-          else if (job.kind === "thumbnail")
-            sqlite()
-              .prepare(
-                "UPDATE artifacts SET thumbnail_status='failed',updated_at=? WHERE id=? AND owner_id=? AND thumbnail_status='pending' AND trashed_at IS NULL",
-              )
-              .run(Date.now(), job.target_id, job.owner_id);
-          else
-            sqlite()
-              .prepare(
-                "UPDATE bookmarks SET metadata_status='unavailable',updated_at=? WHERE id=? AND owner_id=? AND metadata_status='pending' AND trashed_at IS NULL",
-              )
-              .run(Date.now(), job.target_id, job.owner_id);
-          if (job.kind === "thumbnail")
-            sqlite()
-              .prepare(
-                "UPDATE form_files SET thumbnail_status='failed' WHERE id=? AND thumbnail_status='pending' AND EXISTS(SELECT 1 FROM forms WHERE id=form_files.form_id AND owner_id=?)",
-              )
-              .run(job.target_id, job.owner_id);
-          return "failed";
-        });
+      commitJob(job, () => {
+        if (job.kind === "semantic") return "failed";
+        if (job.kind === "artifact")
+          sqlite()
+            .prepare(
+              "UPDATE artifacts SET extraction='failed',updated_at=? WHERE id=? AND owner_id=? AND extraction='pending' AND trashed_at IS NULL",
+            )
+            .run(Date.now(), job.target_id, job.owner_id);
+        else if (job.kind === "thumbnail")
+          sqlite()
+            .prepare(
+              "UPDATE artifacts SET thumbnail_status='failed',updated_at=? WHERE id=? AND owner_id=? AND thumbnail_status='pending' AND trashed_at IS NULL",
+            )
+            .run(Date.now(), job.target_id, job.owner_id);
+        else
+          sqlite()
+            .prepare(
+              "UPDATE bookmarks SET metadata_status='unavailable',updated_at=? WHERE id=? AND owner_id=? AND metadata_status='pending' AND trashed_at IS NULL",
+            )
+            .run(Date.now(), job.target_id, job.owner_id);
+        if (job.kind === "thumbnail")
+          sqlite()
+            .prepare(
+              "UPDATE form_files SET thumbnail_status='failed' WHERE id=? AND thumbnail_status='pending' AND EXISTS(SELECT 1 FROM forms WHERE id=form_files.form_id AND owner_id=?)",
+            )
+            .run(job.target_id, job.owner_id);
+        return "failed";
+      });
     } else
       sqlite()
         .prepare(
@@ -285,7 +260,7 @@ export async function jobsIdle() {
     runner.active.size ||
     sqlite()
       .prepare(
-        "SELECT 1 FROM background_jobs WHERE state IN ('queued','running') LIMIT 1",
+        "SELECT 1 FROM background_jobs WHERE state IN ('queued','running') AND kind<>'article' LIMIT 1",
       )
       .get()
   ) {

@@ -125,7 +125,7 @@ test("PWA sharing prepares a private review draft without saving content", async
   assert.equal(oversized.status, 413);
 });
 
-test("reviewed capture atomically saves a passage and reuses a bookmark on retry", async () => {
+test("reviewed capture atomically saves a passage and indexes bookmark metadata only", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "nivra-capture-"));
   const old = process.env.NIVRA_DATA_DIR;
   process.env.NIVRA_DATA_DIR = directory;
@@ -192,8 +192,9 @@ test("reviewed capture atomically saves a passage and reuses a bookmark on retry
       value.id,
     );
     const indexed = sourceFor(`bookmark:${value.id}`)!;
-    assert.ok(indexed.generation > before.generation);
-    assert.match(sourceText(indexed), /SENTINEL_ARTICLE_TEXT/);
+    assert.equal(indexed.generation, before.generation);
+    assert.doesNotMatch(sourceText(indexed), /SENTINEL_ARTICLE_TEXT/);
+    assert.match(sourceText(indexed), /A saved reference/);
     d.prepare("UPDATE bookmarks SET trashed_at=2 WHERE id=?").run(value.id);
     await assert.rejects(call({ ...input, text: "" }), /Trash/);
     assert.equal(sourceFor(`bookmark:${value.id}`)?.active, 0);

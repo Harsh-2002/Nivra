@@ -87,11 +87,17 @@ export default async function verifyPlanning(page) {
   }
 
   const stamp = Date.now();
+  const planningDate = new Date();
+  planningDate.setUTCDate(planningDate.getUTCDate() + 45 + (stamp % 120));
+  const planningDateValue = planningDate.toISOString().slice(0, 10);
+  const dueDate = new Date(planningDate);
+  dueDate.setUTCDate(dueDate.getUTCDate() + 30);
   const firstTitle = "Planning checklist " + stamp;
   const secondTitle = "Planning slot task " + stamp;
   const first = await api("tasks", "POST", {
     title: firstTitle,
-    dueDate: "2026-11-15",
+    dueDate: dueDate.toISOString().slice(0, 10),
+    plannedDate: planningDateValue,
   });
   const second = await api("tasks", "POST", { title: secondTitle });
   let recurringEvent;
@@ -290,6 +296,25 @@ export default async function verifyPlanning(page) {
 
     const slotLabel =
       "Plan a task on " + scheduled.schedule.start.slice(0, 10) + " at 10:30";
+    const occupiedSlotLabel =
+      "Plan a task on " + scheduled.schedule.start.slice(0, 10) + " at 10:00";
+    const previousSlotLabel =
+      "Plan a task on " + scheduled.schedule.start.slice(0, 10) + " at 09:30";
+    const previousSlot = button(previousSlotLabel);
+    await previousSlot.focus();
+    await page.keyboard.press("ArrowDown");
+    assert.equal(
+      await page.evaluate(() =>
+        document.activeElement?.getAttribute("aria-label"),
+      ),
+      slotLabel,
+      "ArrowDown skips the occupied task block and focuses the next empty slot",
+    );
+    assert.equal(await button(occupiedSlotLabel).count(), 0);
+    check(
+      true,
+      "Keyboard navigation skips an event-occupied time slot without stalling",
+    );
     const shortBlock = page
       .locator(".schedule-time-entry")
       .filter({ hasText: firstTitle });

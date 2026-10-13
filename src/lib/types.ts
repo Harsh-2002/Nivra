@@ -109,9 +109,6 @@ export type Bookmark = {
   collection: string;
   favorite: boolean;
   readAt: number | null;
-  articleStatus: "pending" | "ready" | "unavailable";
-  articleGeneration: number;
-  articleVersion: number;
   metadataStatus: "pending" | "ready" | "unavailable";
   thumbnail: string | null;
   icon: string | null;
@@ -136,8 +133,6 @@ export type WritingTemplate = {
   attachments?: { id: string; name: string; mime: string; size: number }[];
 };
 
-export type BookmarkArticle = import("./bookmark-reading").BookmarkArticle;
-export type BookmarkHighlight = import("./bookmark-reading").BookmarkHighlight;
 export type SearchResult = {
   formId?: string;
   dailyDate?: string | null;

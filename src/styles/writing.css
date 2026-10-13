@@ -152,18 +152,84 @@
 }
 
 .journal-period-controls {
-  margin: 0 0 16px;
+  margin: 0 18px 16px;
 }
 
 .journal-period-controls [data-slot="select-trigger"] {
   width: 112px;
 }
 
-.journal-period-controls input[type="date"] {
+.journal-period-controls .date-picker-trigger {
   width: 160px;
+  justify-content: flex-start;
+}
+
+.journal-period-controls .date-picker-trigger > svg {
+  flex: 0 0 auto;
+}
+
+.journal-period-controls .date-picker-trigger > .date-picker-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notes-list .list-header {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: initial;
+  gap: 4px;
+  padding: 24px 20px 8px;
+}
+
+.notes-list .list-header > .list-header-top {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notes-list .list-header-title {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.notes-list .list-header-title h1 {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.notes-list .list-header-title .note-count {
+  flex: 0 0 auto;
+}
+
+.notes-list .list-header-actions {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+}
+
+.notes-list .list-header-actions > button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
 }
 
 .notes-list.is-template-mode {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  border-right: 0;
   overflow-y: auto;
   scrollbar-width: none;
 }
@@ -172,11 +238,22 @@
   display: none;
 }
 
+.workspace:has(> .notes-list.is-template-mode) > .note-pane,
+.workspace:has(> .notes-list.is-template-mode) > .workspace-empty {
+  display: none;
+}
+
+.workspace:has(> .notes-list.is-template-mode) > .notes-list {
+  background: var(--background);
+}
+
 .writing-template-picker,
 .writing-template-editor {
   width: min(100%, 920px);
   margin: 0 auto;
   padding: clamp(18px, 3vw, 30px);
+  container-name: writing-template;
+  container-type: inline-size;
 }
 
 .writing-template-header,
@@ -202,6 +279,12 @@
   letter-spacing: -0.025em;
 }
 
+.writing-template-focus-heading:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 .writing-template-header p,
 .writing-template-detail-heading p,
 .writing-template-note {
@@ -218,7 +301,7 @@
 
 .writing-template-picker-body {
   display: grid;
-  grid-template-columns: minmax(210px, 0.82fr) minmax(0, 1.18fr);
+  grid-template-columns: minmax(240px, 0.72fr) minmax(0, 1.28fr);
   min-height: 280px;
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -262,6 +345,13 @@
   gap: 3px;
 }
 
+.writing-template-row > .writing-template-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .writing-template-row strong {
   overflow: hidden;
   font-size: 12px;
@@ -282,6 +372,10 @@
   white-space: nowrap;
 }
 
+.writing-template-row time {
+  white-space: nowrap;
+}
+
 .writing-template-default {
   padding: 3px 6px;
   border-radius: 99px;
@@ -291,6 +385,15 @@
 .writing-template-detail {
   min-width: 0;
   padding: 18px;
+}
+
+.writing-template-detail-heading > div {
+  min-width: 0;
+}
+
+.writing-template-detail-heading h3,
+.writing-template-detail-heading p {
+  overflow-wrap: anywhere;
 }
 
 .writing-template-preview {
@@ -341,6 +444,12 @@
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 7px;
+}
+
+.writing-template-content-heading h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .writing-template-editor-loading,
@@ -493,7 +602,8 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 4px;
-    padding: 6px max(14px, env(safe-area-inset-left)) 6px;
+    padding: 6px max(20px, env(safe-area-inset-left)) 6px
+      max(20px, env(safe-area-inset-right));
     border-bottom: 1px solid var(--border);
     background: var(--background);
   }
@@ -507,7 +617,7 @@
     position: static;
     max-height: none;
     overflow: visible;
-    padding: 16px 18px 40px;
+    padding: 16px 20px 40px;
   }
 
   .journal-review-section {
@@ -522,24 +632,16 @@
   .journal-review-navigation > button,
   .journal-review-switch > button,
   .writing-template-header > button,
+  .writing-template-detail-heading > button,
   .writing-template-picker-actions > button,
   .writing-template-actions > button,
   .journal-period-controls > button {
+    min-width: 44px;
     min-height: 44px;
   }
 
   .journal-review-navigation > button {
     min-width: 44px;
-  }
-
-  .writing-template-picker-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .writing-template-list {
-    max-height: 220px;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
   }
 
   .writing-template-detail {
@@ -573,7 +675,7 @@
   }
 
   .journal-period-controls [data-slot="select-trigger"],
-  .journal-period-controls input[type="date"] {
+  .journal-period-controls .date-picker-trigger {
     width: 100%;
     min-width: 0;
   }
@@ -606,6 +708,99 @@
   .writing-template-actions > button.mr-auto {
     flex-basis: 100%;
     margin-right: 0;
+  }
+}
+
+@container writing-template (max-width: 640px) {
+  .writing-template-picker-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-template-list {
+    max-height: 220px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .writing-template-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .writing-template-detail-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .writing-template-detail-heading > div {
+    flex: 1 1 100%;
+  }
+
+  .writing-template-picker-actions {
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  .writing-template-picker-actions > button {
+    flex: 1 1 150px;
+  }
+}
+
+@media (pointer: coarse), (max-width: 767px) {
+  .notes-list .list-header-top > .menu-toggle {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .notes-list .list-header-actions,
+  .notes-list .list-header-actions > button {
+    min-height: 44px;
+  }
+
+  .notes-list .list-header-actions > button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .journal-period-controls [data-slot="select-trigger"],
+  .journal-period-controls .date-picker-trigger,
+  .writing-template-content-heading > button,
+  .writing-template-field #template-name {
+    min-height: 44px;
+  }
+
+  .writing-template-header > button,
+  .writing-template-detail-heading > button[data-size^="icon"] {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-width: 767px) {
+  .notes-list .list-header {
+    padding-top: calc(24px + env(safe-area-inset-top));
+  }
+
+  .journal-period-controls {
+    margin-inline: 20px;
+  }
+
+  .workspace.has-note:has(> .notes-list.is-template-mode) > .notes-list {
+    display: flex;
+  }
+}
+
+@media (max-width: 380px) {
+  .journal-period-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+
+  .journal-period-controls > button {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 }
 

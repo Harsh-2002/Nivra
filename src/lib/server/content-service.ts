@@ -19,6 +19,7 @@ import {
   getBookmark,
   listBookmarkPage,
   refreshBookmark,
+  updateBookmarkReadState,
   updateBookmark,
 } from "@/lib/server/bookmarks";
 import { connectionsFor, syncNoteLinks } from "@/lib/server/connections";
@@ -285,7 +286,7 @@ async function executeContentOperation(
   ) {
     data.jobs = sqlite()
       .prepare(
-        "SELECT id,kind,target_id AS targetId,state AS status,attempts,created_at AS createdAt FROM background_jobs WHERE owner_id=? AND target_id=? ORDER BY kind",
+        "SELECT id,kind,target_id AS targetId,state AS status,attempts,created_at AS createdAt FROM background_jobs WHERE owner_id=? AND target_id=? AND kind<>'article' ORDER BY kind",
       )
       .all(command.ownerId, data.id)
       .map((job) => ({
@@ -345,14 +346,11 @@ async function executeContentInternal(
   }
   if (
     area === "bookmarks" &&
-    (path[1] === "read-state" ||
-      path[2] === "article" ||
-      path[2] === "highlights")
-  ) {
-    const reading = await import("./bookmark-reading-service");
-    const handled = await reading.executeBookmarkReading(command);
-    if (handled) return handled;
-  }
+    path.length === 2 &&
+    path[1] === "read-state" &&
+    method === "POST"
+  )
+    return result({ items: await updateBookmarkReadState(ownerId, payload) });
   if (area === "journals") {
     if (method === "POST" && !id) {
       const value = apiInputs.journalCreate.parse(payload);
@@ -381,7 +379,7 @@ async function executeContentInternal(
   if (area === "jobs" && method === "GET" && id) {
     const job = database
       .prepare(
-        "SELECT id,kind,target_id AS targetId,state AS status,attempts,created_at AS createdAt FROM background_jobs WHERE id=? AND owner_id=? AND kind<>'semantic'",
+        "SELECT id,kind,target_id AS targetId,state AS status,attempts,created_at AS createdAt FROM background_jobs WHERE id=? AND owner_id=? AND kind NOT IN ('semantic','article')",
       )
       .get(z.string().uuid().parse(id), ownerId);
     if (!job) throw new HttpError(404, "This job was not found.");

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, Loader2, Save, Trash2, X } from "lucide-react";
 import { api } from "@/lib/client";
 import { canonicalizeTaskLinks } from "@/lib/writing";
@@ -135,7 +135,12 @@ export function TemplateEditor({
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const nameRef = useRef<HTMLInputElement>(null);
   const isSource = !!source && !initial;
+
+  useEffect(() => {
+    nameRef.current?.focus({ preventScroll: true });
+  }, []);
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -258,6 +263,7 @@ export function TemplateEditor({
           <div className="writing-template-field">
             <Label htmlFor="template-name">Name</Label>
             <Input
+              ref={nameRef}
               id="template-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -288,33 +294,44 @@ export function TemplateEditor({
         ) : (
           <div className="writing-template-content">
             <div className="writing-template-content-heading">
-              <Label>Template content</Label>
+              <h3 id="template-content-heading">Template content</h3>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
+                aria-pressed={preview}
+                aria-controls="template-editor-content"
                 onClick={() => setPreview((value) => !value)}
               >
                 <Eye size={14} />
                 {preview ? "Edit content" : "Preview"}
               </Button>
             </div>
-            {preview ? (
-              <div className="writing-template-preview">
-                <NoteContent
-                  blocks={previewTemplateDocument(document, "Untitled").blocks}
+            <div
+              id="template-editor-content"
+              role="region"
+              aria-labelledby="template-content-heading"
+            >
+              {preview ? (
+                <div className="writing-template-preview">
+                  <NoteContent
+                    blocks={
+                      previewTemplateDocument(document, "Untitled").blocks
+                    }
+                  />
+                </div>
+              ) : (
+                <Editor
+                  document={document}
+                  onChange={setDocument}
+                  onTools={noTools}
+                  editable={!busy}
+                  noteId={initial?.id || ""}
+                  allowUpload={false}
+                  contentLabel="Template content"
                 />
-              </div>
-            ) : (
-              <Editor
-                document={document}
-                onChange={setDocument}
-                onTools={noTools}
-                editable={!busy}
-                noteId={initial?.id || ""}
-                allowUpload={false}
-              />
-            )}
+              )}
+            </div>
             <p className="writing-template-note">
               Use &#123;&#123;date&#125;&#125;, &#123;&#123;time&#125;&#125; and
               &#123;&#123;title&#125;&#125; to fill in the current values.

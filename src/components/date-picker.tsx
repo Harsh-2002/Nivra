@@ -10,11 +10,13 @@ export function DatePicker({
   onChange,
   disabled = false,
   label = "Due date",
+  allowClear = true,
 }: {
   value: string | null;
   onChange: (date: string | null) => void;
   disabled?: boolean;
   label?: string;
+  allowClear?: boolean;
 }) {
   const dateAt = (year: number, month: number, day: number) => {
     const date = new Date(0);
@@ -58,7 +60,9 @@ export function DatePicker({
           className="date-picker-trigger"
         >
           <CalendarDays size={15} />
-          {value ? formatDate(value) : label}
+          <span className="date-picker-label">
+            {value ? formatDate(value) : label}
+          </span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -131,9 +135,11 @@ export function DatePicker({
           >
             Today
           </Button>
-          <Button type="button" variant="ghost" onClick={() => choose(null)}>
-            No date
-          </Button>
+          {allowClear && (
+            <Button type="button" variant="ghost" onClick={() => choose(null)}>
+              No date
+            </Button>
+          )}
         </div>
         <div className="calendar-entry">
           <Input

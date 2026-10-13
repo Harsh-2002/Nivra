@@ -34,6 +34,80 @@ assert.match(
   /review|test|audit/i,
   "Synthetic owner required",
 );
+function auditEditorDocument() {
+  return {
+    schemaVersion: 1,
+    blocks: [
+      {
+        type: "heading",
+        props: { level: 1 },
+        content: [{ type: "text", text: "Accessible writing", styles: {} }],
+      },
+      ...[2, 3, 4, 5, 6].map((level) => ({
+        type: "heading",
+        props: { level },
+        content: [
+          {
+            type: "text",
+            text: `Editor heading level ${level}`,
+            styles: {},
+          },
+        ],
+      })),
+      {
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: "Synthetic content for responsive and keyboard checks.",
+            styles: {},
+          },
+        ],
+      },
+      {
+        type: "bulletListItem",
+        content: [
+          { type: "text", text: "Keep useful ideas together", styles: {} },
+        ],
+        children: [
+          {
+            type: "numberedListItem",
+            content: [
+              {
+                type: "text",
+                text: "Nested items stay readable",
+                styles: {},
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: "codeBlock",
+        props: { language: "typescript" },
+        content: [
+          {
+            type: "text",
+            text: "const reviewReady = true;",
+            styles: {},
+          },
+        ],
+      },
+      {
+        type: "diagram",
+        props: {},
+        content: [
+          {
+            type: "text",
+            text: "graph TD\n  A[Capture] --> B[Review]",
+            styles: {},
+          },
+        ],
+        children: [],
+      },
+    ],
+  };
+}
 const fixturePath =
   process.env.NIVRA_AUDIT_FIXTURES ?? `${output}/fixtures.json`;
 let fixtures;
@@ -44,32 +118,7 @@ try {
   const tag = await api("tags", { name: `Audit ${stamp}`, color: "gray" });
   const note = await api("notes", {
     title: `Audit writing ${stamp}`,
-    document: {
-      schemaVersion: 1,
-      blocks: [
-        {
-          type: "heading",
-          props: { level: 1 },
-          content: [{ type: "text", text: "Accessible writing", styles: {} }],
-        },
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: "Synthetic content for responsive and keyboard checks.",
-              styles: {},
-            },
-          ],
-        },
-        {
-          type: "bulletListItem",
-          content: [
-            { type: "text", text: "Keep useful ideas together", styles: {} },
-          ],
-        },
-      ],
-    },
+    document: auditEditorDocument(),
   });
   await api(
     `notes/${note.id}`,
@@ -129,6 +178,41 @@ try {
   };
   await writeFile(fixturePath, JSON.stringify(fixtures));
 }
+const existingEditorNote = await api(`notes/${fixtures.note.id}`);
+if (
+  !JSON.stringify(existingEditorNote.document).includes(
+    "Editor heading level 6",
+  )
+) {
+  fixtures.note = await api(
+    `notes/${fixtures.note.id}`,
+    { revision: existingEditorNote.revision, document: auditEditorDocument() },
+    "PATCH",
+  );
+  await writeFile(fixturePath, JSON.stringify(fixtures));
+}
+if (!fixtures.template) {
+  fixtures.template = await api("templates", {
+    name: `Audit journal template ${fixtures.note.id.slice(0, 8)}`,
+    description: "Synthetic template for the interface audit.",
+    kind: "journal",
+    document: {
+      schemaVersion: 1,
+      blocks: [
+        {
+          type: "heading",
+          props: { level: 2 },
+          content: [{ type: "text", text: "What happened?", styles: {} }],
+        },
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "{{date}} · {{time}}", styles: {} }],
+        },
+      ],
+    },
+  });
+  await writeFile(fixturePath, JSON.stringify(fixtures));
+}
 const axe = await readFile("node_modules/axe-core/axe.min.js", "utf8");
 const reports = [];
 const routes = [
@@ -142,16 +226,17 @@ const routes = [
   "forms",
   "favorites",
   "trash",
+  "capture",
+  "search",
+  "settings",
 ];
 const baselineWidths = (
-  process.env.NIVRA_AUDIT_WIDTHS ?? "320,390,768,1024,1440"
+  process.env.NIVRA_AUDIT_WIDTHS ?? "320,390,640,768,1024,1440,2560"
 )
   .split(",")
   .map(Number);
 const mode = process.env.NIVRA_AUDIT_MODE ?? "scan";
-const selectedRoutes =
-  process.env.NIVRA_AUDIT_SECTIONS?.split(",") ??
-  (mode === "layout" ? [...routes, "search", "settings"] : routes);
+const selectedRoutes = process.env.NIVRA_AUDIT_SECTIONS?.split(",") ?? routes;
 assert.ok(
   selectedRoutes.length &&
     selectedRoutes.every((route) =>
@@ -202,6 +287,19 @@ for (const [key, start, end] of [
     });
     await writeFile(fixturePath, JSON.stringify(fixtures));
   }
+if (!fixtures.shortSlotEvent) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + 1);
+  fixtures.shortSlotDate = date.toISOString().slice(0, 10);
+  fixtures.shortSlotEvent = await api("events", {
+    title: `Audit short slot ${fixtures.note.id.slice(0, 8)}`,
+    allDay: false,
+    start: `${fixtures.shortSlotDate}T09:00`,
+    end: `${fixtures.shortSlotDate}T09:05`,
+    timezone: "UTC",
+  });
+  await writeFile(fixturePath, JSON.stringify(fixtures));
+}
 if (mode !== "layout") {
   const current = await api(`forms/${fixtures.form.id}`);
   const published = current.publicToken
@@ -429,11 +527,18 @@ async function inspect(page, surface, width, theme, engine, full = true) {
 }
 async function ready(page, path) {
   await page.goto(base + path);
-  await page.locator(".workspace").waitFor();
   await page
-    .locator('[data-slot="skeleton"]')
-    .first()
-    .waitFor({ state: "detached" });
+    .locator(path === "/capture" ? ".capture-page" : ".workspace")
+    .waitFor();
+  if (path === "/capture")
+    await page
+      .getByRole("combobox", { name: "Save as", exact: true })
+      .waitFor();
+  else
+    await page
+      .locator('[data-slot="skeleton"]')
+      .first()
+      .waitFor({ state: "detached" });
   await page.evaluate(async () => {
     await Promise.allSettled(
       document
@@ -488,6 +593,44 @@ try {
           for (const route of selectedRoutes) {
             await navigate(`/${route}`);
             await inspect(page, route, width, theme, engineName);
+            if (route === "bookmarks" && [390, 1440].includes(width)) {
+              const originalLink = page.locator(
+                `a.bookmark-link[href=${JSON.stringify(fixtures.bookmark.url)}]`,
+              );
+              await originalLink.waitFor();
+              assert.equal(
+                await originalLink.getAttribute("target"),
+                "_blank",
+                "A bookmark opens its original URL in a new tab",
+              );
+              assert.match(
+                await originalLink.getAttribute("rel"),
+                /noopener/,
+                "A new bookmark tab is isolated from its opener",
+              );
+              await context.route("https://example.invalid/**", (route) =>
+                route.fulfill({
+                  contentType: "text/html",
+                  body: "<!doctype html><title>Local bookmark target</title>",
+                }),
+              );
+              const popupPromise = page.waitForEvent("popup");
+              await originalLink.click();
+              const popup = await popupPromise;
+              await popup.waitForLoadState("domcontentloaded");
+              assert.equal(
+                popup.url(),
+                fixtures.bookmark.url,
+                "The new tab opens the saved original URL",
+              );
+              await popup.close();
+              await context.unroute("https://example.invalid/**");
+              assert.equal(
+                await page.getByRole("dialog").count(),
+                0,
+                "Opening a bookmark does not launch an in-app reader dialog",
+              );
+            }
           }
           if (mode === "layout") {
             await navigate("/calendar?view=year");
@@ -512,8 +655,18 @@ try {
             ["event", `/calendar?event=${fixtures.event.id}`],
           ]) {
             await navigate(path);
-            if (surface === "editor")
+            if (surface === "editor") {
               await page.locator(".bn-editor").waitFor();
+              for (const level of [1, 2, 3, 4, 5, 6])
+                assert.ok(
+                  (await page.locator(`.bn-editor h${level}`).count()) >= 1,
+                  `Editor fixture renders an H${level} heading`,
+                );
+              assert.ok(
+                (await page.locator(".bn-editor pre code").count()) >= 1,
+                "Editor fixture renders its source/code block",
+              );
+            }
             if (surface === "artifact-details")
               await page
                 .getByRole("button", {
@@ -522,7 +675,9 @@ try {
                 })
                 .click();
             if (surface === "task-details")
-              await page.locator(".task-edit").waitFor();
+              await page
+                .getByRole("dialog", { name: "Task details", exact: true })
+                .waitFor();
             if (["event", "artifact-details"].includes(surface))
               await page.getByRole("dialog").waitFor();
             await inspect(page, surface, width, theme, engineName);
@@ -534,6 +689,64 @@ try {
               await inspect(page, "form-preview", width, theme, engineName);
             }
           }
+          await navigate(`/journal?note=${fixtures.journal.id}`);
+          const review = page.locator(".journal-review");
+          if (!(await review.isVisible().catch(() => false))) {
+            await page
+              .getByRole("group", { name: "Journal view" })
+              .getByRole("button", { name: "Activity", exact: true })
+              .click();
+          }
+          await review.waitFor();
+          await page
+            .getByRole("heading", { name: "Journal review", exact: true })
+            .waitFor();
+          await page.waitForFunction(() => {
+            const panel = document.querySelector(".journal-review");
+            return (
+              !!panel &&
+              ![...panel.querySelectorAll('[role="status"]')].some((node) =>
+                node.textContent?.includes("Loading this period"),
+              )
+            );
+          });
+          assert.equal(
+            await review.getByRole("alert").count(),
+            0,
+            "Journal review fixture loads without an API error",
+          );
+          await inspect(page, "journal-review", width, theme, engineName);
+
+          await navigate("/journal");
+          await page
+            .getByRole("button", { name: "Browse templates", exact: true })
+            .click();
+          await page.locator(".writing-template-picker").waitFor();
+          const templateRow = page
+            .locator(".writing-template-row")
+            .filter({ hasText: fixtures.template.name });
+          await templateRow.waitFor();
+          await templateRow.click();
+          await page.locator(".writing-template-detail").waitFor();
+          await inspect(page, "template-picker", width, theme, engineName);
+          await page
+            .getByRole("button", {
+              name: `Edit ${fixtures.template.name}`,
+              exact: true,
+            })
+            .click();
+          await page.locator(".writing-template-editor").waitFor();
+          await page.getByLabel("Name", { exact: true }).waitFor();
+          await page.locator(".bn-editor").waitFor();
+          await inspect(page, "template-editor", width, theme, engineName);
+          await page
+            .getByRole("button", { name: "Preview", exact: true })
+            .click();
+          await page
+            .locator("#template-editor-content .writing-template-preview")
+            .waitFor();
+          await inspect(page, "template-preview", width, theme, engineName);
+
           if ([390, 1440, 1536].includes(width)) {
             for (const [kind, artifact] of [
               ["image", fixtures.image],
@@ -566,6 +779,57 @@ try {
                   .first()
                   .waitFor();
               await inspect(page, `calendar-${view}`, width, theme, engineName);
+              if (view === "day" && [390, 1440].includes(width)) {
+                await navigate(
+                  `/calendar?view=day&date=${fixtures.shortSlotDate}`,
+                );
+                await page
+                  .locator("button:visible")
+                  .filter({ hasText: fixtures.shortSlotEvent.title })
+                  .first()
+                  .waitFor();
+                if (width === 1440) {
+                  assert.equal(
+                    await page.locator(".schedule-time-slot-0-18").count(),
+                    0,
+                    "A five-minute event hides only its covered 09:00 slot",
+                  );
+                  const adjacentSlot = page.locator(".schedule-time-slot-0-19");
+                  await adjacentSlot.waitFor({ state: "visible" });
+                  assert.ok(
+                    await adjacentSlot.evaluate(
+                      (element) =>
+                        element.getBoundingClientRect().height >= 23.9,
+                    ),
+                    "The free 09:30 slot keeps a 24px target height",
+                  );
+                  const precedingSlot = page.locator(
+                    ".schedule-time-slot-0-17",
+                  );
+                  await precedingSlot.focus();
+                  await precedingSlot.press("ArrowDown");
+                  assert.ok(
+                    await adjacentSlot.evaluate(
+                      (element) => document.activeElement === element,
+                    ),
+                    "ArrowDown skips the occupied 09:00 slot and focuses 09:30",
+                  );
+                  await adjacentSlot.focus();
+                  assert.ok(
+                    await adjacentSlot.evaluate(
+                      (element) => document.activeElement === element,
+                    ),
+                    "The free 09:30 slot remains focusable",
+                  );
+                }
+                await inspect(
+                  page,
+                  "calendar-short-slot",
+                  width,
+                  theme,
+                  engineName,
+                );
+              }
             }
             await navigate("/calendar?mode=activity");
             await inspect(page, "calendar-activity", width, theme, engineName);

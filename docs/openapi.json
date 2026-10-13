@@ -274,7 +274,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -378,7 +378,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -435,7 +435,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -492,7 +492,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -549,7 +549,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -810,7 +810,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -1614,7 +1614,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -1884,7 +1884,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -2144,7 +2144,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -2267,7 +2267,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -2640,7 +2640,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -3051,7 +3051,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -3564,7 +3564,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -3619,7 +3619,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -3669,404 +3669,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/BookmarkReadStateRequest"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/bookmarks/{id}/article": {
-      "get": {
-        "operationId": "get_api_v1_bookmarks_id_article",
-        "summary": "Read a saved article version",
-        "security": [{ "ownerSession": [] }, { "apiKey": [] }],
-        "x-nivra-access": "content",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "$ref": "#/components/schemas/Schema" }
-          },
-          {
-            "name": "version",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BookmarkArticleResult"
-                }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error400" },
-          "401": { "$ref": "#/components/responses/Error401" },
-          "403": { "$ref": "#/components/responses/Error403" },
-          "404": { "$ref": "#/components/responses/Error404" },
-          "405": { "$ref": "#/components/responses/Error405" },
-          "409": { "$ref": "#/components/responses/Error409" },
-          "413": { "$ref": "#/components/responses/Error413" },
-          "415": { "$ref": "#/components/responses/Error415" },
-          "422": { "$ref": "#/components/responses/Error422" },
-          "429": { "$ref": "#/components/responses/Error429" },
-          "500": { "$ref": "#/components/responses/Error500" },
-          "503": { "$ref": "#/components/responses/Error503" }
-        }
-      },
-      "post": {
-        "operationId": "post_api_v1_bookmarks_id_article",
-        "summary": "Save or refresh a readable article",
-        "security": [{ "ownerSession": [] }, { "apiKey": [] }],
-        "x-nivra-access": "content",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "$ref": "#/components/schemas/Schema" }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "description": "8–128 characters. JSON requests only. Repeating identical input returns the original result for 24 hours; conflicting or in-progress input returns 409.",
-            "schema": { "type": "string", "minLength": 8, "maxLength": 128 }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse"
-                }
-              }
-            }
-          },
-          "202": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse"
-                }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error400" },
-          "401": { "$ref": "#/components/responses/Error401" },
-          "403": { "$ref": "#/components/responses/Error403" },
-          "404": { "$ref": "#/components/responses/Error404" },
-          "405": { "$ref": "#/components/responses/Error405" },
-          "409": { "$ref": "#/components/responses/Error409" },
-          "413": { "$ref": "#/components/responses/Error413" },
-          "415": { "$ref": "#/components/responses/Error415" },
-          "422": { "$ref": "#/components/responses/Error422" },
-          "429": { "$ref": "#/components/responses/Error429" },
-          "500": { "$ref": "#/components/responses/Error500" },
-          "503": { "$ref": "#/components/responses/Error503" }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BookmarkArticleActionRequest"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/bookmarks/{id}/article/versions": {
-      "get": {
-        "operationId": "get_api_v1_bookmarks_id_article_versions",
-        "summary": "List saved article versions",
-        "security": [{ "ownerSession": [] }, { "apiKey": [] }],
-        "x-nivra-access": "content",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "$ref": "#/components/schemas/Schema" }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 50
-            }
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string", "maxLength": 2048 }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BookmarkArticleVersionPage"
-                }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error400" },
-          "401": { "$ref": "#/components/responses/Error401" },
-          "403": { "$ref": "#/components/responses/Error403" },
-          "404": { "$ref": "#/components/responses/Error404" },
-          "405": { "$ref": "#/components/responses/Error405" },
-          "409": { "$ref": "#/components/responses/Error409" },
-          "413": { "$ref": "#/components/responses/Error413" },
-          "415": { "$ref": "#/components/responses/Error415" },
-          "422": { "$ref": "#/components/responses/Error422" },
-          "429": { "$ref": "#/components/responses/Error429" },
-          "500": { "$ref": "#/components/responses/Error500" },
-          "503": { "$ref": "#/components/responses/Error503" }
-        }
-      }
-    },
-    "/api/v1/bookmarks/{id}/highlights": {
-      "get": {
-        "operationId": "get_api_v1_bookmarks_id_highlights",
-        "summary": "List article highlights",
-        "security": [{ "ownerSession": [] }, { "apiKey": [] }],
-        "x-nivra-access": "content",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "$ref": "#/components/schemas/Schema" }
-          },
-          {
-            "name": "version",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "default": 60,
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100
-            }
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "required": false,
-            "schema": { "type": "string", "maxLength": 2048 }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BookmarkHighlightPage"
-                }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error400" },
-          "401": { "$ref": "#/components/responses/Error401" },
-          "403": { "$ref": "#/components/responses/Error403" },
-          "404": { "$ref": "#/components/responses/Error404" },
-          "405": { "$ref": "#/components/responses/Error405" },
-          "409": { "$ref": "#/components/responses/Error409" },
-          "413": { "$ref": "#/components/responses/Error413" },
-          "415": { "$ref": "#/components/responses/Error415" },
-          "422": { "$ref": "#/components/responses/Error422" },
-          "429": { "$ref": "#/components/responses/Error429" },
-          "500": { "$ref": "#/components/responses/Error500" },
-          "503": { "$ref": "#/components/responses/Error503" }
-        }
-      },
-      "post": {
-        "operationId": "post_api_v1_bookmarks_id_highlights",
-        "summary": "Create an article highlight",
-        "security": [{ "ownerSession": [] }, { "apiKey": [] }],
-        "x-nivra-access": "content",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "$ref": "#/components/schemas/Schema" }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "description": "8–128 characters. JSON requests only. Repeating identical input returns the original result for 24 hours; conflicting or in-progress input returns 409.",
-            "schema": { "type": "string", "minLength": 8, "maxLength": 128 }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/BookmarkHighlight" }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error400" },
-          "401": { "$ref": "#/components/responses/Error401" },
-          "403": { "$ref": "#/components/responses/Error403" },
-          "404": { "$ref": "#/components/responses/Error404" },
-          "405": { "$ref": "#/components/responses/Error405" },
-          "409": { "$ref": "#/components/responses/Error409" },
-          "413": { "$ref": "#/components/responses/Error413" },
-          "415": { "$ref": "#/components/responses/Error415" },
-          "422": { "$ref": "#/components/responses/Error422" },
-          "429": { "$ref": "#/components/responses/Error429" },
-          "500": { "$ref": "#/components/responses/Error500" },
-          "503": { "$ref": "#/components/responses/Error503" }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightCreateRequest"
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/bookmarks/{id}/highlights/{highlightId}": {
-      "patch": {
-        "operationId": "patch_api_v1_bookmarks_id_highlights_highlightId_",
-        "summary": "Update or re-anchor an article highlight",
-        "security": [{ "ownerSession": [] }, { "apiKey": [] }],
-        "x-nivra-access": "content",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "$ref": "#/components/schemas/Schema" }
-          },
-          {
-            "name": "highlightId",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/BookmarkHighlight" }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error400" },
-          "401": { "$ref": "#/components/responses/Error401" },
-          "403": { "$ref": "#/components/responses/Error403" },
-          "404": { "$ref": "#/components/responses/Error404" },
-          "405": { "$ref": "#/components/responses/Error405" },
-          "409": { "$ref": "#/components/responses/Error409" },
-          "413": { "$ref": "#/components/responses/Error413" },
-          "415": { "$ref": "#/components/responses/Error415" },
-          "422": { "$ref": "#/components/responses/Error422" },
-          "429": { "$ref": "#/components/responses/Error429" },
-          "500": { "$ref": "#/components/responses/Error500" },
-          "503": { "$ref": "#/components/responses/Error503" }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightUpdateRequest"
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "operationId": "delete_api_v1_bookmarks_id_highlights_highlightId_",
-        "summary": "Delete an article highlight",
-        "security": [{ "ownerSession": [] }],
-        "x-nivra-access": "owner",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "$ref": "#/components/schemas/Schema" }
-          },
-          {
-            "name": "highlightId",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/Ok" }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error400" },
-          "401": { "$ref": "#/components/responses/Error401" },
-          "403": { "$ref": "#/components/responses/Error403" },
-          "404": { "$ref": "#/components/responses/Error404" },
-          "405": { "$ref": "#/components/responses/Error405" },
-          "409": { "$ref": "#/components/responses/Error409" },
-          "413": { "$ref": "#/components/responses/Error413" },
-          "415": { "$ref": "#/components/responses/Error415" },
-          "422": { "$ref": "#/components/responses/Error422" },
-          "429": { "$ref": "#/components/responses/Error429" },
-          "500": { "$ref": "#/components/responses/Error500" },
-          "503": { "$ref": "#/components/responses/Error503" }
-        },
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
               }
             }
           }
@@ -4402,7 +4004,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -5281,7 +4883,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -5335,7 +4937,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -5951,7 +5553,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -6229,7 +5831,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BookmarkHighlightDeleteRequest"
+                "$ref": "#/components/schemas/delete_api_v1_forms_id_Request"
               }
             }
           }
@@ -8234,7 +7836,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                  "enum": ["artifact", "bookmark", "thumbnail"]
                 },
                 "targetId": {
                   "type": "string",
@@ -8383,7 +7985,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                  "enum": ["artifact", "bookmark", "thumbnail"]
                 },
                 "targetId": {
                   "type": "string",
@@ -8507,7 +8109,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                  "enum": ["artifact", "bookmark", "thumbnail"]
                 },
                 "targetId": {
                   "type": "string",
@@ -8701,7 +8303,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                  "enum": ["artifact", "bookmark", "thumbnail"]
                 },
                 "targetId": {
                   "type": "string",
@@ -8738,21 +8340,7 @@
           "url": { "type": "string" },
           "description": { "type": "string" },
           "favorite": { "type": "boolean" },
-          "readAt": { "type": ["number", "null"] },
-          "articleStatus": {
-            "type": "string",
-            "enum": ["pending", "ready", "unavailable"]
-          },
-          "articleVersion": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "articleGeneration": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          }
+          "readAt": { "type": ["number", "null"] }
         },
         "required": [
           "id",
@@ -8761,704 +8349,9 @@
           "url",
           "description",
           "favorite",
-          "readAt",
-          "articleStatus",
-          "articleVersion",
-          "articleGeneration"
+          "readAt"
         ],
         "additionalProperties": {}
-      },
-      "BookmarkArticle___schema0": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "text" },
-              "text": { "type": "string", "maxLength": 200000 }
-            },
-            "required": ["type", "text"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "link" },
-              "href": { "type": "string", "maxLength": 4096, "format": "uri" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                }
-              }
-            },
-            "required": ["type", "href", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "strong" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "emphasis" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "code" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          }
-        ]
-      },
-      "BookmarkArticle": {
-        "type": "object",
-        "properties": {
-          "bookmarkId": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "version": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "url": { "type": "string", "format": "uri" },
-          "capturedAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "title": { "type": "string" },
-          "byline": { "type": ["string", "null"] },
-          "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "content": {
-            "type": "object",
-            "properties": {
-              "blocks": {
-                "maxItems": 5000,
-                "type": "array",
-                "items": {
-                  "oneOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "heading" },
-                        "level": {
-                          "type": "integer",
-                          "minimum": 1,
-                          "maximum": 6
-                        },
-                        "children": {
-                          "maxItems": 256,
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                          }
-                        }
-                      },
-                      "required": ["type", "level", "children"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "paragraph" },
-                        "children": {
-                          "maxItems": 512,
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                          }
-                        }
-                      },
-                      "required": ["type", "children"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "quote" },
-                        "children": {
-                          "maxItems": 512,
-                          "type": "array",
-                          "items": {
-                            "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                          }
-                        }
-                      },
-                      "required": ["type", "children"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "list" },
-                        "ordered": { "type": "boolean" },
-                        "items": {
-                          "maxItems": 500,
-                          "type": "array",
-                          "items": {
-                            "maxItems": 256,
-                            "type": "array",
-                            "items": {
-                              "$ref": "#/components/schemas/BookmarkArticle___schema0"
-                            }
-                          }
-                        }
-                      },
-                      "required": ["type", "ordered", "items"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "code-block" },
-                        "text": { "type": "string", "maxLength": 200000 }
-                      },
-                      "required": ["type", "text"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "table" },
-                        "header": {
-                          "maxItems": 32,
-                          "type": "array",
-                          "items": { "type": "string", "maxLength": 2000 }
-                        },
-                        "rows": {
-                          "maxItems": 500,
-                          "type": "array",
-                          "items": {
-                            "maxItems": 32,
-                            "type": "array",
-                            "items": { "type": "string", "maxLength": 2000 }
-                          }
-                        }
-                      },
-                      "required": ["type", "header", "rows"],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "type": { "type": "string", "const": "rule" }
-                      },
-                      "required": ["type"],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            },
-            "required": ["blocks"],
-            "additionalProperties": false
-          },
-          "text": { "type": "string" }
-        },
-        "required": [
-          "bookmarkId",
-          "version",
-          "url",
-          "capturedAt",
-          "title",
-          "byline",
-          "fingerprint",
-          "content",
-          "text"
-        ],
-        "additionalProperties": false
-      },
-      "BookmarkArticleResult___schema0": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "text" },
-              "text": { "type": "string", "maxLength": 200000 }
-            },
-            "required": ["type", "text"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "link" },
-              "href": { "type": "string", "maxLength": 4096, "format": "uri" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                }
-              }
-            },
-            "required": ["type", "href", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "strong" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "emphasis" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "code" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          }
-        ]
-      },
-      "BookmarkArticleResult": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": ["pending", "ready", "unavailable"]
-          },
-          "currentVersion": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "article": {
-            "anyOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "bookmarkId": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "version": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "url": { "type": "string", "format": "uri" },
-                  "capturedAt": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                  },
-                  "title": { "type": "string" },
-                  "byline": { "type": ["string", "null"] },
-                  "fingerprint": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{64}$"
-                  },
-                  "content": {
-                    "type": "object",
-                    "properties": {
-                      "blocks": {
-                        "maxItems": 5000,
-                        "type": "array",
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": "object",
-                              "properties": {
-                                "type": {
-                                  "type": "string",
-                                  "const": "heading"
-                                },
-                                "level": {
-                                  "type": "integer",
-                                  "minimum": 1,
-                                  "maximum": 6
-                                },
-                                "children": {
-                                  "maxItems": 256,
-                                  "type": "array",
-                                  "items": {
-                                    "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                                  }
-                                }
-                              },
-                              "required": ["type", "level", "children"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "type": {
-                                  "type": "string",
-                                  "const": "paragraph"
-                                },
-                                "children": {
-                                  "maxItems": 512,
-                                  "type": "array",
-                                  "items": {
-                                    "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                                  }
-                                }
-                              },
-                              "required": ["type", "children"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "quote" },
-                                "children": {
-                                  "maxItems": 512,
-                                  "type": "array",
-                                  "items": {
-                                    "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                                  }
-                                }
-                              },
-                              "required": ["type", "children"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "list" },
-                                "ordered": { "type": "boolean" },
-                                "items": {
-                                  "maxItems": 500,
-                                  "type": "array",
-                                  "items": {
-                                    "maxItems": 256,
-                                    "type": "array",
-                                    "items": {
-                                      "$ref": "#/components/schemas/BookmarkArticleResult___schema0"
-                                    }
-                                  }
-                                }
-                              },
-                              "required": ["type", "ordered", "items"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "type": {
-                                  "type": "string",
-                                  "const": "code-block"
-                                },
-                                "text": {
-                                  "type": "string",
-                                  "maxLength": 200000
-                                }
-                              },
-                              "required": ["type", "text"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "table" },
-                                "header": {
-                                  "maxItems": 32,
-                                  "type": "array",
-                                  "items": {
-                                    "type": "string",
-                                    "maxLength": 2000
-                                  }
-                                },
-                                "rows": {
-                                  "maxItems": 500,
-                                  "type": "array",
-                                  "items": {
-                                    "maxItems": 32,
-                                    "type": "array",
-                                    "items": {
-                                      "type": "string",
-                                      "maxLength": 2000
-                                    }
-                                  }
-                                }
-                              },
-                              "required": ["type", "header", "rows"],
-                              "additionalProperties": false
-                            },
-                            {
-                              "type": "object",
-                              "properties": {
-                                "type": { "type": "string", "const": "rule" }
-                              },
-                              "required": ["type"],
-                              "additionalProperties": false
-                            }
-                          ]
-                        }
-                      }
-                    },
-                    "required": ["blocks"],
-                    "additionalProperties": false
-                  },
-                  "text": { "type": "string" }
-                },
-                "required": [
-                  "bookmarkId",
-                  "version",
-                  "url",
-                  "capturedAt",
-                  "title",
-                  "byline",
-                  "fingerprint",
-                  "content",
-                  "text"
-                ],
-                "additionalProperties": false
-              },
-              { "type": "null" }
-            ]
-          },
-          "jobId": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              { "type": "null" }
-            ]
-          }
-        },
-        "required": ["status", "currentVersion", "article", "jobId"],
-        "additionalProperties": false
-      },
-      "BookmarkArticleVersionPage": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "maxItems": 50,
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "version": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "capturedAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "title": { "type": "string", "maxLength": 300 }
-              },
-              "required": ["version", "capturedAt", "title"],
-              "additionalProperties": false
-            }
-          },
-          "next": { "type": ["string", "null"] }
-        },
-        "required": ["items", "next"],
-        "additionalProperties": false
-      },
-      "BookmarkHighlight": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "bookmarkId": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "articleVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "quote": { "type": "string" },
-          "prefix": { "type": "string" },
-          "suffix": { "type": "string" },
-          "startOffset": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "endOffset": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "annotation": { "type": "string" },
-          "revision": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "createdAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "updatedAt": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          }
-        },
-        "required": [
-          "id",
-          "bookmarkId",
-          "articleVersion",
-          "quote",
-          "prefix",
-          "suffix",
-          "startOffset",
-          "endOffset",
-          "annotation",
-          "revision",
-          "createdAt",
-          "updatedAt"
-        ],
-        "additionalProperties": false
-      },
-      "BookmarkHighlightPage": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "maxItems": 100,
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "format": "uuid",
-                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                },
-                "bookmarkId": {
-                  "type": "string",
-                  "format": "uuid",
-                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                },
-                "articleVersion": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "quote": { "type": "string" },
-                "prefix": { "type": "string" },
-                "suffix": { "type": "string" },
-                "startOffset": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "endOffset": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "annotation": { "type": "string" },
-                "revision": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "createdAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                },
-                "updatedAt": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 9007199254740991
-                }
-              },
-              "required": [
-                "id",
-                "bookmarkId",
-                "articleVersion",
-                "quote",
-                "prefix",
-                "suffix",
-                "startOffset",
-                "endOffset",
-                "annotation",
-                "revision",
-                "createdAt",
-                "updatedAt"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "next": { "type": ["string", "null"] }
-        },
-        "required": ["items", "next"],
-        "additionalProperties": false
       },
       "BookmarkReadState": {
         "type": "object",
@@ -9503,12 +8396,7 @@
                           },
                           "kind": {
                             "type": "string",
-                            "enum": [
-                              "artifact",
-                              "bookmark",
-                              "thumbnail",
-                              "article"
-                            ]
+                            "enum": ["artifact", "bookmark", "thumbnail"]
                           },
                           "targetId": {
                             "type": "string",
@@ -9545,21 +8433,7 @@
                     "url": { "type": "string" },
                     "description": { "type": "string" },
                     "favorite": { "type": "boolean" },
-                    "readAt": { "type": ["number", "null"] },
-                    "articleStatus": {
-                      "type": "string",
-                      "enum": ["pending", "ready", "unavailable"]
-                    },
-                    "articleVersion": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "articleGeneration": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    }
+                    "readAt": { "type": ["number", "null"] }
                   },
                   "required": [
                     "id",
@@ -9568,10 +8442,7 @@
                     "url",
                     "description",
                     "favorite",
-                    "readAt",
-                    "articleStatus",
-                    "articleVersion",
-                    "articleGeneration"
+                    "readAt"
                   ],
                   "additionalProperties": {}
                 }
@@ -9717,7 +8588,7 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                      "enum": ["artifact", "bookmark", "thumbnail"]
                     },
                     "targetId": {
                       "type": "string",
@@ -9966,7 +8837,7 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                      "enum": ["artifact", "bookmark", "thumbnail"]
                     },
                     "targetId": {
                       "type": "string",
@@ -10219,7 +9090,7 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                      "enum": ["artifact", "bookmark", "thumbnail"]
                     },
                     "targetId": {
                       "type": "string",
@@ -10597,7 +9468,7 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                      "enum": ["artifact", "bookmark", "thumbnail"]
                     },
                     "targetId": {
                       "type": "string",
@@ -10779,7 +9650,7 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                      "enum": ["artifact", "bookmark", "thumbnail"]
                     },
                     "targetId": {
                       "type": "string",
@@ -10931,7 +9802,7 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                      "enum": ["artifact", "bookmark", "thumbnail"]
                     },
                     "targetId": {
                       "type": "string",
@@ -11144,12 +10015,7 @@
                         },
                         "kind": {
                           "type": "string",
-                          "enum": [
-                            "artifact",
-                            "bookmark",
-                            "thumbnail",
-                            "article"
-                          ]
+                          "enum": ["artifact", "bookmark", "thumbnail"]
                         },
                         "targetId": {
                           "type": "string",
@@ -11285,7 +10151,7 @@
                       },
                       "kind": {
                         "type": "string",
-                        "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                        "enum": ["artifact", "bookmark", "thumbnail"]
                       },
                       "targetId": {
                         "type": "string",
@@ -11645,7 +10511,7 @@
                       },
                       "kind": {
                         "type": "string",
-                        "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                        "enum": ["artifact", "bookmark", "thumbnail"]
                       },
                       "targetId": {
                         "type": "string",
@@ -11785,12 +10651,7 @@
                         },
                         "kind": {
                           "type": "string",
-                          "enum": [
-                            "artifact",
-                            "bookmark",
-                            "thumbnail",
-                            "article"
-                          ]
+                          "enum": ["artifact", "bookmark", "thumbnail"]
                         },
                         "targetId": {
                           "type": "string",
@@ -11927,7 +10788,7 @@
                 },
                 "kind": {
                   "type": "string",
-                  "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                  "enum": ["artifact", "bookmark", "thumbnail"]
                 },
                 "targetId": {
                   "type": "string",
@@ -12310,7 +11171,7 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["artifact", "bookmark", "thumbnail", "article"]
+            "enum": ["artifact", "bookmark", "thumbnail"]
           },
           "targetId": {
             "type": "string",
@@ -12866,90 +11727,6 @@
           }
         },
         "required": ["items"],
-        "additionalProperties": false
-      },
-      "BookmarkArticleActionRequest": {
-        "type": "object",
-        "properties": {
-          "action": { "type": "string", "enum": ["save", "retry", "refresh"] }
-        },
-        "required": ["action"],
-        "additionalProperties": false
-      },
-      "BookmarkHighlightCreateRequest": {
-        "type": "object",
-        "properties": {
-          "articleVersion": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "quote": { "type": "string", "minLength": 1, "maxLength": 10000 },
-          "prefix": { "default": "", "type": "string", "maxLength": 256 },
-          "suffix": { "default": "", "type": "string", "maxLength": 256 },
-          "startOffset": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "endOffset": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "annotation": { "default": "", "type": "string", "maxLength": 3000 }
-        },
-        "required": ["articleVersion", "quote", "startOffset", "endOffset"],
-        "additionalProperties": false
-      },
-      "BookmarkHighlightUpdateRequest": {
-        "type": "object",
-        "properties": {
-          "revision": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
-          "annotation": { "type": "string", "maxLength": 3000 },
-          "reanchor": {
-            "type": "object",
-            "properties": {
-              "articleVersion": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              },
-              "quote": { "type": "string", "minLength": 1, "maxLength": 10000 },
-              "prefix": { "default": "", "type": "string", "maxLength": 256 },
-              "suffix": { "default": "", "type": "string", "maxLength": 256 },
-              "startOffset": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              "endOffset": {
-                "type": "integer",
-                "exclusiveMinimum": 0,
-                "maximum": 9007199254740991
-              }
-            },
-            "required": ["articleVersion", "quote", "startOffset", "endOffset"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["revision"],
-        "additionalProperties": false
-      },
-      "BookmarkHighlightDeleteRequest": {
-        "type": "object",
-        "properties": {
-          "revision": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          }
-        },
-        "required": ["revision"],
         "additionalProperties": false
       },
       "ArtifactCreateRequest": {
@@ -14019,6 +12796,18 @@
         "required": ["revision"],
         "additionalProperties": false
       },
+      "delete_api_v1_forms_id_Request": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["revision"],
+        "additionalProperties": false
+      },
       "get_api_v1_forms_id_responsesResponse": {
         "type": "object",
         "properties": {
@@ -14872,7 +13661,7 @@
                       },
                       "kind": {
                         "type": "string",
-                        "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                        "enum": ["artifact", "bookmark", "thumbnail"]
                       },
                       "targetId": {
                         "type": "string",
@@ -15047,7 +13836,7 @@
                     },
                     "kind": {
                       "type": "string",
-                      "enum": ["artifact", "bookmark", "thumbnail", "article"]
+                      "enum": ["artifact", "bookmark", "thumbnail"]
                     },
                     "targetId": {
                       "type": "string",
@@ -15304,12 +14093,7 @@
                           },
                           "kind": {
                             "type": "string",
-                            "enum": [
-                              "artifact",
-                              "bookmark",
-                              "thumbnail",
-                              "article"
-                            ]
+                            "enum": ["artifact", "bookmark", "thumbnail"]
                           },
                           "targetId": {
                             "type": "string",
@@ -15622,12 +14406,7 @@
                           },
                           "kind": {
                             "type": "string",
-                            "enum": [
-                              "artifact",
-                              "bookmark",
-                              "thumbnail",
-                              "article"
-                            ]
+                            "enum": ["artifact", "bookmark", "thumbnail"]
                           },
                           "targetId": {
                             "type": "string",
@@ -15664,21 +14443,7 @@
                     "url": { "type": "string" },
                     "description": { "type": "string" },
                     "favorite": { "type": "boolean" },
-                    "readAt": { "type": ["number", "null"] },
-                    "articleStatus": {
-                      "type": "string",
-                      "enum": ["pending", "ready", "unavailable"]
-                    },
-                    "articleVersion": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    },
-                    "articleGeneration": {
-                      "type": "integer",
-                      "minimum": 0,
-                      "maximum": 9007199254740991
-                    }
+                    "readAt": { "type": ["number", "null"] }
                   },
                   "required": [
                     "id",
@@ -15687,10 +14452,7 @@
                     "url",
                     "description",
                     "favorite",
-                    "readAt",
-                    "articleStatus",
-                    "articleVersion",
-                    "articleGeneration"
+                    "readAt"
                   ],
                   "additionalProperties": {}
                 }
@@ -15730,322 +14492,6 @@
           }
         ]
       },
-      "post_api_v1_bookmarks_id_articleResponse___schema0": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "text" },
-              "text": { "type": "string", "maxLength": 200000 }
-            },
-            "required": ["type", "text"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "link" },
-              "href": { "type": "string", "maxLength": 4096, "format": "uri" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                }
-              }
-            },
-            "required": ["type", "href", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "strong" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "emphasis" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "type": { "type": "string", "const": "code" },
-              "children": {
-                "maxItems": 256,
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                }
-              }
-            },
-            "required": ["type", "children"],
-            "additionalProperties": false
-          }
-        ]
-      },
-      "post_api_v1_bookmarks_id_articleResponse": {
-        "anyOf": [
-          {
-            "type": "object",
-            "properties": {
-              "jobId": {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              "status": { "type": "string", "const": "pending" }
-            },
-            "required": ["jobId", "status"],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "status": {
-                "type": "string",
-                "enum": ["pending", "ready", "unavailable"]
-              },
-              "currentVersion": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 9007199254740991
-              },
-              "article": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "bookmarkId": {
-                        "type": "string",
-                        "format": "uuid",
-                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                      },
-                      "version": {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      "url": { "type": "string", "format": "uri" },
-                      "capturedAt": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
-                      },
-                      "title": { "type": "string" },
-                      "byline": { "type": ["string", "null"] },
-                      "fingerprint": {
-                        "type": "string",
-                        "pattern": "^[a-f0-9]{64}$"
-                      },
-                      "content": {
-                        "type": "object",
-                        "properties": {
-                          "blocks": {
-                            "maxItems": 5000,
-                            "type": "array",
-                            "items": {
-                              "oneOf": [
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": {
-                                      "type": "string",
-                                      "const": "heading"
-                                    },
-                                    "level": {
-                                      "type": "integer",
-                                      "minimum": 1,
-                                      "maximum": 6
-                                    },
-                                    "children": {
-                                      "maxItems": 256,
-                                      "type": "array",
-                                      "items": {
-                                        "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                                      }
-                                    }
-                                  },
-                                  "required": ["type", "level", "children"],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": {
-                                      "type": "string",
-                                      "const": "paragraph"
-                                    },
-                                    "children": {
-                                      "maxItems": 512,
-                                      "type": "array",
-                                      "items": {
-                                        "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                                      }
-                                    }
-                                  },
-                                  "required": ["type", "children"],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": {
-                                      "type": "string",
-                                      "const": "quote"
-                                    },
-                                    "children": {
-                                      "maxItems": 512,
-                                      "type": "array",
-                                      "items": {
-                                        "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                                      }
-                                    }
-                                  },
-                                  "required": ["type", "children"],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": {
-                                      "type": "string",
-                                      "const": "list"
-                                    },
-                                    "ordered": { "type": "boolean" },
-                                    "items": {
-                                      "maxItems": 500,
-                                      "type": "array",
-                                      "items": {
-                                        "maxItems": 256,
-                                        "type": "array",
-                                        "items": {
-                                          "$ref": "#/components/schemas/post_api_v1_bookmarks_id_articleResponse___schema0"
-                                        }
-                                      }
-                                    }
-                                  },
-                                  "required": ["type", "ordered", "items"],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": {
-                                      "type": "string",
-                                      "const": "code-block"
-                                    },
-                                    "text": {
-                                      "type": "string",
-                                      "maxLength": 200000
-                                    }
-                                  },
-                                  "required": ["type", "text"],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": {
-                                      "type": "string",
-                                      "const": "table"
-                                    },
-                                    "header": {
-                                      "maxItems": 32,
-                                      "type": "array",
-                                      "items": {
-                                        "type": "string",
-                                        "maxLength": 2000
-                                      }
-                                    },
-                                    "rows": {
-                                      "maxItems": 500,
-                                      "type": "array",
-                                      "items": {
-                                        "maxItems": 32,
-                                        "type": "array",
-                                        "items": {
-                                          "type": "string",
-                                          "maxLength": 2000
-                                        }
-                                      }
-                                    }
-                                  },
-                                  "required": ["type", "header", "rows"],
-                                  "additionalProperties": false
-                                },
-                                {
-                                  "type": "object",
-                                  "properties": {
-                                    "type": {
-                                      "type": "string",
-                                      "const": "rule"
-                                    }
-                                  },
-                                  "required": ["type"],
-                                  "additionalProperties": false
-                                }
-                              ]
-                            }
-                          }
-                        },
-                        "required": ["blocks"],
-                        "additionalProperties": false
-                      },
-                      "text": { "type": "string" }
-                    },
-                    "required": [
-                      "bookmarkId",
-                      "version",
-                      "url",
-                      "capturedAt",
-                      "title",
-                      "byline",
-                      "fingerprint",
-                      "content",
-                      "text"
-                    ],
-                    "additionalProperties": false
-                  },
-                  { "type": "null" }
-                ]
-              },
-              "jobId": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  { "type": "null" }
-                ]
-              }
-            },
-            "required": ["status", "currentVersion", "article", "jobId"],
-            "additionalProperties": false
-          }
-        ]
-      },
       "get_api_v1_artifactsResponse": {
         "anyOf": [
           {
@@ -16080,12 +14526,7 @@
                           },
                           "kind": {
                             "type": "string",
-                            "enum": [
-                              "artifact",
-                              "bookmark",
-                              "thumbnail",
-                              "article"
-                            ]
+                            "enum": ["artifact", "bookmark", "thumbnail"]
                           },
                           "targetId": {
                             "type": "string",

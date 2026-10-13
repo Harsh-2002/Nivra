@@ -32,7 +32,7 @@ export function PublishedReader({
   publishedAt: number;
 }) {
   return (
-    <main className="publication-page">
+    <main className="publication-page" tabIndex={0}>
       <header className="publication-header">
         <span>Shared note</span>
         <time dateTime={new Date(publishedAt).toISOString()}>

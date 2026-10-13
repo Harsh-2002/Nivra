@@ -111,6 +111,9 @@ export function CalendarPanel({
     [agenda, setAgenda] = useState<CalendarRange | null>(null),
     [taskMode, setTaskMode] = useState<"unscheduled" | "overdue" | null>(null),
     [taskPage, setTaskPage] = useState<TaskPage | null>(null),
+    [taskPageLoading, setTaskPageLoading] = useState(false),
+    [taskPageError, setTaskPageError] = useState(""),
+    [taskPageRequest, setTaskPageRequest] = useState(0),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [completed, setCompleted] = useState(false),
@@ -240,20 +243,29 @@ export function CalendarPanel({
         taskPageMode.current = taskMode;
         setTaskPage(null);
       }
+      setTaskPageLoading(true);
+      setTaskPageError("");
       void api<TaskPage>(
         `calendar/tasks?mode=${taskMode}&date=${localDate()}`,
         { signal: abort.signal },
       )
-        .then(setTaskPage)
+        .then((page) => {
+          if (abort.signal.aborted) return;
+          setTaskPage(page);
+          setTaskPageLoading(false);
+        })
         .catch((e) => {
-          if (!abort.signal.aborted) setError((e as Error).message);
+          if (!abort.signal.aborted) {
+            setTaskPageError((e as Error).message);
+            setTaskPageLoading(false);
+          }
         });
     }, 0);
     return () => {
       clearTimeout(timer);
       abort.abort();
     };
-  }, [taskMode, refresh]);
+  }, [taskMode, taskPageRequest, refresh]);
   useCompletion(undefined, (change) => {
     setRefresh((value) => value + 1);
     const id = editor?.event?.id;
@@ -498,6 +510,13 @@ export function CalendarPanel({
     });
   }
   const visible = (item: CalendarItem) => completed || !item.completed;
+  function openTaskList(mode: "unscheduled" | "overdue") {
+    setTaskPage(null);
+    setTaskPageError("");
+    setTaskPageLoading(true);
+    setTaskMode(mode);
+    setTaskPageRequest((value) => value + 1);
+  }
   const itemsOn = (date: string, items = data?.items ?? []) =>
     items.filter(
       (item) =>
@@ -566,6 +585,19 @@ export function CalendarPanel({
       : Array.from({ length: route.view === "week" ? 7 : 1 }, (_, i) =>
           addDays(from, i),
         );
+  const agendaDays = taskMode
+    ? [route.date]
+    : route.view === "week"
+      ? days
+      : [route.date];
+  const taskPageEmpty =
+    !!taskMode &&
+    !!taskPage &&
+    taskPage.items.length === 0 &&
+    !taskPageLoading &&
+    !taskPageError;
+  const showAgendaDays =
+    !taskMode || (!!taskPage && !taskPageLoading && !taskPageError);
   return (
     <section className="schedule-panel" data-view={route.view}>
       <div className="schedule-scroll">
@@ -896,58 +928,88 @@ export function CalendarPanel({
                   Back to selected day
                 </Button>
               )}
-              {taskMode && !taskPage && <p role="status">Loading tasks…</p>}
-              {(route.view === "week" ? days : [route.date]).map((day) => {
-                const entries = taskMode
-                  ? (taskPage?.items ?? []).map((task) => ({
-                      id: task.id,
-                      sourceId: task.id,
-                      type: "task" as const,
-                      title: task.title,
-                      date: task.dueDate ?? day,
-                      label: taskMode === "unscheduled" ? "Undated" : "Overdue",
-                      revision: task.revision,
-                    }))
-                  : itemsOn(
-                      day,
-                      route.view === "week" ? data?.items : agenda?.items,
-                    );
-                return (
-                  <div key={day} className="schedule-agenda-day">
-                    {route.view === "week" && (
-                      <h3>
-                        {dayLabel(day, {
-                          weekday: "long",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </h3>
-                    )}
-                    {entries.map(entry)}
-                    {!entries.length && !taskMode && (
-                      <div className="schedule-day-empty">
-                        <CalendarDays size={24} />
-                        <p>
-                          No {route.mode === "activity" ? "activity" : "plans"}{" "}
-                          for this day.
-                        </p>
-                        {!taskMode && route.mode === "planning" && (
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              navigate({ date: day });
-                              setEditor({ event: null });
-                            }}
-                          >
-                            Add event
-                          </Button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {taskMode && taskPageLoading && (
+                <p role="status">
+                  {taskPage ? "Updating tasks…" : "Loading tasks…"}
+                </p>
+              )}
+              {taskMode && taskPageError && (
+                <div className="schedule-error" role="alert">
+                  <p>{taskPageError}</p>
+                  <Button
+                    variant="outline"
+                    onClick={() => setTaskPageRequest((value) => value + 1)}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+              {taskPageEmpty ? (
+                <div className="schedule-day-empty">
+                  <CalendarDays size={24} aria-hidden="true" />
+                  <p role="status">
+                    {taskMode === "unscheduled"
+                      ? "No unscheduled tasks."
+                      : "No overdue tasks."}
+                  </p>
+                </div>
+              ) : (
+                showAgendaDays &&
+                agendaDays.map((day) => {
+                  const entries = taskMode
+                    ? (taskPage?.items ?? []).map((task) => ({
+                        id: task.id,
+                        sourceId: task.id,
+                        type: "task" as const,
+                        title: task.title,
+                        date: task.dueDate ?? day,
+                        label:
+                          taskMode === "unscheduled" ? "Undated" : "Overdue",
+                        revision: task.revision,
+                      }))
+                    : itemsOn(
+                        day,
+                        route.view === "week" ? data?.items : agenda?.items,
+                      );
+                  return (
+                    <div key={day} className="schedule-agenda-day">
+                      {route.view === "week" && !taskMode && (
+                        <h3>
+                          {dayLabel(day, {
+                            weekday: "long",
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </h3>
+                      )}
+                      {entries.map(entry)}
+                      {!entries.length && !taskMode && (
+                        <div className="schedule-day-empty">
+                          <CalendarDays size={24} />
+                          <p>
+                            No{" "}
+                            {route.mode === "activity" ? "activity" : "plans"}{" "}
+                            for this day.
+                          </p>
+                          {!taskMode && route.mode === "planning" && (
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                navigate({ date: day });
+                                setEditor({ event: null });
+                              }}
+                            >
+                              Add event
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
               {route.mode === "planning" &&
+                !taskMode &&
                 route.view !== "week" &&
                 !agenda?.items.some((item) => item.type === "journal") && (
                   <Button
@@ -1031,7 +1093,7 @@ export function CalendarPanel({
               variant="ghost"
               onClick={() => {
                 navigate({ view: "month" });
-                setTaskMode("unscheduled");
+                openTaskList("unscheduled");
               }}
             >
               {data.unscheduled} unscheduled tasks
@@ -1040,7 +1102,7 @@ export function CalendarPanel({
               variant="ghost"
               onClick={() => {
                 navigate({ view: "month" });
-                setTaskMode("overdue");
+                openTaskList("overdue");
               }}
             >
               {data.overdue} overdue tasks
@@ -1111,7 +1173,7 @@ export function CalendarPanel({
           if (!exportBusy) setExportOpen(open);
         }}
       >
-        <DialogContent className="planning-export-dialog">
+        <DialogContent className="planning-export-dialog sm:max-w-none">
           <DialogTitle>Export calendar</DialogTitle>
           <DialogDescription>
             Download an iCalendar snapshot. Reminders are not included.

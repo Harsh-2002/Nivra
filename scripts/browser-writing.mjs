@@ -778,7 +778,16 @@ try {
       await page.goto(`${base}/journal`);
       await page.getByRole("combobox", { name: "Journal period" }).click();
       await page.getByRole("option", { name: "Week", exact: true }).click();
-      await page.getByLabel("Journal date", { exact: true }).fill(reviewDate);
+      await page.getByRole("button", { name: "Journal date" }).click();
+      assert.equal(
+        await page.getByRole("button", { name: "No date" }).count(),
+        0,
+        "The required journal date picker must not offer a blank date",
+      );
+      await page
+        .getByLabel("Enter journal date", { exact: true })
+        .fill(reviewDate);
+      await page.getByRole("button", { name: "Set date", exact: true }).click();
       await page.waitForURL(
         new RegExp(`/journal\\?period=weekly&date=${reviewDate}$`),
       );

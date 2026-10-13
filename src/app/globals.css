@@ -3,7 +3,7 @@
 @import "../../public/system-page.css";
 @import "../styles/planning.css";
 @import "../styles/writing.css";
-@import "../styles/reading.css";
+@import "../styles/capture.css";
 @custom-variant data-open (&:is([data-state="open"], [data-open]));
 @custom-variant data-closed (&:is([data-state="closed"], [data-closed]));
 @custom-variant data-checked (&:is([data-state="checked"], [data-checked]));
@@ -1120,6 +1120,11 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 .note-tags .tag-chip button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
   flex-shrink: 0;
 }
 .add-tag {
@@ -2492,6 +2497,24 @@ button:disabled {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
+}
+.bookmark-reading-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+@media (max-width: 767px) {
+  .bookmark-reading-controls button,
+  .bookmark-reading-controls [data-slot="select-trigger"] {
+    min-height: 44px;
+  }
+}
+.bookmark-card-footer > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bookmark-filters {
   display: flex;

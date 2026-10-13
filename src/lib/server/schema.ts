@@ -6,7 +6,6 @@ import {
   real,
   index,
   uniqueIndex,
-  foreignKey,
   primaryKey,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
@@ -339,12 +338,6 @@ export const bookmarks = sqliteTable("bookmarks", {
   collection: text("collection").notNull().default(""),
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   readAt: integer("read_at"),
-  articleStatus: text("article_status")
-    .$type<"pending" | "ready" | "unavailable">()
-    .notNull()
-    .default("unavailable"),
-  articleGeneration: integer("article_generation").notNull().default(0),
-  articleVersion: integer("article_version").notNull().default(0),
   titleEdited: integer("title_edited").notNull().default(0),
   descriptionEdited: integer("description_edited").notNull().default(0),
   metadataStatus: text("metadata_status").notNull().default("unavailable"),
@@ -357,66 +350,6 @@ export const bookmarks = sqliteTable("bookmarks", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
-
-export const bookmarkArticles = sqliteTable(
-  "bookmark_articles",
-  {
-    bookmarkId: text("bookmark_id")
-      .notNull()
-      .references(() => bookmarks.id, { onDelete: "cascade" }),
-    ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    version: integer("version").notNull(),
-    sourceUrl: text("source_url").notNull(),
-    capturedAt: integer("captured_at").notNull(),
-    title: text("title").notNull(),
-    byline: text("byline"),
-    content: text("content_json", { mode: "json" })
-      .$type<import("../bookmark-reading").ArticleContent>()
-      .notNull(),
-    text: text("plain_text").notNull(),
-    fingerprint: text("fingerprint").notNull(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.bookmarkId, t.version] }),
-    index("bookmark_articles_owner_captured_idx").on(t.ownerId, t.capturedAt),
-    index("bookmark_articles_owner_fingerprint_idx").on(
-      t.ownerId,
-      t.fingerprint,
-    ),
-  ],
-);
-
-export const bookmarkHighlights = sqliteTable(
-  "bookmark_highlights",
-  {
-    id: text("id").primaryKey(),
-    ownerId: text("owner_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    bookmarkId: text("bookmark_id").notNull(),
-    articleVersion: integer("article_version").notNull(),
-    quote: text("quote").notNull(),
-    prefix: text("prefix").notNull().default(""),
-    suffix: text("suffix").notNull().default(""),
-    startOffset: integer("start_offset").notNull(),
-    endOffset: integer("end_offset").notNull(),
-    annotation: text("annotation").notNull().default(""),
-    revision: integer("revision").notNull().default(1),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (t) => [
-    foreignKey({
-      columns: [t.bookmarkId, t.articleVersion],
-      foreignColumns: [bookmarkArticles.bookmarkId, bookmarkArticles.version],
-      name: "bookmark_highlights_article_fk",
-    }).onDelete("cascade"),
-    index("bookmark_highlights_owner_bookmark_idx").on(t.ownerId, t.bookmarkId),
-    index("bookmark_highlights_article_idx").on(t.bookmarkId, t.articleVersion),
-  ],
-);
 
 export const noteVersions = sqliteTable(
   "note_versions",
@@ -538,7 +471,7 @@ export const backgroundJobs = sqliteTable("background_jobs", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   kind: text("kind")
-    .$type<"artifact" | "bookmark" | "thumbnail" | "semantic" | "article">()
+    .$type<"artifact" | "bookmark" | "thumbnail" | "semantic">()
     .notNull(),
   targetId: text("target_id").notNull(),
   state: text("state")

@@ -413,9 +413,9 @@ Linked-task blocks look like a compact checklist row within the document. The ch
 
 Task details open in read-only mode; Edit is an explicit action. The detail view groups due date, planned date, optional time block, recurrence, linked note and checklist steps without introducing a competing dashboard. Calendar time blocks display their saved IANA timezone and duration; errors during daylight-saving gaps or overlaps are inline and explain the choice needed. Checklist steps support both pointer controls and labeled keyboard move actions, use visible focus, and fit the same scrollable detail surface on desktop and mobile. No plan action silently creates a calendar event.
 
-## Saved bookmark reading
+## Bookmark navigation
 
-Open the reader as a focused overlay: a wide, fixed-height reading surface on desktop and a safe-area full-screen reader on mobile. Preserve article typography, version context, read state and annotation actions while keeping the original bookmark available. Text selection and highlight tools must not replace the normal reading controls; annotations stay connected to the selected saved version. Loading, unsupported pages and refresh failures appear in the reader’s content area with explicit retry actions. The reader is a saved server-side snapshot, not an offline guarantee for the PWA.
+Bookmark cards open the original website in a new tab. Keep editing, tags, favorites and read/unread actions separate from the link so those controls do not navigate. Preview loading and retry states stay on the card; avoid a second reading overlay or duplicate open action.
 
 ## Capture
 

@@ -14,6 +14,75 @@ type DragState = {
   endAt: number;
 };
 
+function nearestAvailableSlot(
+  occupiedSlots: Set<number> | undefined,
+  requestedSlot: number,
+  timeDirection: number,
+) {
+  const occupied = occupiedSlots ?? new Set<number>();
+  if (timeDirection !== 0) {
+    for (
+      let slot = requestedSlot;
+      slot >= 0 && slot < 48;
+      slot += timeDirection
+    ) {
+      if (!occupied.has(slot)) return slot;
+    }
+    return undefined;
+  }
+
+  if (!occupied.has(requestedSlot)) return requestedSlot;
+  for (let distance = 1; distance < 48; distance += 1) {
+    const later = requestedSlot + distance;
+    if (later < 48 && !occupied.has(later)) return later;
+    const earlier = requestedSlot - distance;
+    if (earlier >= 0 && !occupied.has(earlier)) return earlier;
+  }
+  return undefined;
+}
+
+function getOccupiedSlots(
+  items: CalendarItem[],
+  dayStart: number,
+  dayStop: number,
+  timezone: string,
+) {
+  const occupiedSlots = new Set<number>();
+  for (const item of items) {
+    if (
+      item.startAt === undefined ||
+      item.endAt === undefined ||
+      item.startAt >= dayStop ||
+      item.endAt <= dayStart
+    ) {
+      continue;
+    }
+    const start = Temporal.Instant.fromEpochMilliseconds(
+      Math.max(dayStart, item.startAt),
+    ).toZonedDateTimeISO(timezone);
+    const startMinute =
+      start.hour * 60 +
+      start.minute +
+      start.second / 60 +
+      start.millisecond / 60_000;
+    let endMinute = 1440;
+    if (item.endAt < dayStop) {
+      const end = Temporal.Instant.fromEpochMilliseconds(
+        item.endAt,
+      ).toZonedDateTimeISO(timezone);
+      endMinute =
+        end.hour * 60 + end.minute + end.second / 60 + end.millisecond / 60_000;
+    }
+    const visualEndMinute = Math.max(endMinute, startMinute + 30);
+    const firstSlot = Math.max(0, Math.floor(startMinute / 30));
+    const lastSlot = Math.min(47, Math.ceil(visualEndMinute / 30) - 1);
+    for (let slot = firstSlot; slot <= lastSlot; slot += 1) {
+      occupiedSlots.add(slot);
+    }
+  }
+  return occupiedSlots;
+}
+
 export function CalendarTimeGrid({
   days,
   items,
@@ -74,6 +143,21 @@ export function CalendarTimeGrid({
     }
   }
 
+  const occupiedSlotsByDay = days.map((day) => {
+    const start = Number(
+      Temporal.PlainDate.from(day).toZonedDateTime(timezone).epochMilliseconds,
+    );
+    const nextDay = Temporal.PlainDate.from(day).add({ days: 1 }).toString();
+    const stop = Number(
+      Temporal.PlainDate.from(nextDay).toZonedDateTime(timezone)
+        .epochMilliseconds,
+    );
+    return getOccupiedSlots(items, start, stop, timezone);
+  });
+  const firstKeyboardEntryDay = occupiedSlotsByDay.findIndex(
+    (occupiedSlots) => occupiedSlots.size < 48,
+  );
+
   return (
     <div
       className={"schedule-time-grid schedule-time-" + days.length}
@@ -123,6 +207,11 @@ export function CalendarTimeGrid({
           );
           return { item, lane };
         });
+        const occupiedSlots = occupiedSlotsByDay[dayIndex];
+        const firstAvailableSlot = Array.from(
+          { length: 48 },
+          (_, slot) => slot,
+        ).find((slot) => !occupiedSlots.has(slot));
         return (
           <section key={day} className="schedule-time-day">
             <h3>
@@ -157,6 +246,7 @@ export function CalendarTimeGrid({
               ))}
               <div className="schedule-time-slots">
                 {Array.from({ length: 48 }, (_, slot) => {
+                  if (occupiedSlots.has(slot)) return null;
                   const hour = Math.floor(slot / 2);
                   const minute = slot % 2 ? 30 : 0;
                   const time =
@@ -165,9 +255,7 @@ export function CalendarTimeGrid({
                     String(minute).padStart(2, "0");
                   const className =
                     "schedule-time-slot-" + dayIndex + "-" + slot;
-                  positions.push(
-                    "." + className + "{top:" + (slot / 48) * 100 + "%}",
-                  );
+                  positions.push("." + className + "{top:" + slot * 24 + "px}");
                   return (
                     <button
                       type="button"
@@ -175,7 +263,12 @@ export function CalendarTimeGrid({
                       key={time}
                       data-date={day}
                       data-slot-index={slot}
-                      tabIndex={dayIndex === 0 && slot === 18 ? 0 : -1}
+                      tabIndex={
+                        dayIndex === firstKeyboardEntryDay &&
+                        slot === firstAvailableSlot
+                          ? 0
+                          : -1
+                      }
                       aria-label={"Plan a task on " + day + " at " + time}
                       onClick={() => onEmptySlot(day, time)}
                       onKeyDown={(event) => {
@@ -187,12 +280,17 @@ export function CalendarTimeGrid({
                         };
                         const direction = movement[event.key];
                         if (!direction) return;
-                        const nextDay = days[dayIndex + direction[0]];
-                        const nextSlot = Math.max(
-                          0,
-                          Math.min(47, slot + direction[1]),
-                        );
+                        const nextDayIndex = dayIndex + direction[0];
+                        const nextDay = days[nextDayIndex];
                         if (!nextDay) return;
+                        const requestedSlot = slot + direction[1];
+                        if (requestedSlot < 0 || requestedSlot >= 48) return;
+                        const nextSlot = nearestAvailableSlot(
+                          occupiedSlotsByDay[nextDayIndex],
+                          requestedSlot,
+                          direction[1],
+                        );
+                        if (nextSlot === undefined) return;
                         event.preventDefault();
                         document
                           .querySelector<HTMLButtonElement>(

@@ -180,7 +180,7 @@ export function SettingsPanel({
                 id={`settings-tab-${item.id}`}
                 role="tab"
                 aria-selected={tab === item.id}
-                aria-controls={`settings-panel-${item.id}`}
+                aria-controls="settings-panel"
                 tabIndex={tab === item.id ? 0 : -1}
                 disabled={busy || mfaGuard}
                 onClick={() => {
@@ -215,7 +215,7 @@ export function SettingsPanel({
           <section
             className="settings-content"
             role="tabpanel"
-            id={`settings-panel-${tab}`}
+            id="settings-panel"
             aria-labelledby={`settings-tab-${tab}`}
             tabIndex={0}
           >

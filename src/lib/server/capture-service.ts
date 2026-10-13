@@ -9,7 +9,6 @@ import { createNote, getNote } from "./notes";
 import { createTask } from "./tasks";
 import { getBookmark } from "./bookmarks";
 import { bookmarkUrl } from "./link-metadata";
-import { enqueueNewBookmarkArticle } from "./bookmark-reading-service";
 import { completionEvent, enqueueJob, startJobWorker } from "./jobs";
 import { HttpError } from "./http";
 
@@ -116,7 +115,6 @@ export async function executeCapture(
             now,
           );
         enqueueJob(owner, "bookmark", id);
-        enqueueNewBookmarkArticle(owner, id);
       }
       const note = value.text.trim()
         ? createNote(

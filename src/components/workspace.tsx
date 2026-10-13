@@ -36,6 +36,7 @@ import { Mark } from "./auth-screen";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { DatePicker } from "./date-picker";
 import {
   Dialog,
   DialogContent,
@@ -1570,80 +1571,84 @@ export function Workspace({
                 <>
                   <FeedbackOutlet />
                   <header className="list-header">
-                    <div>
-                      <h1>{title}</h1>
-                      <span
-                        className={`note-count ${shownNotes ? "" : "is-pending"}`}
-                      >
-                        {rows.length}
-                        {shownHasMore ? "+" : ""}
-                      </span>
-                    </div>
-                    {view === "journal" && (
+                    <div className="list-header-top">
+                      <div className="list-header-title">
+                        <h1>{title}</h1>
+                        <span
+                          className={`note-count ${shownNotes ? "" : "is-pending"}`}
+                        >
+                          {rows.length}
+                          {shownHasMore ? "+" : ""}
+                        </span>
+                      </div>
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Write a journal entry"
-                        title="Write a journal entry"
+                        className="menu-toggle"
+                        aria-label="Open navigation"
                         onClick={() =>
-                          void writeJournal(journalDate, journalPeriod)
+                          window.innerWidth < 1024
+                            ? setDrawer(true)
+                            : setSidebar(true)
                         }
                       >
-                        <Plus size={16} />
+                        <NavigationIcon />
                       </Button>
-                    )}
-                    {(view === "journal" || view === "all") && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Browse templates"
-                        title="Browse templates"
-                        onClick={() => setTemplatePickerOpen(true)}
-                      >
-                        <BookCopy size={15} />
-                      </Button>
-                    )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
+                    </div>
+                    <div className="list-header-actions">
+                      {view === "journal" && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label="Sort notes"
+                          aria-label="Write a journal entry"
+                          title="Write a journal entry"
+                          onClick={() =>
+                            void writeJournal(journalDate, journalPeriod)
+                          }
                         >
-                          <ArrowUpDown size={15} />
+                          <Plus size={16} />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {[
-                          { value: "updated", label: "Last edited" },
-                          { value: "created", label: "Date created" },
-                          { value: "title", label: "Title" },
-                        ].map((item) => (
-                          <DropdownMenuItem
-                            key={item.value}
-                            onSelect={() => setSort(item.value)}
+                      )}
+                      {(view === "journal" || view === "all") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Browse templates"
+                          title="Browse templates"
+                          onClick={() => setTemplatePickerOpen(true)}
+                        >
+                          <BookCopy size={15} />
+                        </Button>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Sort notes"
                           >
-                            {item.label}
-                            {sort === item.value && (
-                              <span className="ml-auto">✓</span>
-                            )}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="menu-toggle"
-                      aria-label="Open navigation"
-                      onClick={() =>
-                        window.innerWidth < 1024
-                          ? setDrawer(true)
-                          : setSidebar(true)
-                      }
-                    >
-                      <NavigationIcon />
-                    </Button>
+                            <ArrowUpDown size={15} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {[
+                            { value: "updated", label: "Last edited" },
+                            { value: "created", label: "Date created" },
+                            { value: "title", label: "Title" },
+                          ].map((item) => (
+                            <DropdownMenuItem
+                              key={item.value}
+                              onSelect={() => setSort(item.value)}
+                            >
+                              {item.label}
+                              {sort === item.value && (
+                                <span className="ml-auto">✓</span>
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </header>
                   <p className="list-description">
                     {view === "journal"
@@ -1676,16 +1681,14 @@ export function Workspace({
                           <SelectItem value="monthly">Month</SelectItem>
                         </SelectContent>
                       </Select>
-                      <Input
-                        aria-label="Journal date"
-                        type="date"
+                      <DatePicker
+                        label="Journal date"
+                        allowClear={false}
                         value={journalDate}
-                        onChange={(event) =>
-                          void changeJournalContext(
-                            journalPeriod,
-                            event.target.value,
-                          )
-                        }
+                        onChange={(date) => {
+                          if (date)
+                            void changeJournalContext(journalPeriod, date);
+                        }}
                       />
                       <Button
                         type="button"

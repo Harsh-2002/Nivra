@@ -15,14 +15,7 @@ import {
   taskScheduleSchema,
   taskStepSchema,
 } from "../task-planning";
-import {
-  articleActionSchema,
-  articleContentSchema,
-  bookmarkHighlightCreateSchema,
-  bookmarkHighlightDeleteSchema,
-  bookmarkHighlightUpdateSchema,
-  bookmarkReadStateBatchSchema,
-} from "../bookmark-reading";
+import { bookmarkReadStateBatchSchema } from "../bookmark-state";
 import { writingInputs } from "./writing-contract";
 import {
   calendarDate,
@@ -119,10 +112,6 @@ export const apiInputs = {
     noteId: idSchema.nullable().optional(),
   }),
   bookmarkReadState: bookmarkReadStateBatchSchema,
-  bookmarkArticleAction: articleActionSchema,
-  bookmarkHighlightCreate: bookmarkHighlightCreateSchema,
-  bookmarkHighlightUpdate: bookmarkHighlightUpdateSchema,
-  bookmarkHighlightDelete: bookmarkHighlightDeleteSchema,
   artifactCreate: z.object({ text: z.string().max(400000) }).strict(),
   artifactUpdate: changes({
     revision: revisionInput.shape.revision,
@@ -293,22 +282,6 @@ export const apiQueries = {
       query: z.string().max(300).optional(),
     })
     .strict(),
-  bookmarkArticle: z
-    .object({ version: z.coerce.number().int().positive().optional() })
-    .strict(),
-  bookmarkArticleVersions: z
-    .object({
-      limit: z.coerce.number().int().min(1).max(50).default(20),
-      after: z.string().max(2048).optional(),
-    })
-    .strict(),
-  bookmarkHighlights: z
-    .object({
-      version: z.coerce.number().int().positive().optional(),
-      limit: z.coerce.number().int().min(1).max(100).default(60),
-      after: z.string().max(2048).optional(),
-    })
-    .strict(),
   calendarExport: z
     .object({ from: dateSchema, to: dateSchema, timezone: zoneSchema })
     .strict(),
@@ -317,7 +290,7 @@ const time = z.number().int().nonnegative();
 export const jobSchema = z
   .object({
     id: idSchema,
-    kind: z.enum(["artifact", "bookmark", "thumbnail", "article"]),
+    kind: z.enum(["artifact", "bookmark", "thumbnail"]),
     targetId: idSchema,
     status: z.enum(["queued", "running", "done", "failed"]),
     attempts: time,
@@ -339,35 +312,6 @@ const tag = z.object({
   name: z.string(),
   color: z.enum(tagColors),
 });
-const bookmarkArticleOutput = z
-  .object({
-    bookmarkId: idSchema,
-    version: z.number().int().positive(),
-    url: z.string().url(),
-    capturedAt: time,
-    title: z.string(),
-    byline: z.string().nullable(),
-    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-    content: articleContentSchema,
-    text: z.string(),
-  })
-  .strict();
-const bookmarkHighlightOutput = z
-  .object({
-    id: idSchema,
-    bookmarkId: idSchema,
-    articleVersion: z.number().int().positive(),
-    quote: z.string(),
-    prefix: z.string(),
-    suffix: z.string(),
-    startOffset: time,
-    endOffset: time,
-    annotation: z.string(),
-    revision: z.number().int().positive(),
-    createdAt: time,
-    updatedAt: time,
-  })
-  .strict();
 const writingTemplateOutput = z
   .object({
     id: idSchema,
@@ -426,43 +370,8 @@ export const apiOutputs: Record<string, z.ZodType> = {
       description: z.string(),
       favorite: z.boolean(),
       readAt: z.number().nullable(),
-      articleStatus: z.enum(["pending", "ready", "unavailable"]),
-      articleVersion: time,
-      articleGeneration: time,
     })
     .passthrough(),
-  bookmarkArticle: bookmarkArticleOutput,
-  bookmarkArticleResult: z
-    .object({
-      status: z.enum(["pending", "ready", "unavailable"]),
-      currentVersion: time,
-      article: bookmarkArticleOutput.nullable(),
-      jobId: idSchema.nullable(),
-    })
-    .strict(),
-  bookmarkArticleVersionPage: z
-    .object({
-      items: z
-        .array(
-          z
-            .object({
-              version: time,
-              capturedAt: time,
-              title: z.string().max(300),
-            })
-            .strict(),
-        )
-        .max(50),
-      next: z.string().nullable(),
-    })
-    .strict(),
-  bookmarkHighlight: bookmarkHighlightOutput,
-  bookmarkHighlightPage: z
-    .object({
-      items: z.array(bookmarkHighlightOutput).max(100),
-      next: z.string().nullable(),
-    })
-    .strict(),
   bookmarkReadState: z
     .object({
       items: z.array(
@@ -569,19 +478,6 @@ export const apiOutputs: Record<string, z.ZodType> = {
     .strict(),
   journalNavigation: z
     .object({ item: z.lazy(() => apiOutputs.noteSummary).nullable() })
-    .strict(),
-  article: z
-    .object({
-      bookmarkId: idSchema,
-      version: z.number().int().positive(),
-      url: z.string().url(),
-      capturedAt: time,
-      title: z.string(),
-      byline: z.string().nullable(),
-      fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-      content: articleContentSchema,
-      text: z.string(),
-    })
     .strict(),
   artifact: summary
     .extend({

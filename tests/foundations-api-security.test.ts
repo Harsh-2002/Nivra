@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -775,18 +775,9 @@ test("new content APIs preserve owner, read/write, Trash, retry and file boundar
     .id;
   const bookmarkId = randomUUID();
   const capturedAt = Date.now();
-  const articleText = "The river remembers the old stone bridge.";
-  const article = {
-    blocks: [
-      {
-        type: "paragraph",
-        children: [{ type: "text", text: articleText }],
-      },
-    ],
-  };
   owner
     .prepare(
-      "INSERT INTO bookmarks(id,owner_id,url,title,description,site_name,collection,favorite,read_at,article_status,article_generation,article_version,title_edited,description_edited,metadata_status,revision,created_at,updated_at) VALUES(?,?,?,'Saved river article','','Example','','0',NULL,'ready',1,1,1,0,'done',1,?,?)",
+      "INSERT INTO bookmarks(id,owner_id,url,title,description,site_name,collection,favorite,read_at,title_edited,description_edited,metadata_status,revision,created_at,updated_at) VALUES(?,?,?,'Saved river article','','Example','','0',NULL,1,0,'done',1,?,?)",
     )
     .run(
       bookmarkId,
@@ -794,19 +785,6 @@ test("new content APIs preserve owner, read/write, Trash, retry and file boundar
       "https://example.test/river",
       capturedAt,
       capturedAt,
-    );
-  owner
-    .prepare(
-      "INSERT INTO bookmark_articles(bookmark_id,owner_id,version,source_url,captured_at,title,byline,content_json,plain_text,fingerprint) VALUES(?,?,1,?,?,'Saved river article',NULL,?,?,?)",
-    )
-    .run(
-      bookmarkId,
-      ownerId,
-      "https://example.test/river",
-      capturedAt,
-      JSON.stringify(article),
-      articleText,
-      createHash("sha256").update(articleText).digest("hex"),
     );
   const storedBookmark = await result<{ id: string; revision: number }>(
     `bookmarks/${bookmarkId}`,
@@ -814,45 +792,6 @@ test("new content APIs preserve owner, read/write, Trash, retry and file boundar
     undefined,
     readKey,
   );
-  const articleResult = await result<{
-    article: { version: number; text: string } | null;
-    currentVersion: number;
-  }>(`bookmarks/${bookmarkId}/article?version=1`, "GET", undefined, readKey);
-  assert.equal(articleResult.article?.text, articleText);
-  assert.equal(articleResult.currentVersion, 1);
-  assert.equal(
-    (
-      await request(
-        `bookmarks/${bookmarkId}/article?version=1`,
-        "GET",
-        undefined,
-        undefined,
-        {
-          unauthenticated: true,
-        },
-      )
-    ).status,
-    401,
-    "Saved article text must remain private.",
-  );
-  const versions = await result<{
-    items: { version: number }[];
-    next: string | null;
-  }>(
-    `bookmarks/${bookmarkId}/article/versions?limit=1`,
-    "GET",
-    undefined,
-    readKey,
-  );
-  assert.equal(versions.items[0].version, 1);
-  const savedArticle = await result<{ article: { version: number } | null }>(
-    `bookmarks/${bookmarkId}/article`,
-    "POST",
-    { action: "save" },
-    writeKey,
-    200,
-  );
-  assert.equal(savedArticle.article?.version, 1);
   const savedState = await result<{
     items: { status: string; bookmark?: { readAt: number | null } }[];
   }>(
@@ -892,69 +831,6 @@ test("new content APIs preserve owner, read/write, Trash, retry and file boundar
     ).status,
     403,
   );
-  const startOffset = articleText.indexOf("old stone");
-  const quote = "old stone";
-  const highlight = await result<{
-    id: string;
-    revision: number;
-    quote: string;
-  }>(
-    `bookmarks/${bookmarkId}/highlights`,
-    "POST",
-    {
-      articleVersion: 1,
-      quote,
-      prefix: "The river remembers the ",
-      suffix: " bridge.",
-      startOffset,
-      endOffset: startOffset + quote.length,
-      annotation: "Crossing note",
-    },
-    writeKey,
-    201,
-  );
-  const highlights = await result<{ items: { id: string }[] }>(
-    `bookmarks/${bookmarkId}/highlights?version=1`,
-    "GET",
-    undefined,
-    readKey,
-  );
-  assert.equal(highlights.items[0].id, highlight.id);
-  const editedHighlight = await result<{
-    revision: number;
-    annotation: string;
-  }>(
-    `bookmarks/${bookmarkId}/highlights/${highlight.id}`,
-    "PATCH",
-    { revision: highlight.revision, annotation: "Updated crossing note" },
-    writeKey,
-  );
-  assert.equal(editedHighlight.annotation, "Updated crossing note");
-  assert.equal(
-    (
-      await request(
-        `bookmarks/${bookmarkId}/highlights/${highlight.id}`,
-        "DELETE",
-        { revision: editedHighlight.revision },
-        writeKey,
-      )
-    ).status,
-    403,
-  );
-  await result(
-    `bookmarks/${bookmarkId}/highlights/${highlight.id}`,
-    "DELETE",
-    { revision: editedHighlight.revision },
-    undefined,
-  );
-  const emptyHighlights = await result<{ items: unknown[] }>(
-    `bookmarks/${bookmarkId}/highlights`,
-    "GET",
-    undefined,
-    readKey,
-  );
-  assert.equal(emptyHighlights.items.length, 0);
-
   assert.equal(
     (
       await request(
@@ -1073,7 +949,6 @@ test("new content APIs preserve owner, read/write, Trash, retry and file boundar
     "create_writing_template",
     "apply_writing_template",
     "set_bookmark_read_state",
-    "create_bookmark_highlight",
   ]) {
     assert.ok(
       writeTools.some((entry) => entry.name === name),
@@ -1084,13 +959,28 @@ test("new content APIs preserve owner, read/write, Trash, retry and file boundar
       `read-only MCP excludes ${name}`,
     );
   }
-  assert.ok(
-    !writeTools.some((entry) => entry.name === "delete_bookmark_highlight"),
+  for (const retiredTool of [
+    "get_bookmark_article",
+    "list_bookmark_article_versions",
+    "save_bookmark_article",
+    "list_bookmark_highlights",
+    "create_bookmark_highlight",
+    "update_bookmark_highlight",
+  ]) {
+    assert.ok(
+      !writeTools.some((entry) => entry.name === retiredTool),
+      `removed MCP tool ${retiredTool}`,
+    );
+    assert.ok(
+      !readTools.some((entry) => entry.name === retiredTool),
+      `removed MCP tool ${retiredTool}`,
+    );
+  }
+  assert.equal(
+    readTools.some((entry) => entry.name === "set_bookmark_read_state"),
+    false,
+    "Read-only MCP cannot change bookmark read state",
   );
-  assert.ok(
-    !readTools.some((entry) => entry.name === "delete_bookmark_highlight"),
-  );
-  assert.ok(readTools.some((entry) => entry.name === "get_bookmark_article"));
   assert.ok(readTools.some((entry) => entry.name === "list_task_steps"));
   const mcpCapture = await tool<{ id: string; type: string }>(
     writeClient,
@@ -1152,15 +1042,24 @@ test("new content APIs preserve owner, read/write, Trash, retry and file boundar
     "templates/{id}/apply",
     "writing/preferences",
     "bookmarks/read-state",
-    "bookmarks/{id}/article",
-    "bookmarks/{id}/article/versions",
-    "bookmarks/{id}/highlights",
-    "bookmarks/{id}/highlights/{highlightId}",
     "calendar/export",
   ]) {
     assert.ok(
       apiOperations.some((operation) => operation.path === `/api/v1/${route}`),
       `API operation registered: ${route}`,
+    );
+  }
+  for (const retiredRoute of [
+    "bookmarks/{id}/article",
+    "bookmarks/{id}/article/versions",
+    "bookmarks/{id}/highlights",
+    "bookmarks/{id}/highlights/{highlightId}",
+  ]) {
+    assert.ok(
+      !apiOperations.some(
+        (operation) => operation.path === `/api/v1/${retiredRoute}`,
+      ),
+      `reader API operation removed: ${retiredRoute}`,
     );
   }
 });

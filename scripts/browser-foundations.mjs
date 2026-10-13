@@ -120,52 +120,6 @@ assert.equal(
   "Only the synthetic Review Owner is allowed to run this suite",
 );
 
-async function seedBookmarkReader() {
-  const script = fileURLToPath(
-    new URL("./seed-foundations-reader.ts", import.meta.url),
-  );
-  const { output } = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", script], {
-      cwd: process.cwd(),
-      env: { ...process.env, NIVRA_DATA_DIR: dataDirectory },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let output = "";
-    let errorOutput = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => (output += chunk));
-    child.stderr
-      .setEncoding("utf8")
-      .on("data", (chunk) => (errorOutput += chunk));
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolve({ output });
-      else
-        reject(
-          new Error(
-            `Reader fixture seeder failed${signal ? ` (${signal})` : ` with exit code ${code}`}: ${errorOutput.trim()}`,
-          ),
-        );
-    });
-  });
-  const fixture = JSON.parse(output.trim());
-  assert.equal(fixture.schemaVersion, 1);
-  assert.equal(fixture.currentVersion, 2);
-  assert.equal(fixture.bookmark?.id, fixture.bookmarkId);
-  assert.equal(new URL(fixture.url).hostname, "example.test");
-  assert.ok(fixture.olderVersionText && fixture.articleText);
-  assert.ok(fixture.selectionQuote && fixture.highlightQuote);
-  assert.ok(fixture.highlights.some((item) => item.articleVersion === 1));
-  assert.ok(fixture.highlights.some((item) => item.articleVersion === 2));
-  assert.equal(
-    path.resolve(fixture.manifestPath),
-    path.join(dataDirectory, "browser-reader-fixture.json"),
-    "Fixture manifest must stay in the isolated app data directory",
-  );
-  return fixture;
-}
-
-const readerFixture = await seedBookmarkReader();
-
 const browser = await engines[engineName].launch();
 const errors = [];
 const context = await browser.newContext({
@@ -289,7 +243,7 @@ async function openBookmarks() {
   await page.locator(".bookmark-toolbar").waitFor();
 }
 
-async function verifyBookmarkReader(bookmark, fixture, width) {
+async function verifyBookmarkOpenAndReadState(bookmark, width) {
   const height = width === 390 ? 844 : 900;
   await page.setViewportSize({ width, height });
   await openBookmarks();
@@ -297,215 +251,52 @@ async function verifyBookmarkReader(bookmark, fixture, width) {
     .locator(".bookmark-card")
     .filter({ hasText: bookmark.title });
   await card.waitFor();
-  await card
-    .getByRole("button", {
-      name: `Read saved article for ${bookmark.title}`,
-      exact: true,
-    })
-    .click();
-  const reader = page.getByRole("dialog", {
-    name: `Saved article: ${bookmark.title}`,
-  });
-  await reader.waitFor();
-  const articleContent = reader.locator(".bookmark-reader-content");
-  await articleContent.waitFor();
-  await articleContent
-    .getByText("A newer inspection found the cause:")
-    .waitFor();
-  await reader
-    .getByRole("combobox", { name: "Article version", exact: true })
-    .waitFor();
-  const seededHighlight = reader
-    .locator(".bookmark-highlight")
-    .filter({ hasText: fixture.highlightQuote });
-  const seededAnnotation = seededHighlight.getByRole("textbox", {
-    name: `Annotation for highlight: ${fixture.highlightQuote.slice(0, 60)}`,
-    exact: true,
-  });
-  if (width < 768) {
-    const settled = await waitForSettledBounds(reader, { width, height });
-    const bounds = settled.bounds;
-    check(
-      settled.stable &&
-        !!bounds &&
-        bounds.x === 0 &&
-        bounds.y === 0 &&
-        bounds.width === width &&
-        bounds.height === height,
-      `Mobile article reader fills the viewport after layout settles (${JSON.stringify(settled)})`,
-    );
-    const close = await reader
-      .getByRole("button", { name: "Close saved article", exact: true })
-      .boundingBox();
-    check(
-      !!close && close.width >= 44 && close.height >= 44,
-      "Mobile article reader close action meets the touch target",
-    );
-    await reader.getByRole("button", { name: /^Highlights/ }).click();
-    await seededHighlight.waitFor();
-  }
-  await seededAnnotation.waitFor();
-  assert.equal(await seededAnnotation.inputValue(), fixture.annotation);
-  if (width >= 768) {
-    await reader
-      .locator("[data-highlight-ids]")
-      .filter({ hasText: fixture.highlightQuote })
-      .first()
-      .waitFor();
-    check(
-      true,
-      `${width}px saved article renders the canonical version and existing highlight`,
-    );
-  }
+  const originalLink = card.locator("a.bookmark-link");
+  assert.equal(await originalLink.getAttribute("target"), "_blank");
+  assert.match(await originalLink.getAttribute("rel"), /noopener/);
+  await context.route("https://example.invalid/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><title>Local bookmark target</title>",
+    }),
+  );
+  const popupPromise = page.waitForEvent("popup");
+  await originalLink.click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  assert.equal(popup.url(), bookmark.url);
+  await popup.close();
+  await context.unroute("https://example.invalid/**");
+  assert.equal(await page.getByRole("dialog").count(), 0);
 
-  if (width < 768) {
-    await seededAnnotation.fill("Reviewed from the mobile highlights pane.");
-    await seededHighlight
-      .getByRole("button", { name: "Save note", exact: true })
-      .click();
-    await reader.getByText("Annotation saved.", { exact: true }).waitFor();
-    const editedHighlight = await api(
-      `bookmarks/${bookmark.id}/highlights?version=${fixture.currentVersion}&limit=50`,
-    );
-    check(
-      editedHighlight.items.some(
-        (item) =>
-          item.quote === fixture.highlightQuote &&
-          item.annotation === "Reviewed from the mobile highlights pane.",
-      ),
-      "Mobile highlight annotation edits persist",
-    );
-    await seededHighlight
-      .getByRole("button", {
-        name: `“${fixture.highlightQuote}”`,
-        exact: true,
-      })
-      .click();
-    await reader
-      .getByRole("button", { name: "Article", exact: true })
-      .waitFor();
-    await reader.getByRole("button", { name: "Article", exact: true }).click();
-    await articleContent
-      .locator("[data-highlight-ids]")
-      .filter({ hasText: fixture.highlightQuote })
-      .first()
-      .waitFor();
-    check(
-      true,
-      "Mobile article renders the existing highlight after returning from the highlights pane",
-    );
-    const selection = await page.evaluate((quote) => {
-      const root = document.querySelector(".bookmark-reader-content");
-      if (!root) return false;
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let node;
-      while ((node = walker.nextNode())) {
-        const value = node.textContent ?? "";
-        const start = value.indexOf(quote);
-        if (start < 0) continue;
-        const range = document.createRange();
-        range.setStart(node, start);
-        range.setEnd(node, start + quote.length);
-        const current = window.getSelection();
-        current?.removeAllRanges();
-        current?.addRange(range);
-        document.dispatchEvent(new Event("selectionchange"));
-        return current?.toString() === quote;
-      }
-      return false;
-    }, fixture.selectionQuote);
-    check(
-      selection,
-      "Reader accepts exact text selection in the mobile article pane",
-    );
-    await reader.getByRole("button", { name: "Save highlight" }).waitFor();
-    await reader
-      .getByRole("textbox", { name: "Highlight annotation", exact: true })
-      .fill("Keep this maintenance detail with the article.");
-    await reader.getByRole("button", { name: "Save highlight" }).click();
-    await reader.getByText("Highlight saved.", { exact: true }).waitFor();
-    const savedSelection = await api(
-      `bookmarks/${bookmark.id}/highlights?version=${fixture.currentVersion}&limit=50`,
-    );
-    const newHighlight = savedSelection.items.find(
-      (item) => item.quote === fixture.selectionQuote,
-    );
-    check(
-      !!newHighlight &&
-        newHighlight.startOffset ===
-          fixture.articleText.indexOf(fixture.selectionQuote) &&
-        newHighlight.endOffset ===
-          fixture.articleText.indexOf(fixture.selectionQuote) +
-            fixture.selectionQuote.length,
-      "Mobile text selection saves precise canonical highlight offsets",
-    );
-    await articleContent
-      .locator("[data-highlight-ids]")
-      .filter({ hasText: fixture.selectionQuote })
-      .waitFor();
-
-    const versionPicker = reader.getByRole("combobox", {
-      name: "Article version",
-      exact: true,
-    });
-    await versionPicker.click();
-    await page.getByRole("option").filter({ hasText: `Version 1` }).click();
-    await articleContent
-      .getByText("The north workshop valve began sticking")
-      .waitFor();
-    check(
-      !(await articleContent
-        .getByText("A newer inspection found the cause:")
-        .count()),
-      "Switching article versions loads the older saved text",
-    );
-    await versionPicker.click();
-    await page
-      .getByRole("option")
-      .filter({ hasText: `Version ${fixture.currentVersion}` })
-      .click();
-    await articleContent
-      .getByText("A newer inspection found the cause:")
-      .waitFor();
-    check(
-      true,
-      "Reader returns to the current version without losing its highlight",
-    );
-    check(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-      "Mobile article reader does not overflow horizontally",
-    );
-  }
-
-  const clickReadControl = async (name) => {
+  const changeReadState = async (read) => {
     const responsePromise = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === "/api/v1/bookmarks/read-state" &&
         response.request().method() === "POST",
     );
-    await reader.getByRole("button", { name, exact: true }).click();
+    await card
+      .getByRole("button", { name: `Actions for ${bookmark.title}` })
+      .click();
+    await page
+      .getByRole("menuitem", { name: `Mark ${read ? "read" : "unread"}` })
+      .click();
     const response = await responsePromise;
     assert.ok(
       response.ok(),
       `Bookmark read-state update failed: ${response.status()}`,
     );
+    bookmark = await api(`bookmarks/${bookmark.id}`);
+    assert.equal(bookmark.readAt !== null, read);
+    check(
+      true,
+      `${width}px bookmark ${read ? "read" : "unread"} state persists`,
+    );
   };
-  const currentState = await api(`bookmarks/${bookmark.id}`);
-  if (currentState.readAt !== null) {
-    await clickReadControl(width < 768 ? "Mark bookmark unread" : "Read");
-    const unread = await api(`bookmarks/${bookmark.id}`);
-    assert.equal(unread.readAt, null);
-    check(true, `${width}px reader can clear its read state`);
-  }
-  await clickReadControl(width < 768 ? "Mark bookmark read" : "Mark read");
-  const updated = await api(`bookmarks/${bookmark.id}`);
-  check(updated.readAt !== null, `${width}px reader persists read state`);
-  await reader
-    .getByRole("button", { name: "Close saved article", exact: true })
-    .click();
-  await reader.waitFor({ state: "hidden" });
+
+  if (bookmark.readAt !== null) await changeReadState(false);
+  await changeReadState(true);
+  await changeReadState(false);
 }
 
 async function verifyBookmarkFilters(width) {
@@ -1081,13 +872,20 @@ try {
   const planning = await verifyPlanning(page);
   check(planning.passed.length > 0, "Planning UI workflow passed");
 
-  const bookmark = await api(`bookmarks/${readerFixture.bookmarkId}`);
+  const createdBookmark = await api("bookmarks", "POST", {
+    url: `https://example.invalid/foundations-${stamp}`,
+    collection: "Foundations",
+  });
+  const bookmark = await api(`bookmarks/${createdBookmark.id}`, "PATCH", {
+    revision: createdBookmark.revision,
+    title: `Foundation link ${stamp}`,
+  });
   owned.bookmarks.push(bookmark.id);
   await verifyBookmarkFilters(320);
   await verifyBookmarkFilters(390);
   await verifyBookmarkFilters(1440);
-  await verifyBookmarkReader(bookmark, readerFixture, 1440);
-  await verifyBookmarkReader(bookmark, readerFixture, 390);
+  await verifyBookmarkOpenAndReadState(bookmark, 390);
+  await verifyBookmarkOpenAndReadState(bookmark, 1440);
 
   await verifyCapturePage();
   await verifyQuickCapture(1440);
@@ -1096,7 +894,7 @@ try {
   await context.close();
   await browser.close();
 
-  assert.deepEqual(errors, [], "Planning/reader/capture browser errors");
+  assert.deepEqual(errors, [], "Planning/bookmark/capture browser errors");
   await runWritingHarness();
 
   console.log(

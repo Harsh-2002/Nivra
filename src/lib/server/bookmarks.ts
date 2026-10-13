@@ -1,11 +1,11 @@
 import { moveToTrash } from "./trash";
 import { itemTags } from "./item-tags";
-import { enqueueNewBookmarkArticle } from "./bookmark-reading-service";
 import {
   enqueueJob,
   startJobWorker,
   maxAttempts,
   type JobContext,
+  completionEvent,
 } from "./jobs";
 import { randomUUID } from "node:crypto";
 import { db, sqlite } from "./db";
@@ -23,6 +23,7 @@ import {
   parseMetadata,
 } from "./link-metadata";
 import type { Bookmark, Page } from "../types";
+import { bookmarkReadStateBatchSchema } from "../bookmark-state";
 import { decodeCursor, encodeCursor } from "./pagination";
 type Row = {
   id: string;
@@ -35,9 +36,6 @@ type Row = {
   collection: string;
   favorite: number | boolean;
   read_at: number | null;
-  article_status: Bookmark["articleStatus"];
-  article_generation: number;
-  article_version: number;
   metadata_status: Bookmark["metadataStatus"];
   title_edited: number;
   description_edited: number;
@@ -61,9 +59,6 @@ const fields = {
   collection: bookmarks.collection,
   favorite: bookmarks.favorite,
   read_at: bookmarks.readAt,
-  article_status: bookmarks.articleStatus,
-  article_generation: bookmarks.articleGeneration,
-  article_version: bookmarks.articleVersion,
   metadata_status: bookmarks.metadataStatus,
   title_edited: bookmarks.titleEdited,
   description_edited: bookmarks.descriptionEdited,
@@ -93,9 +88,6 @@ function expose(row: Row & { linkedTitle?: string | null }): Bookmark {
     collection: row.collection,
     favorite: !!row.favorite,
     readAt: row.read_at,
-    articleStatus: row.article_status,
-    articleGeneration: row.article_generation,
-    articleVersion: row.article_version,
     metadataStatus: row.metadata_status,
     thumbnail: row.thumbnail_key
       ? `/api/v1/bookmarks/${row.id}/thumbnail`
@@ -150,25 +142,18 @@ function bookmarkWhere(owner: string, options: BookmarkQuery, search?: string) {
     ).term;
     if ([...folded].length >= 3 && !folded.includes("\0")) {
       where.push(
-        `(b.rowid IN (SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ? UNION SELECT rowid FROM bookmarks_literal_fts WHERE bookmarks_literal_fts MATCH ? AND instr(text,?)>0)
-          OR b.id IN (SELECT a.bookmark_id FROM bookmark_articles a WHERE a.owner_id=b.owner_id AND a.rowid IN (SELECT rowid FROM bookmark_articles_fts WHERE bookmark_articles_fts MATCH ?))
-          OR b.id IN (SELECT h.bookmark_id FROM bookmark_highlights h WHERE h.owner_id=b.owner_id AND h.rowid IN (SELECT rowid FROM bookmark_highlights_fts WHERE bookmark_highlights_fts MATCH ?)))`,
+        "b.rowid IN (SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ? UNION SELECT rowid FROM bookmarks_literal_fts WHERE bookmarks_literal_fts MATCH ? AND instr(text,?)>0)",
       );
       values.push(
         ftsQuery(search),
         `"${folded.replaceAll('"', '""')}"`,
         folded,
-        ftsQuery(search),
-        ftsQuery(search),
       );
     } else {
       where.push(
-        `(b.rowid IN (SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ?)
-          OR instr(lower(b.title || ' ' || b.description || ' ' || b.url || ' ' || b.collection),lower(?))>0
-          OR EXISTS(SELECT 1 FROM bookmark_articles a WHERE a.bookmark_id=b.id AND a.owner_id=b.owner_id AND instr(lower(a.title || ' ' || a.plain_text),lower(?))>0)
-          OR EXISTS(SELECT 1 FROM bookmark_highlights h WHERE h.bookmark_id=b.id AND h.owner_id=b.owner_id AND instr(lower(h.quote || ' ' || h.annotation),lower(?))>0))`,
+        "(b.rowid IN (SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ?) OR instr(lower(b.title || ' ' || b.description || ' ' || b.url || ' ' || b.collection),lower(?))>0)",
       );
-      values.push(ftsQuery(search), search, search, search);
+      values.push(ftsQuery(search), search);
     }
   }
   if (options.favorite) where.push("b.favorite=1");
@@ -308,6 +293,69 @@ export function bookmarkSummary(owner: string, options: BookmarkQuery) {
     .sort();
   return { total, collections };
 }
+
+export type BookmarkReadStateResult = {
+  id: string;
+  status: "updated" | "unchanged" | "conflict" | "not_found";
+  bookmark?: Bookmark;
+};
+
+export async function updateBookmarkReadState(
+  owner: string,
+  input: unknown,
+): Promise<BookmarkReadStateResult[]> {
+  const { items } = bookmarkReadStateBatchSchema.parse(input);
+  if (new Set(items.map((item) => item.id)).size !== items.length)
+    throw new HttpError(400, "A bookmark can only appear once in a batch.");
+  const d = sqlite();
+  const results = d
+    .transaction(() =>
+      items.map((item) => {
+        const current = d
+          .prepare(
+            "SELECT revision,read_at FROM bookmarks WHERE id=? AND owner_id=? AND trashed_at IS NULL",
+          )
+          .get(item.id, owner) as
+          { revision: number; read_at: number | null } | undefined;
+        if (!current) return { id: item.id, status: "not_found" as const };
+        if (current.revision !== item.revision)
+          return { id: item.id, status: "conflict" as const };
+        if (Boolean(current.read_at) === item.read)
+          return { id: item.id, status: "unchanged" as const };
+        const now = Date.now();
+        const changed = d
+          .prepare(
+            "UPDATE bookmarks SET read_at=?,revision=revision+1,updated_at=? WHERE id=? AND owner_id=? AND revision=? AND trashed_at IS NULL",
+          )
+          .run(
+            item.read ? now : null,
+            now,
+            item.id,
+            owner,
+            item.revision,
+          ).changes;
+        if (!changed) return { id: item.id, status: "conflict" as const };
+        completionEvent(
+          owner,
+          "bookmark",
+          item.id,
+          item.read ? "marked-read" : "marked-unread",
+        );
+        return { id: item.id, status: "updated" as const };
+      }),
+    )
+    .immediate();
+  return results.map((result) => {
+    if (result.status !== "updated" && result.status !== "unchanged")
+      return result;
+    try {
+      return { ...result, bookmark: getBookmark(owner, result.id) };
+    } catch {
+      return { id: result.id, status: "not_found" as const };
+    }
+  });
+}
+
 async function metadata(url: string) {
   const assets: { key: string; mime: string }[] = [];
   const fallback = {
@@ -396,7 +444,6 @@ export async function createBookmark(
           })
           .run();
         enqueueJob(owner, "bookmark", id);
-        enqueueNewBookmarkArticle(owner, id);
       })
       .immediate();
   } catch (error) {

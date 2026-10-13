@@ -24,7 +24,6 @@ import {
   Star,
   Trash2,
   FileText,
-  BookOpen,
   Check,
   Share2,
 } from "lucide-react";
@@ -52,7 +51,6 @@ import {
 import { useConfirm } from "./confirm-provider";
 import { NotePicker } from "./note-picker";
 import type { CapturedItem } from "./quick-capture";
-import { BookmarkReader } from "./bookmark-reader";
 function PreviewImage({
   src,
   kind,
@@ -136,7 +134,6 @@ export function BookmarksPanel({
   const [collection, setCollection] = useState("all");
   const [favorites, setFavorites] = useState(false);
   const [readingState, setReadingState] = useState("all");
-  const [reader, setReader] = useState<Bookmark | null>(null);
   const [editing, setEditing] = useState<Bookmark | null>(null);
   const [loading, setLoading] = useState(!warm);
   const [busy, setBusy] = useState(false);
@@ -379,8 +376,6 @@ export function BookmarksPanel({
         entry.bookmark ? [entry.bookmark] : [],
       );
       setBookmarks((current) => mergeBookmarks(current, updated));
-      const open = updated.find((item) => item.id === reader?.id);
-      if (open) setReader(open);
       invalidate();
       void refreshSummary();
       const failed = result.items.filter((entry) => !entry.bookmark).length;
@@ -706,15 +701,6 @@ export function BookmarksPanel({
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={`Read saved article for ${item.title}`}
-                          disabled={busy || !!editing}
-                          onClick={() => setReader(item)}
-                        >
-                          <BookOpen size={16} />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
                           disabled={busy}
                           aria-label={`${item.favorite ? "Unfavorite" : "Favorite"} ${item.title}`}
                           aria-pressed={item.favorite}
@@ -878,19 +864,6 @@ export function BookmarksPanel({
                 : `${shownTotal} ${shownTotal === 1 ? "bookmark" : "bookmarks"}`}
               {busy && <Loader2 size={13} className="animate-spin" />}
             </p>
-          )}
-          {reader && (
-            <BookmarkReader
-              bookmark={reader}
-              onClose={() => setReader(null)}
-              onChanged={(item) => {
-                setBookmarks((items) => mergeBookmarks(items, [item]));
-                setReader(item);
-                invalidate();
-                void refreshSummary();
-              }}
-              onOpenNote={onOpenNote}
-            />
           )}
         </div>
       </div>

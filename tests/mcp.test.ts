@@ -1252,6 +1252,20 @@ test("MCP shares content while isolating agent credentials and account administr
             )
           ).content.includes("Indexed"),
         );
+        const artifactOwner = sqlite()
+          .prepare("SELECT owner_id FROM artifacts WHERE id=?")
+          .get(artifact.id) as { owner_id: string };
+        sqlite()
+          .prepare(
+            "INSERT INTO background_jobs(id,owner_id,kind,target_id,state,attempts,available_at,created_at) VALUES(?,?,'article',?,'failed',1,?,?)",
+          )
+          .run(
+            randomUUID(),
+            artifactOwner.owner_id,
+            artifact.id,
+            Date.now(),
+            Date.now(),
+          );
         assert.equal(
           (
             await call<unknown[]>(client, "processing_status", {

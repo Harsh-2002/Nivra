@@ -340,12 +340,23 @@ export function FormRenderer({
                   >
                     {question.label || "Untitled question"}
                     {question.required && (
-                      <span
-                        className="ml-1 text-muted-foreground"
-                        aria-hidden="true"
-                      >
-                        *
-                      </span>
+                      <>
+                        <span
+                          className="ml-1 text-muted-foreground"
+                          aria-hidden="true"
+                        >
+                          *
+                        </span>
+                        {[
+                          "file",
+                          "multiple_choice",
+                          "single_choice",
+                          "yes_no",
+                          "rating",
+                        ].includes(question.type) && (
+                          <span className="sr-only">, required</span>
+                        )}
+                      </>
                     )}
                   </label>
                   {question.description && (
@@ -382,6 +393,7 @@ export function FormRenderer({
                         "aria-invalid": !!errors[question.id],
                         ...([
                           "file",
+                          "multiple_choice",
                           "single_choice",
                           "yes_no",
                           "rating",
@@ -446,6 +458,8 @@ export function FormRenderer({
                               >
                                 <Checkbox
                                   {...(index === 0 ? shared : { disabled })}
+                                  aria-describedby={shared["aria-describedby"]}
+                                  aria-invalid={!!errors[question.id]}
                                   aria-labelledby={
                                     question.type === "consent"
                                       ? shared["aria-labelledby"]
@@ -529,6 +543,8 @@ export function FormRenderer({
                               <Button
                                 {...(index === 0 ? shared : { disabled })}
                                 aria-labelledby={undefined}
+                                aria-describedby={shared["aria-describedby"]}
+                                aria-invalid={!!errors[question.id]}
                                 ref={index === 0 ? field.ref : undefined}
                                 key={String(option.value)}
                                 type="button"
@@ -561,6 +577,8 @@ export function FormRenderer({
                               type="file"
                               id={`upload-${question.id}`}
                               className="sr-only"
+                              aria-hidden="true"
+                              tabIndex={-1}
                               multiple={question.maxFiles > 1}
                               accept={question.fileTypes
                                 .map((type) => fileAccept[type])
@@ -580,6 +598,7 @@ export function FormRenderer({
                               type="button"
                               variant="outline"
                               className="min-h-11"
+                              aria-labelledby={`label-${question.id} choose-files-${question.id}`}
                               disabled={disabled || preview}
                               onClick={() =>
                                 document
@@ -588,7 +607,9 @@ export function FormRenderer({
                               }
                             >
                               <FileUp />
-                              Choose files
+                              <span id={`choose-files-${question.id}`}>
+                                Choose files
+                              </span>
                             </Button>
                             {preview && (
                               <p className="text-sm text-muted-foreground">

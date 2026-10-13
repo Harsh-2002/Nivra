@@ -68,6 +68,15 @@ function rangeLabel(start: string, period: JournalPeriod) {
     : `${dateLabel(start)} – ${dateLabel(end)}`;
 }
 
+function noteDateLabel(note: NoteSummary) {
+  if (note.journalPeriodStart) {
+    return note.journalPeriod && note.journalPeriod !== "daily"
+      ? rangeLabel(note.journalPeriodStart, note.journalPeriod)
+      : dateLabel(note.journalPeriodStart);
+  }
+  return note.dailyDate ? dateLabel(note.dailyDate) : "";
+}
+
 export function JournalReview({
   noteId,
   date,
@@ -240,9 +249,7 @@ export function JournalReview({
                         onClick={() => void onOpenNote(entry.id)}
                       >
                         <span>{entry.title || "Untitled entry"}</span>
-                        <small>
-                          {entry.journalPeriodStart || entry.dailyDate}
-                        </small>
+                        <small>{noteDateLabel(entry)}</small>
                       </button>
                     </li>
                   ))}
@@ -281,7 +288,9 @@ export function JournalReview({
                           <small>
                             {task.completedAt
                               ? "Completed"
-                              : dateForTask || "Open"}
+                              : dateForTask
+                                ? dateLabel(dateForTask)
+                                : "Open"}
                           </small>
                         </button>
                       </li>
@@ -330,35 +339,37 @@ export function JournalReview({
             </section>
           </>
         ) : null}
-        <section className="journal-review-section">
-          <h3>
-            <Clock3 size={14} /> On this day
-          </h3>
-          {!review && !error ? (
-            <p className="journal-review-muted" role="status">
-              Checking past entries…
-            </p>
-          ) : onThisDay.length ? (
-            <ul>
-              {onThisDay.map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    className="journal-review-row"
-                    onClick={() => void onOpenNote(entry.id)}
-                  >
-                    <span>{entry.title || "Untitled entry"}</span>
-                    <small>{entry.journalPeriodStart || entry.dailyDate}</small>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="journal-review-muted">
-              No entries from this date in earlier years.
-            </p>
-          )}
-        </section>
+        {!error && (
+          <section className="journal-review-section">
+            <h3>
+              <Clock3 size={14} /> On this day
+            </h3>
+            {!review ? (
+              <p className="journal-review-muted" role="status">
+                Checking past entries…
+              </p>
+            ) : onThisDay.length ? (
+              <ul>
+                {onThisDay.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      className="journal-review-row"
+                      onClick={() => void onOpenNote(entry.id)}
+                    >
+                      <span>{entry.title || "Untitled entry"}</span>
+                      <small>{noteDateLabel(entry)}</small>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="journal-review-muted">
+                No entries from this date in earlier years.
+              </p>
+            )}
+          </section>
+        )}
         {review?.entry && review.entry.id !== noteId && (
           <Button
             type="button"

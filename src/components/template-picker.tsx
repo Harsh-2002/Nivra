@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BookCopy, FileText, Loader2, Pencil, Plus, Star } from "lucide-react";
+import {
+  BookCopy,
+  FileText,
+  Loader2,
+  Pencil,
+  Plus,
+  Star,
+  X,
+} from "lucide-react";
 import { api, apiItems } from "@/lib/client";
 import type { WritingTemplate } from "@/lib/types";
 import { previewTemplateDocument } from "./template-editor";
@@ -43,6 +51,14 @@ export function TemplatePicker({
     defaultJournalTemplateId: string | null;
   } | null>(null);
   const createKey = useRef<{ templateId: string; value: string } | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const active = document.activeElement;
+    openerRef.current = active instanceof HTMLElement ? active : null;
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -172,6 +188,32 @@ export function TemplatePicker({
     }
   }
 
+  function closePicker() {
+    onClose();
+    window.requestAnimationFrame(() => {
+      const candidates = [
+        openerRef.current,
+        document.querySelector<HTMLElement>(
+          '.list-header [aria-label="Browse templates"]',
+        ),
+        document.querySelector<HTMLElement>(
+          '.note-pane [aria-label="Note actions"]',
+        ),
+        document.querySelector<HTMLElement>(".note-title"),
+        document.querySelector<HTMLElement>(
+          '.desktop-navigation [aria-current="page"]',
+        ),
+      ];
+      const target = candidates.find(
+        (element) =>
+          element?.isConnected &&
+          element.getClientRects().length > 0 &&
+          !element.matches(":disabled,[aria-disabled='true']"),
+      );
+      target?.focus({ preventScroll: true });
+    });
+  }
+
   return (
     <section
       className="writing-template-picker"
@@ -179,7 +221,12 @@ export function TemplatePicker({
     >
       <header className="writing-template-header">
         <div>
-          <h2 id="template-picker-title">
+          <h2
+            ref={headingRef}
+            id="template-picker-title"
+            tabIndex={-1}
+            className="writing-template-focus-heading"
+          >
             {kind === "journal" ? "Journal templates" : "Note templates"}
           </h2>
           <p>Choose a starting point or keep writing on a blank page.</p>
@@ -189,9 +236,9 @@ export function TemplatePicker({
           variant="ghost"
           size="icon"
           aria-label="Close templates"
-          onClick={onClose}
+          onClick={closePicker}
         >
-          <span aria-hidden="true">×</span>
+          <X size={17} aria-hidden="true" />
         </Button>
       </header>
       <div className="writing-template-picker-actions">
@@ -249,23 +296,27 @@ export function TemplatePicker({
                   type="button"
                   className={`writing-template-row ${selected?.id === item.id ? "is-selected" : ""}`}
                   onClick={() => void select(item)}
-                  aria-current={selected?.id === item.id ? "true" : undefined}
+                  aria-pressed={selected?.id === item.id}
                 >
                   <FileText size={16} aria-hidden="true" />
                   <span>
                     <strong>{item.name}</strong>
                     {item.description && <small>{item.description}</small>}
                   </span>
-                  {kind === "journal" &&
-                    preferences?.defaultJournalTemplateId === item.id && (
-                      <span className="writing-template-default">Default</span>
-                    )}
-                  <time dateTime={new Date(item.updatedAt).toISOString()}>
-                    {new Intl.DateTimeFormat(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    }).format(item.updatedAt)}
-                  </time>
+                  <span className="writing-template-row-meta">
+                    {kind === "journal" &&
+                      preferences?.defaultJournalTemplateId === item.id && (
+                        <span className="writing-template-default">
+                          Default
+                        </span>
+                      )}
+                    <time dateTime={new Date(item.updatedAt).toISOString()}>
+                      {new Intl.DateTimeFormat(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      }).format(item.updatedAt)}
+                    </time>
+                  </span>
                 </button>
               </li>
             ))}

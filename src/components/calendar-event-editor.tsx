@@ -519,6 +519,7 @@ export function CalendarEventEditor({
                     </label>
                     <div
                       className="schedule-weekdays"
+                      role="group"
                       aria-label="Repeat weekdays"
                     >
                       {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
@@ -689,7 +690,7 @@ export function CalendarEventEditor({
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label="Remove linked item"
+                      aria-label={`Remove ${linkNames[link.id] ?? `linked ${link.type}`}`}
                       onClick={() =>
                         change({
                           links: draft.links.filter(

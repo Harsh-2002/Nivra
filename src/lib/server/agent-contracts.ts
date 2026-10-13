@@ -268,17 +268,6 @@ const schemas: Record<string, z.ZodType> = {
   create_writing_template: apiOutputs.writingTemplateDetail,
   update_writing_template: apiOutputs.writingTemplateDetail,
   apply_writing_template: apiOutputs.templateApply,
-  get_bookmark_article: apiOutputs.bookmarkArticleResult,
-  list_bookmark_article_versions: apiOutputs.bookmarkArticleVersionPage,
-  save_bookmark_article: z.union([
-    z
-      .object({ jobId: z.string().uuid(), status: z.literal("pending") })
-      .strict(),
-    apiOutputs.bookmarkArticleResult,
-  ]),
-  list_bookmark_highlights: apiOutputs.bookmarkHighlightPage,
-  create_bookmark_highlight: apiOutputs.bookmarkHighlight,
-  update_bookmark_highlight: apiOutputs.bookmarkHighlight,
   set_bookmark_read_state: apiOutputs.bookmarkReadState,
 };
 for (const [name, path, method] of [

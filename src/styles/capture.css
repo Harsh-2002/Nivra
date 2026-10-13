@@ -1,0 +1,73 @@
+.capture-page {
+  width: min(100% - 40px, 640px);
+  margin: 40px auto;
+  display: grid;
+  gap: 24px;
+}
+.capture-shell {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
+}
+.capture-form > div {
+  display: grid;
+  gap: 8px;
+}
+.capture-form > .capture-actions {
+  display: flex;
+}
+.capture-help,
+.capture-intro p,
+.capture-setup p {
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+.capture-back {
+  justify-self: start;
+}
+.capture-setup {
+  display: grid;
+  gap: 12px;
+}
+.capture-setup summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+}
+.capture-setup > * + * {
+  margin-top: 12px;
+}
+.capture-form {
+  display: grid;
+  gap: 16px;
+}
+.capture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.capture-intro {
+  display: grid;
+  gap: 8px;
+}
+.capture-intro h1 {
+  font-size: 26px;
+  font-weight: 600;
+}
+@media (max-width: 767px) {
+  .capture-page button,
+  .capture-page input,
+  .capture-page [role="combobox"] {
+    min-height: 44px;
+  }
+  .capture-page input,
+  .capture-page textarea {
+    font-size: 16px;
+  }
+  .capture-page {
+    margin-block: 24px;
+  }
+}

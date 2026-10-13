@@ -153,7 +153,7 @@
 
 .planning-weekdays button {
   min-width: 44px;
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .planning-steps {
@@ -172,7 +172,7 @@
 
 .planning-step-row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 44px;
@@ -185,12 +185,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+
+.planning-step-check [data-slot="checkbox"] {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  min-height: 16px;
+}
+
+.planning-step-check [data-slot="checkbox"]::after {
+  inset: -14px;
 }
 
 .planning-step-text {
   min-width: 0;
-  min-height: 40px;
+  min-height: 44px;
   padding: 7px 6px;
   border: 0;
   border-radius: 6px;
@@ -219,8 +233,8 @@
 
 .planning-step-actions button,
 .planning-step-edit button {
-  min-width: 40px;
-  min-height: 40px;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .planning-step-edit {
@@ -241,7 +255,18 @@
 }
 
 .planning-step-add button {
-  min-height: 40px;
+  min-height: 44px;
+}
+
+.planning-checklist-load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.planning-checklist-load-error button {
+  min-height: 44px;
 }
 
 .planning-task-dialog[data-slot="dialog-content"] {
@@ -342,7 +367,7 @@
 }
 
 .planning-task-dialog-footer button {
-  min-height: 40px;
+  min-height: 44px;
 }
 
 .planning-agenda-task {
@@ -357,7 +382,7 @@
 }
 
 .planning-agenda-schedule {
-  min-height: 40px;
+  min-height: 44px;
   align-self: center;
 }
 
@@ -376,7 +401,7 @@
   position: absolute;
   left: 0;
   width: 100%;
-  height: 2.083333%;
+  height: 24px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -570,6 +595,13 @@
     flex-direction: column;
   }
 
+  .planning-export-dates button,
+  .task-details-dialog button[data-size="icon"],
+  .planning-schedule-editor .planning-section-heading button[data-size="icon"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .planning-export-actions {
     flex-direction: column-reverse;
     align-items: stretch;
@@ -589,7 +621,7 @@
   }
 
   .planning-step-row {
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: 44px minmax(0, 1fr);
     align-items: start;
     gap: 4px 8px;
     padding: 4px;
@@ -597,7 +629,6 @@
 
   .planning-step-check {
     grid-row: 1;
-    min-height: 44px;
   }
 
   .planning-step-text,
@@ -658,6 +689,27 @@
 }
 
 @media (pointer: coarse) {
+  .planning-task-dialog :is(button, input, [data-slot="select-trigger"]),
+  .planning-export-dates button,
+  .planning-step-actions button,
+  .planning-step-edit button,
+  .planning-step-add button,
+  .planning-weekdays button,
+  .planning-task-dialog-footer button,
+  .planning-agenda-schedule,
+  .planning-schedule-empty button,
+  .task-details-dialog button[data-size="icon"],
+  .planning-schedule-editor .planning-section-heading button[data-size="icon"] {
+    min-height: 44px;
+  }
+
+  .planning-step-actions button,
+  .planning-step-edit button,
+  .task-details-dialog button[data-size="icon"],
+  .planning-schedule-editor .planning-section-heading button[data-size="icon"] {
+    min-width: 44px;
+  }
+
   .schedule-time-extend,
   .schedule-time-shorten {
     display: none;
