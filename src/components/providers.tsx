@@ -6,6 +6,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { setNonce } from "get-nonce";
 import { CspNonce, documentNonce } from "@/lib/csp";
+
 function subscribeSystemTheme(changed: () => void) {
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   media.addEventListener("change", changed);

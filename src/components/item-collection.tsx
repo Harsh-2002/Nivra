@@ -203,11 +203,14 @@ export function ItemCollection({
               aria-label={tag ? "Tagged items" : "Favorites"}
             >
               {rows.map((item) => {
-                const Icon =
-                  item.type === "note"
-                    ? item.dailyDate
-                      ? NotebookPen
-                      : FileText
+                const isJournal =
+                  item.type === "journal" ||
+                  (item.type === "note" &&
+                    Boolean(item.journalPeriod || item.dailyDate));
+                const Icon = isJournal
+                  ? NotebookPen
+                  : item.type === "note"
+                    ? FileText
                     : item.type === "task"
                       ? SquareCheckBig
                       : item.type === "bookmark"
@@ -215,11 +218,14 @@ export function ItemCollection({
                         : item.type === "form" || item.type === "response"
                           ? ClipboardList
                           : Layers;
-                const label =
-                  item.type === "note"
-                    ? item.dailyDate
-                      ? "Journal entry"
-                      : "Note"
+                const label = isJournal
+                  ? item.journalPeriod === "weekly"
+                    ? "Weekly journal"
+                    : item.journalPeriod === "monthly"
+                      ? "Monthly journal"
+                      : "Journal entry"
+                  : item.type === "note"
+                    ? "Note"
                     : item.type === "task"
                       ? "Task"
                       : item.type === "bookmark"

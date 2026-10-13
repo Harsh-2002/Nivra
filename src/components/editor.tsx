@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
 import {
@@ -22,9 +22,15 @@ import { PencilLine, Download, Loader2, FileText } from "lucide-react";
 import { Button } from "./ui/button";
 import { codeBlockSpec } from "./code-block";
 import { checklistBlockSpec } from "./checklist-block";
+import {
+  TaskLinkActionsContext,
+  taskLinkBlockSpec,
+  type TaskLinkActions,
+} from "./task-link-block";
 import { audioBlockSpec, videoBlockSpec } from "./media-blocks";
 import { download } from "@/lib/client";
 import { apiItems } from "@/lib/client";
+import { canonicalizeTaskLinks } from "@/lib/writing";
 import { notify } from "@/lib/feedback";
 import { mediaUrl } from "@/lib/media-url";
 import { diagramBlockSpec } from "./diagram-block";
@@ -160,6 +166,7 @@ export const editorSchema = BlockNoteSchema.create().extend({
   blockSpecs: {
     codeBlock: codeBlockSpec,
     checkListItem: checklistBlockSpec,
+    taskLink: taskLinkBlockSpec,
     diagram: diagramBlockSpec,
     canvas: canvasSpec(),
     audio: audioBlockSpec,
@@ -180,7 +187,44 @@ export async function markdownDocument(markdown: string): Promise<Document> {
     blocks: editor.document as unknown as Document["blocks"],
   };
 }
-export type EditorTools = { markdown: () => string };
+export type TaskSelection = {
+  blockId: string;
+  selectedText?: string;
+  title: string;
+};
+export type EditorTools = {
+  markdown: () => string;
+  taskSelection: () => TaskSelection | null;
+  syncDocument: (document: Document) => void;
+  insertDocument: (blocks: Document["blocks"]) => void;
+};
+
+function documentSignature(value: unknown) {
+  const canonical = canonicalizeTaskLinks(value);
+  const stable = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(stable);
+    if (!item || typeof item !== "object") return item;
+    return Object.fromEntries(
+      Object.entries(item as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, stable(child)]),
+    );
+  };
+  return JSON.stringify(stable(canonical));
+}
+
+function textFrom(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const item = part as { text?: unknown; content?: unknown };
+      if (typeof item.text === "string") return item.text;
+      return textFrom(item.content);
+    })
+    .join("");
+}
 export default function Editor({
   document,
   onChange,
@@ -188,6 +232,8 @@ export default function Editor({
   editable,
   noteId,
   onOpenNote,
+  taskLinkActions,
+  allowUpload = true,
   contentLabel,
   focusTerms,
 }: {
@@ -197,6 +243,8 @@ export default function Editor({
   editable: boolean;
   noteId: string;
   onOpenNote?: (id: string) => Promise<boolean>;
+  taskLinkActions?: TaskLinkActions;
+  allowUpload?: boolean;
   contentLabel?: string;
   focusTerms?: string[];
 }) {
@@ -221,6 +269,8 @@ export default function Editor({
       diagram: diagramLocales.en,
     },
     uploadFile: async (file) => {
+      if (!allowUpload)
+        throw new Error("Attachments cannot be added to a template here.");
       const form = new FormData();
       form.set("file", file);
       form.set("note", noteId);
@@ -233,6 +283,7 @@ export default function Editor({
       return data.url;
     },
   });
+  const suppressedDocument = useRef<string | null>(null);
   useEffect(() => {
     if (!focusTerms?.length) return;
     const frame = requestAnimationFrame(() => {
@@ -274,12 +325,45 @@ export default function Editor({
   }, [editor]);
   useEffect(() => {
     onTools({
+      taskSelection: () => {
+        const selectedText = editor.getSelectedText().trim();
+        const selection = editor.getSelection();
+        const selectedBlock =
+          selection?.blocks.length === 1 ? selection.blocks[0] : undefined;
+        const cursorBlock = editor.getTextCursorPosition().block;
+        const target = selectedText ? selectedBlock : cursorBlock;
+        if (!target || (!selectedText && cursorBlock.type !== "checkListItem"))
+          return null;
+        return {
+          blockId: target.id,
+          ...(selectedText ? { selectedText } : {}),
+          title: (selectedText || textFrom(target.content)).trim(),
+        };
+      },
+      syncDocument: (next) => {
+        suppressedDocument.current = documentSignature(next);
+        editor.replaceBlocks(
+          editor.document.map((block) => block.id),
+          next.blocks as Blocks,
+        );
+      },
+      insertDocument: (blocks) => {
+        if (!editor.isEditable || !blocks.length) return;
+        editor.insertBlocks(
+          blocks as Blocks,
+          editor.getTextCursorPosition().block,
+          "after",
+        );
+        editor.focus();
+      },
       markdown: () => {
         const convert = (blocks: typeof editor.document): string =>
           blocks
             .map((block) => {
               if (block.type === "canvas")
                 return `${block.props.preview ? `![Drawing](${block.props.preview})\n\n` : ""}[Editable drawing](drawings/${block.id}.excalidraw)\n\n`;
+              if (block.type === "taskLink")
+                return `- [${block.props.fallbackChecked ? "x" : " "}] ${block.props.fallbackTitle || "Linked task"}`;
               return editor.blocksToMarkdownLossy([block]);
             })
             .join("\n");
@@ -321,80 +405,94 @@ export default function Editor({
         }
       }}
     >
-      <BlockNoteView
-        editor={editor}
-        theme={resolvedTheme === "dark" ? "dark" : "light"}
-        editable={editable}
-        formattingToolbar={editable}
-        sideMenu={editable}
-        slashMenu={false}
-        onChange={() =>
-          onChange({
-            schemaVersion: 1,
-            blocks: editor.document as unknown as Document["blocks"],
-          })
-        }
-      >
-        {editable && (
-          <SuggestionMenuController
-            triggerCharacter="/"
-            getItems={async (query) =>
-              filterSuggestionItems(
-                [
-                  ...getDefaultReactSlashMenuItems(editor),
-                  {
-                    title: "Drawing",
-                    subtext: "Sketch on a freeform canvas",
-                    group: "Artifacts",
-                    icon: <PencilLine size={18} />,
-                    aliases: ["canvas", "excalidraw", "draw"],
-                    onItemClick: () => insert("canvas"),
-                  },
-                ],
-                query,
-              )
+      <TaskLinkActionsContext.Provider value={taskLinkActions ?? null}>
+        <BlockNoteView
+          editor={editor}
+          theme={resolvedTheme === "dark" ? "dark" : "light"}
+          editable={editable}
+          formattingToolbar={editable}
+          sideMenu={editable}
+          slashMenu={false}
+          onChange={() => {
+            const next = {
+              schemaVersion: 1 as const,
+              blocks: editor.document as unknown as Document["blocks"],
+            };
+            const serialized = documentSignature(next);
+            if (suppressedDocument.current === serialized) {
+              suppressedDocument.current = null;
+              return;
             }
-          />
-        )}
-        {editable && (
-          <SuggestionMenuController
-            triggerCharacter="[["
-            getItems={async (query) => {
-              const notes = await apiItems<NoteSummary>(
-                `notes?limit=20&q=${encodeURIComponent(query)}`,
-              ).catch(() => {
-                notify.error(
-                  "Could not find notes. Try linking again when connected.",
-                );
-                return [];
-              });
-              return notes
-                .filter((note) => note.id !== noteId)
-                .map((note) => ({
-                  title: note.title || "Untitled",
-                  subtext: note.text.slice(0, 80),
-                  group: "Link a note",
-                  icon: <FileText size={16} />,
-                  onItemClick: () =>
-                    editor.insertInlineContent([
-                      {
-                        type: "link",
-                        href: `/?note=${note.id}`,
-                        content: [
-                          {
-                            type: "text",
-                            text: note.title || "Untitled",
-                            styles: {},
-                          },
-                        ],
-                      },
-                      " ",
-                    ]),
-                }));
-            }}
-          />
-        )}
-      </BlockNoteView>
+            onChange(next);
+          }}
+        >
+          {editable && (
+            <SuggestionMenuController
+              triggerCharacter="/"
+              getItems={async (query) =>
+                filterSuggestionItems(
+                  [
+                    ...getDefaultReactSlashMenuItems(editor).filter((item) =>
+                      allowUpload
+                        ? true
+                        : !/image|file|video|audio|upload/i.test(
+                            `${item.title} ${item.subtext || ""} ${item.group}`,
+                          ),
+                    ),
+                    {
+                      title: "Drawing",
+                      subtext: "Sketch on a freeform canvas",
+                      group: "Artifacts",
+                      icon: <PencilLine size={18} />,
+                      aliases: ["canvas", "excalidraw", "draw"],
+                      onItemClick: () => insert("canvas"),
+                    },
+                  ],
+                  query,
+                )
+              }
+            />
+          )}
+          {editable && (
+            <SuggestionMenuController
+              triggerCharacter="[["
+              getItems={async (query) => {
+                const notes = await apiItems<NoteSummary>(
+                  `notes?limit=20&q=${encodeURIComponent(query)}`,
+                ).catch(() => {
+                  notify.error(
+                    "Could not find notes. Try linking again when connected.",
+                  );
+                  return [];
+                });
+                return notes
+                  .filter((note) => note.id !== noteId)
+                  .map((note) => ({
+                    title: note.title || "Untitled",
+                    subtext: note.text.slice(0, 80),
+                    group: "Link a note",
+                    icon: <FileText size={16} />,
+                    onItemClick: () =>
+                      editor.insertInlineContent([
+                        {
+                          type: "link",
+                          href: `/?note=${note.id}`,
+                          content: [
+                            {
+                              type: "text",
+                              text: note.title || "Untitled",
+                              styles: {},
+                            },
+                          ],
+                        },
+                        " ",
+                      ]),
+                  }));
+              }}
+            />
+          )}
+        </BlockNoteView>
+      </TaskLinkActionsContext.Provider>
     </div>
   );
 }

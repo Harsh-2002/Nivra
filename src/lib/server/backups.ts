@@ -123,12 +123,21 @@ export function referencedFiles(database: Database.Database): string[] {
       "SELECT 1 FROM sqlite_master WHERE type='table' AND name='form_files'",
     )
     .get();
+  const hasWritingTemplateAttachments = !!database
+    .prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='writing_template_attachments'",
+    )
+    .get();
   return (
     database
       .prepare(
         `SELECT storage_key AS key FROM attachments UNION SELECT storage_key FROM publication_files
     UNION SELECT thumbnail_key FROM bookmarks WHERE thumbnail_key IS NOT NULL
     UNION SELECT icon_key FROM bookmarks WHERE icon_key IS NOT NULL${
+      hasWritingTemplateAttachments
+        ? " UNION SELECT storage_key FROM writing_template_attachments"
+        : ""
+    }${
       hasArtifacts
         ? " UNION SELECT storage_key FROM artifacts WHERE storage_key IS NOT NULL UNION SELECT thumb_key FROM artifacts WHERE thumb_key IS NOT NULL"
         : ""

@@ -1,6 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { RRule } from "rrule";
-import { z } from "zod";
+import { z } from "./zod";
 import { validDate } from "./dates";
 export const dateSchema = z.string().refine(validDate, "Choose a valid date.");
 export const zoneSchema = z
@@ -114,6 +114,7 @@ export type CalendarItem = {
   label: string;
   revision: number;
   completed?: boolean;
+  scheduleIssue?: "needs-scheduling";
   occurrence?: string;
 };
 export type CalendarRange = {

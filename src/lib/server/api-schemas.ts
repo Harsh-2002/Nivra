@@ -10,7 +10,23 @@ import {
 import { eventInput, dateSchema, zoneSchema } from "../calendar";
 import { tagColors } from "../tags";
 import {
+  taskRecurrenceRuleSchema,
+  taskScheduleIssueSchema,
+  taskScheduleSchema,
+  taskStepSchema,
+} from "../task-planning";
+import {
+  articleActionSchema,
+  articleContentSchema,
+  bookmarkHighlightCreateSchema,
+  bookmarkHighlightDeleteSchema,
+  bookmarkHighlightUpdateSchema,
+  bookmarkReadStateBatchSchema,
+} from "../bookmark-reading";
+import { writingInputs } from "./writing-contract";
+import {
   calendarDate,
+  canonicalDocumentInput,
   documentInput,
   noteInput,
   taskSchedule,
@@ -63,17 +79,17 @@ export const apiInputs = {
   noteCreate: z
     .object({
       title: z.string().max(300).default(""),
-      document: documentInput.optional(),
+      document: canonicalDocumentInput.optional(),
     })
     .strict(),
   noteUpdate: noteInput,
-  journalCreate: z
-    .object({ date: calendarDate, document: documentInput.optional() })
-    .strict(),
+  journalCreate: writingInputs.journalCreate,
   taskCreate: z
     .object({
       title: z.string().trim().min(1).max(300),
       ...taskSchedule,
+      schedule: taskScheduleSchema.nullable().optional(),
+      recurrenceRule: taskRecurrenceRuleSchema.nullable().optional(),
       ...taskBoardFields,
       status: z.enum(["todo", "in_progress"]).optional(),
     })
@@ -83,6 +99,8 @@ export const apiInputs = {
     title: z.string().trim().min(1).max(300).optional(),
     completed: z.boolean().optional(),
     ...taskSchedule,
+    schedule: taskScheduleSchema.nullable().optional(),
+    recurrenceRule: taskRecurrenceRuleSchema.nullable().optional(),
     ...taskBoardFields,
   }),
   taskMove: taskMoveInput,
@@ -100,6 +118,11 @@ export const apiInputs = {
     favorite: z.boolean().optional(),
     noteId: idSchema.nullable().optional(),
   }),
+  bookmarkReadState: bookmarkReadStateBatchSchema,
+  bookmarkArticleAction: articleActionSchema,
+  bookmarkHighlightCreate: bookmarkHighlightCreateSchema,
+  bookmarkHighlightUpdate: bookmarkHighlightUpdateSchema,
+  bookmarkHighlightDelete: bookmarkHighlightDeleteSchema,
   artifactCreate: z.object({ text: z.string().max(400000) }).strict(),
   artifactUpdate: changes({
     revision: revisionInput.shape.revision,
@@ -145,7 +168,7 @@ export const apiInputs = {
     .object({
       revision: revisionInput.shape.revision,
       timezone: zoneSchema,
-      field: z.enum(["planned", "due"]),
+      field: z.enum(["schedule", "planned", "due"]),
       offsets: z.array(z.number().int().min(0).max(10080)).max(3),
     })
     .strict(),
@@ -191,6 +214,7 @@ export const apiQueries = {
       tag: idSchema.optional(),
     })
     .strict(),
+  journals: writingInputs.journalList,
   tasks: listQuery
     .omit({ offset: true })
     .extend({
@@ -207,6 +231,7 @@ export const apiQueries = {
       favorite: z.enum(["0", "1"]).optional(),
       unfiled: z.enum(["0", "1"]).optional(),
       collection: z.string().max(80).optional(),
+      readingState: z.enum(["all", "unread", "read"]).default("all"),
       summary: z.enum(["0", "1"]).optional(),
     })
     .strict(),
@@ -268,12 +293,31 @@ export const apiQueries = {
       query: z.string().max(300).optional(),
     })
     .strict(),
+  bookmarkArticle: z
+    .object({ version: z.coerce.number().int().positive().optional() })
+    .strict(),
+  bookmarkArticleVersions: z
+    .object({
+      limit: z.coerce.number().int().min(1).max(50).default(20),
+      after: z.string().max(2048).optional(),
+    })
+    .strict(),
+  bookmarkHighlights: z
+    .object({
+      version: z.coerce.number().int().positive().optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(60),
+      after: z.string().max(2048).optional(),
+    })
+    .strict(),
+  calendarExport: z
+    .object({ from: dateSchema, to: dateSchema, timezone: zoneSchema })
+    .strict(),
 };
 const time = z.number().int().nonnegative();
 export const jobSchema = z
   .object({
     id: idSchema,
-    kind: z.enum(["artifact", "bookmark", "thumbnail"]),
+    kind: z.enum(["artifact", "bookmark", "thumbnail", "article"]),
     targetId: idSchema,
     status: z.enum(["queued", "running", "done", "failed"]),
     attempts: time,
@@ -295,13 +339,55 @@ const tag = z.object({
   name: z.string(),
   color: z.enum(tagColors),
 });
-export const apiOutputs = {
+const bookmarkArticleOutput = z
+  .object({
+    bookmarkId: idSchema,
+    version: z.number().int().positive(),
+    url: z.string().url(),
+    capturedAt: time,
+    title: z.string(),
+    byline: z.string().nullable(),
+    fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    content: articleContentSchema,
+    text: z.string(),
+  })
+  .strict();
+const bookmarkHighlightOutput = z
+  .object({
+    id: idSchema,
+    bookmarkId: idSchema,
+    articleVersion: z.number().int().positive(),
+    quote: z.string(),
+    prefix: z.string(),
+    suffix: z.string(),
+    startOffset: time,
+    endOffset: time,
+    annotation: z.string(),
+    revision: z.number().int().positive(),
+    createdAt: time,
+    updatedAt: time,
+  })
+  .strict();
+const writingTemplateOutput = z
+  .object({
+    id: idSchema,
+    name: z.string(),
+    description: z.string(),
+    kind: z.enum(["note", "journal"]),
+    revision: z.number().int().positive(),
+    createdAt: time,
+    updatedAt: time,
+  })
+  .passthrough();
+export const apiOutputs: Record<string, z.ZodType> = {
   note: summary
     .extend({
       document: documentInput,
       text: z.string(),
       tags: z.array(tag),
       dailyDate: z.string().nullable(),
+      journalPeriod: z.enum(["daily", "weekly", "monthly"]).nullable(),
+      journalPeriodStart: z.string().nullable(),
       favorite: z.boolean(),
       editorWidth: z.enum(["standard", "wide"]),
       trashedAt: z.number().nullable(),
@@ -313,6 +399,8 @@ export const apiOutputs = {
     .extend({
       tags: z.array(tag),
       dailyDate: z.string().nullable(),
+      journalPeriod: z.enum(["daily", "weekly", "monthly"]).nullable(),
+      journalPeriodStart: z.string().nullable(),
       favorite: z.boolean(),
       createdAt: time,
       updatedAt: time,
@@ -322,13 +410,179 @@ export const apiOutputs = {
     .extend({
       status: z.enum(taskStages),
       dueDate: z.string().nullable(),
+      plannedDate: z.string().nullable(),
+      recurrence: z.enum(["daily", "weekly", "monthly"]).nullable(),
+      recurrenceRule: taskRecurrenceRuleSchema.nullable(),
+      schedule: taskScheduleSchema.nullable(),
+      scheduleIssue: taskScheduleIssueSchema,
+      stepProgress: z.object({ completed: time, total: time }).strict(),
       boardId: idSchema.nullable(),
       completedAt: z.number().nullable(),
     })
     .passthrough(),
   bookmark: summary
-    .extend({ url: z.string(), description: z.string(), favorite: z.boolean() })
+    .extend({
+      url: z.string(),
+      description: z.string(),
+      favorite: z.boolean(),
+      readAt: z.number().nullable(),
+      articleStatus: z.enum(["pending", "ready", "unavailable"]),
+      articleVersion: time,
+      articleGeneration: time,
+    })
     .passthrough(),
+  bookmarkArticle: bookmarkArticleOutput,
+  bookmarkArticleResult: z
+    .object({
+      status: z.enum(["pending", "ready", "unavailable"]),
+      currentVersion: time,
+      article: bookmarkArticleOutput.nullable(),
+      jobId: idSchema.nullable(),
+    })
+    .strict(),
+  bookmarkArticleVersionPage: z
+    .object({
+      items: z
+        .array(
+          z
+            .object({
+              version: time,
+              capturedAt: time,
+              title: z.string().max(300),
+            })
+            .strict(),
+        )
+        .max(50),
+      next: z.string().nullable(),
+    })
+    .strict(),
+  bookmarkHighlight: bookmarkHighlightOutput,
+  bookmarkHighlightPage: z
+    .object({
+      items: z.array(bookmarkHighlightOutput).max(100),
+      next: z.string().nullable(),
+    })
+    .strict(),
+  bookmarkReadState: z
+    .object({
+      items: z.array(
+        z
+          .object({
+            id: idSchema,
+            status: z.enum(["updated", "unchanged", "conflict", "not_found"]),
+            bookmark: z.lazy(() => apiOutputs.bookmark).optional(),
+          })
+          .strict(),
+      ),
+    })
+    .strict(),
+  taskStep: taskStepSchema,
+  taskStepList: z
+    .object({
+      taskRevision: z.number().int().positive(),
+      items: z.array(taskStepSchema).max(100),
+    })
+    .strict(),
+  taskStepChange: z
+    .object({ task: z.lazy(() => apiOutputs.task), step: taskStepSchema })
+    .strict(),
+  taskStepsChange: z
+    .object({
+      task: z.lazy(() => apiOutputs.task),
+      items: z.array(taskStepSchema).max(100),
+    })
+    .strict(),
+  taskChange: z.object({ task: z.lazy(() => apiOutputs.task) }).strict(),
+  writingTemplate: writingTemplateOutput,
+  writingTemplateDetail: writingTemplateOutput.extend({
+    document: documentInput,
+    attachments: z.array(
+      z
+        .object({
+          id: idSchema,
+          name: z.string(),
+          mime: z.string(),
+          size: time,
+        })
+        .strict(),
+    ),
+  }),
+  writingTemplatePage: z
+    .object({
+      items: z.array(writingTemplateOutput).max(100),
+      next: z.string().nullable(),
+      total: time.optional(),
+    })
+    .strict(),
+  templateApply: z
+    .object({ note: z.lazy(() => apiOutputs.note), created: z.boolean() })
+    .strict(),
+  writingPreferences: z
+    .object({
+      revision: z.number().int().nonnegative(),
+      defaultJournalTemplateId: idSchema.nullable(),
+    })
+    .strict(),
+  linkedTaskConversion: z
+    .object({
+      note: z.lazy(() => apiOutputs.note),
+      task: z.lazy(() => apiOutputs.task),
+      created: z.boolean(),
+    })
+    .strict(),
+  journalReview: z
+    .object({
+      period: z.enum(["daily", "weekly", "monthly"]),
+      periodStart: calendarDate,
+      entry: z.lazy(() => apiOutputs.noteSummary).nullable(),
+      entries: z.array(z.lazy(() => apiOutputs.noteSummary)).max(100),
+      tasks: z
+        .array(
+          z
+            .object({
+              id: idSchema,
+              title: z.string(),
+              dueDate: calendarDate.nullable(),
+              plannedDate: calendarDate.nullable(),
+              completedAt: time.nullable(),
+            })
+            .strict(),
+        )
+        .max(1000),
+      events: z
+        .array(
+          z
+            .object({
+              id: idSchema,
+              title: z.string(),
+              startDate: calendarDate,
+              endDate: calendarDate,
+              data: eventInput,
+            })
+            .strict(),
+        )
+        .max(1000),
+    })
+    .strict(),
+  journalHistory: z
+    .object({ items: z.array(z.lazy(() => apiOutputs.noteSummary)).max(100) })
+    .strict(),
+  journalNavigation: z
+    .object({ item: z.lazy(() => apiOutputs.noteSummary).nullable() })
+    .strict(),
+  article: z
+    .object({
+      bookmarkId: idSchema,
+      version: z.number().int().positive(),
+      url: z.string().url(),
+      capturedAt: time,
+      title: z.string(),
+      byline: z.string().nullable(),
+      fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+      content: articleContentSchema,
+      text: z.string(),
+    })
+    .strict(),
   artifact: summary
     .extend({
       kind: z.enum(["text", "image", "file"]),
@@ -374,6 +628,11 @@ export const apiOutputs = {
         "form",
         "response",
       ]),
+      journalPeriod: z
+        .enum(["daily", "weekly", "monthly"])
+        .nullable()
+        .optional(),
+      journalPeriodStart: z.string().nullable().optional(),
     })
     .passthrough(),
   trashItem: z

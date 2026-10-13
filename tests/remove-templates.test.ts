@@ -133,7 +133,9 @@ test("existing templates move to trash instead of being deleted, and old bundles
       title: string;
     }[];
     assert.ok(trash.some((note) => note.title === "Becomes a template"));
-    assert.equal((await call("templates")).status, 404);
+    const writingTemplates = await call("templates");
+    assert.equal(writingTemplates.status, 200);
+    assert.deepEqual((await writingTemplates.json()).items, []);
   } finally {
     sqlite().close();
     await rm(directory, { recursive: true, force: true });

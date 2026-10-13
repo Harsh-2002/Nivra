@@ -36,7 +36,9 @@ test("encrypted full-instance backups preserve accounts, search, tasks, bookmark
   const owner = randomUUID(),
     note = randomUUID(),
     file = randomUUID(),
-    preview = randomUUID();
+    preview = randomUUID(),
+    template = randomUUID(),
+    templateFile = randomUUID();
   database
     .prepare(
       "INSERT INTO user(id,name,email,email_verified,username,created_at,updated_at) VALUES(?,?,?,0,?,?,?)",
@@ -113,6 +115,33 @@ test("encrypted full-instance backups preserve accounts, search, tasks, bookmark
     );
   await storage.write(file, Buffer.from("payload"));
   await storage.write(preview, Buffer.from("preview"));
+  database
+    .prepare(
+      "INSERT INTO writing_templates(id,owner_id,name,description,kind,document,revision,created_at,updated_at) VALUES(?,?,?,'','note',?,1,?,?)",
+    )
+    .run(
+      template,
+      owner,
+      "Recovery template",
+      '{"schemaVersion":1,"blocks":[]}',
+      Date.now(),
+      Date.now(),
+    );
+  database
+    .prepare(
+      "INSERT INTO writing_template_attachments(id,owner_id,template_id,name,mime,size,storage_key,created_at) VALUES(?,?,?,?,?,?,?,?)",
+    )
+    .run(
+      templateFile,
+      owner,
+      template,
+      "template.bin",
+      "application/octet-stream",
+      14,
+      templateFile,
+      Date.now(),
+    );
+  await storage.write(templateFile, Buffer.from("template asset"));
   database
     .prepare(
       "INSERT INTO account(id,account_id,provider_id,user_id,password,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
@@ -260,7 +289,7 @@ test("encrypted full-instance backups preserve accounts, search, tasks, bookmark
         } finally {
           storage.read = originalRead;
         }
-        assert.equal(first.files, 3);
+        assert.equal(first.files, 4);
         const state = await backups.backupStatus();
         assert.equal(state.running, false);
         assert.equal(state.backups.length, 1);
@@ -468,6 +497,10 @@ test("encrypted full-instance backups preserve accounts, search, tasks, bookmark
         assert.equal(
           (await local.read(formFileKey)).toString(),
           "Form recovery file",
+        );
+        assert.equal(
+          (await local.read(templateFile)).toString(),
+          "template asset",
         );
         assert.equal(
           unseal(

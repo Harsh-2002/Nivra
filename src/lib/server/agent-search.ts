@@ -4,6 +4,7 @@ import { parseSearch } from "./unified-search";
 import { ftsQuery } from "./validation";
 import { matchingRows } from "./search-plan";
 import { HttpError } from "./http";
+import { journalKindSql, journalPeriodSql } from "./journal-classification";
 export function agentSearch(
   owner: string,
   input: { query: string; limit: number; offset: number },
@@ -33,8 +34,9 @@ export function agentSearch(
       const params: (string | number)[] = [owner];
       if (area === "note") {
         where.push("i.kind='note'");
-        if (type === "note") where.push("i.daily_date IS NULL");
-        if (type === "journal") where.push("i.daily_date IS NOT NULL");
+        if (type === "note") where.push(`${journalPeriodSql("i")} IS NULL`);
+        if (type === "journal")
+          where.push(`${journalPeriodSql("i")} IS NOT NULL`);
       }
       if (tag) {
         where.push(
@@ -62,10 +64,7 @@ export function agentSearch(
           )
           .get(...params) as { total: number }
       ).total;
-      const kind =
-        area === "note"
-          ? "CASE WHEN i.daily_date IS NULL THEN 'note' ELSE 'journal' END"
-          : `'${area}'`;
+      const kind = area === "note" ? journalKindSql("i") : `'${area}'`;
       branches.push(
         `SELECT i.id,${kind} AS type,i.updated_at AS updatedAt FROM ${table} i${plan?.index ?? ` INDEXED BY ${table}_search_order_idx`} WHERE ${predicate}`,
       );
@@ -79,7 +78,7 @@ export function agentSearch(
               ? "content"
               : "description";
       const reader = database.prepare(
-        `SELECT id,${kind} AS type,title,substr(replace(${excerpt},char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,${area === "note" ? "daily_date" : "NULL"} AS dailyDate FROM ${table} i WHERE id=? AND owner_id=? AND trashed_at IS NULL`,
+        `SELECT id,${kind} AS type,title,substr(replace(${excerpt},char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,${area === "note" ? "daily_date" : "NULL"} AS dailyDate,${area === "note" ? "journal_period" : "NULL"} AS journalPeriod,${area === "note" ? "journal_period_start" : "NULL"} AS journalPeriodStart FROM ${table} i WHERE id=? AND owner_id=? AND trashed_at IS NULL`,
       );
       readers.set(area, reader);
       if (area === "note") readers.set("journal", reader);

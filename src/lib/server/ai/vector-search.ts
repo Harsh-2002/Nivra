@@ -1,6 +1,7 @@
 import { sqlite } from "../db";
 import { modelVersion } from "./model";
 import { policy } from "./policy";
+import { journalPeriodSql } from "../journal-classification";
 type Source = {
   source_key: string;
   item_kind: string;
@@ -49,10 +50,7 @@ export async function vectorSearch(
   const parameters: (string | number)[] = [owner, modelVersion];
   if (type) {
     if (type === "note" || type === "journal") {
-      filter +=
-        " AND s.item_kind='note' AND EXISTS(SELECT 1 FROM notes n WHERE n.id=s.item_id AND n.daily_date IS " +
-        (type === "journal" ? "NOT " : "") +
-        "NULL)";
+      filter += ` AND s.item_kind='note' AND EXISTS(SELECT 1 FROM notes n WHERE n.id=s.item_id AND ${journalPeriodSql("n")} IS ${type === "journal" ? "NOT " : ""}NULL)`;
     } else {
       filter += " AND s.item_kind=?";
       parameters.push(type);

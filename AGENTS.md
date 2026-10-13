@@ -30,7 +30,7 @@ Nivra is a single-owner, self-hosted notes, tasks, and bookmarks web app. Its st
 | [tests/fixtures/README.md](tests/fixtures/README.md) | Synthetic fixture provenance, supported media coverage and shipping exclusions.                                                                          |
 | [LICENSE](LICENSE)                                   | License for Nivra's own source.                                                                                                                          |
 
-Keep this index current whenever documentation is added, moved, removed or changes purpose. Update the existing authoritative document rather than adding overlapping guides. Private, ignored `HANDOFF.md` is local continuation context, not published product documentation or proof of verification.
+Keep this index current whenever documentation is added, moved, removed or changes purpose. Update the existing authoritative document rather than adding overlapping guides. Do not create handoff or progress documents in the repository.
 
 Inspect the relevant implementation and `git status --short` before making changes. Treat code and executed checks as evidence of current behavior; product plans are not proof that a feature works.
 

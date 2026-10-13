@@ -116,7 +116,7 @@ test("private suggestions require approval, merge live tags, preserve rejection 
     const { publishedNote, publishNote } =
       await import("../src/lib/server/publications");
     const { getNote } = await import("../src/lib/server/notes");
-    const publication = await publishNote(getNote(id)!, 1);
+    const publication = await publishNote(getNote(id)!, 1, owner);
     assert.ok(
       !JSON.stringify(publishedNote(publication.token)).includes(
         "UNAPPROVED_AI_SENTINEL",

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Pencil, X } from "lucide-react";
 import type { Task } from "@/lib/types";
 import type { Recurrence } from "@/lib/dates";
+import type { TaskRecurrenceRule, TaskSchedule } from "@/lib/task-planning";
 import { formatDate } from "@/lib/dates";
 import { taskStages, stageLabels, type TaskStage } from "@/lib/boards";
 import { api } from "@/lib/client";
@@ -21,9 +22,11 @@ import {
   SelectValue,
 } from "./ui/select";
 import { TaskEditFields } from "./task-edit-fields";
+import { TaskSteps } from "./task-steps";
 import { BoardPicker } from "./board-picker";
 import { ItemTagPicker } from "./item-tag-picker";
 import { useConfirm } from "./confirm-provider";
+import { validateTaskSchedule } from "./schedule-editor";
 export function TaskDetails({
   task,
   onClose,
@@ -44,6 +47,12 @@ export function TaskDetails({
     [due, setDue] = useState(task.dueDate),
     [planned, setPlanned] = useState(task.plannedDate),
     [repeat, setRepeat] = useState<Recurrence | null>(task.recurrence),
+    [recurrenceRule, setRecurrenceRule] = useState<TaskRecurrenceRule | null>(
+      task.recurrenceRule ?? null,
+    ),
+    [schedule, setSchedule] = useState<TaskSchedule | null>(
+      task.schedule ?? null,
+    ),
     [note, setNote] = useState({ id: task.noteId, title: task.noteTitle }),
     [board, setBoard] = useState({
       id: task.boardId,
@@ -59,6 +68,9 @@ export function TaskDetails({
       due !== current.dueDate ||
       planned !== current.plannedDate ||
       repeat !== current.recurrence ||
+      JSON.stringify(recurrenceRule) !==
+        JSON.stringify(current.recurrenceRule ?? null) ||
+      JSON.stringify(schedule) !== JSON.stringify(current.schedule ?? null) ||
       note.id !== current.noteId ||
       board.id !== current.boardId ||
       status !== current.status ||
@@ -85,6 +97,8 @@ export function TaskDetails({
     setDue(current.dueDate);
     setPlanned(current.plannedDate);
     setRepeat(current.recurrence);
+    setRecurrenceRule(current.recurrenceRule ?? null);
+    setSchedule(current.schedule ?? null);
     setNote({ id: current.noteId, title: current.noteTitle });
     setBoard({ id: current.boardId, name: current.boardName ?? "Board" });
     setStatus(current.status);
@@ -102,6 +116,11 @@ export function TaskDetails({
       setError("Save your reminder changes before saving the task.");
       return;
     }
+    const scheduleError = validateTaskSchedule(schedule);
+    if (schedule && scheduleError) {
+      setError(scheduleError);
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -112,7 +131,9 @@ export function TaskDetails({
           title: title.trim(),
           dueDate: due,
           plannedDate: planned,
-          recurrence: repeat,
+          recurrence: recurrenceRule ? null : repeat,
+          recurrenceRule,
+          schedule,
           noteId: note.id,
           boardId: board.id,
           status,
@@ -175,6 +196,10 @@ export function TaskDetails({
                 setPlannedDate={setPlanned}
                 recurrence={repeat}
                 setRecurrence={setRepeat}
+                recurrenceRule={recurrenceRule}
+                setRecurrenceRule={setRecurrenceRule}
+                schedule={schedule}
+                setSchedule={setSchedule}
                 note={note}
                 setNote={setNote}
                 disabled={busy}
@@ -229,6 +254,22 @@ export function TaskDetails({
                     <dd>{formatDate(current.plannedDate)}</dd>
                   </div>
                 )}
+                {current.schedule && (
+                  <div>
+                    <dt>Reserved time</dt>
+                    <dd>
+                      {current.schedule.start.slice(11)} ·{" "}
+                      {current.schedule.durationMinutes} minutes ·{" "}
+                      {current.schedule.timezone}
+                    </dd>
+                  </div>
+                )}
+                {current.scheduleIssue === "needs-scheduling" && (
+                  <div>
+                    <dt>Schedule</dt>
+                    <dd>Choose a time to place this task on the calendar.</dd>
+                  </div>
+                )}
                 {current.dueDate && (
                   <div>
                     <dt>Due</dt>
@@ -239,6 +280,46 @@ export function TaskDetails({
                   <div>
                     <dt>Repeats</dt>
                     <dd>{current.recurrence}</dd>
+                  </div>
+                )}
+                {current.recurrenceRule && (
+                  <div>
+                    <dt>Repeats</dt>
+                    <dd>
+                      Every {current.recurrenceRule.interval}{" "}
+                      {
+                        {
+                          daily: "day",
+                          weekly: "week",
+                          monthly: "month",
+                          yearly: "year",
+                        }[current.recurrenceRule.frequency]
+                      }
+                      {current.recurrenceRule.interval === 1 ? "" : "s"}
+                      {current.recurrenceRule.frequency === "weekly" &&
+                        current.recurrenceRule.weekdays.length > 0 &&
+                        " on " +
+                          current.recurrenceRule.weekdays
+                            .map(
+                              (weekday) =>
+                                [
+                                  "Sunday",
+                                  "Monday",
+                                  "Tuesday",
+                                  "Wednesday",
+                                  "Thursday",
+                                  "Friday",
+                                  "Saturday",
+                                ][weekday],
+                            )
+                            .join(", ")}
+                      {current.recurrenceRule.anchor === "completion"
+                        ? " after completion"
+                        : " from its due date"}
+                      {current.recurrenceRule.until
+                        ? " until " + formatDate(current.recurrenceRule.until)
+                        : ""}
+                    </dd>
                   </div>
                 )}
                 {current.noteId && (
@@ -270,6 +351,13 @@ export function TaskDetails({
                 compact={false}
                 onChanged={async () => {
                   const updated = await api<Task>(`tasks/${current.id}`);
+                  setCurrent(updated);
+                  onSaved(updated);
+                }}
+              />
+              <TaskSteps
+                task={current}
+                onTaskChange={(updated) => {
                   setCurrent(updated);
                   onSaved(updated);
                 }}

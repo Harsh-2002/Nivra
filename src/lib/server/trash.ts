@@ -6,6 +6,7 @@ import { storage } from "./storage";
 import { revokePublication } from "./publications";
 import { completionEvent, enqueueJob, startJobWorker } from "./jobs";
 import { decodeCursor, encodeCursor } from "./pagination";
+import { journalKindSql } from "./journal-classification";
 import type { Page, TrashItem, TrashKind } from "../types";
 
 const tables = {
@@ -16,7 +17,7 @@ const tables = {
   artifact: "artifacts",
   event: "calendar_events",
 } as const;
-const union = `SELECT id,CASE WHEN daily_date IS NULL THEN 'note' ELSE 'journal' END AS kind,title,substr(text,1,180) AS excerpt,revision,trashed_at AS trashedAt FROM notes WHERE owner_id=? AND trashed_at IS NOT NULL AND kind='note'
+const union = `SELECT id,${journalKindSql("notes")} AS kind,title,substr(text,1,180) AS excerpt,revision,trashed_at AS trashedAt FROM notes WHERE owner_id=? AND trashed_at IS NOT NULL AND kind='note'
 UNION ALL SELECT id,'task',title,title,revision,trashed_at FROM tasks WHERE owner_id=? AND trashed_at IS NOT NULL
 UNION ALL SELECT id,'bookmark',title,url,revision,trashed_at FROM bookmarks WHERE owner_id=? AND trashed_at IS NOT NULL
 UNION ALL SELECT id,'artifact',coalesce(nullif(title,''),nullif(name,''),'Untitled artifact'),substr(content,1,180),revision,trashed_at FROM artifacts WHERE owner_id=? AND trashed_at IS NOT NULL
@@ -99,8 +100,8 @@ export function moveToTrash(
               "UPDATE background_jobs SET state='failed',lease_token=NULL,lease_until=NULL WHERE kind='thumbnail' AND target_id=? AND owner_id=?",
             )
             .run(id, owner);
-        completionEvent(owner, kind, id, "trashed");
       }
+      completionEvent(owner, kind === "task" ? "content" : kind, id, "trashed");
     })
     .immediate();
 }

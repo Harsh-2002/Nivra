@@ -3,7 +3,10 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { test } from "node:test";
 import os from "node:os";
 import path from "node:path";
-import { verifyStandaloneArtifact } from "../scripts/verify-build.mjs";
+import {
+  verifyBookmarkReaderArtifact,
+  verifyStandaloneArtifact,
+} from "../scripts/verify-build.mjs";
 
 const aiWorkerTrace = [
   "generated/ai-worker.cjs",
@@ -142,6 +145,40 @@ test("build verification continues to reject private instance data", async () =>
           aiWorkerTrace,
         }),
       /Private instance data/,
+    );
+  } finally {
+    await rm(artifact.directory, { recursive: true, force: true });
+  }
+});
+
+test("bookmark reader packaging rejects missing and escaping dependency traces", async () => {
+  const artifact = await createArtifact();
+  try {
+    const worker = path.join(
+      artifact.standaloneRoot,
+      "generated/bookmark-reader-worker.mjs",
+    );
+    await writeFile(worker, "export {};\n");
+    assert.doesNotThrow(() =>
+      verifyBookmarkReaderArtifact(artifact.standaloneRoot, []),
+    );
+    assert.throws(
+      () =>
+        verifyBookmarkReaderArtifact(artifact.standaloneRoot, [
+          "../outside.js",
+        ]),
+      /Invalid path/,
+    );
+    assert.throws(
+      () =>
+        verifyBookmarkReaderArtifact(artifact.standaloneRoot, [
+          "node_modules/jsdom/lib/api.js",
+        ]),
+      /Bookmark reader dependency missing/,
+    );
+    assert.throws(
+      () => verifyBookmarkReaderArtifact(artifact.standaloneRoot, [null]),
+      /string array/,
     );
   } finally {
     await rm(artifact.directory, { recursive: true, force: true });

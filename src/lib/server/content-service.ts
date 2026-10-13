@@ -57,11 +57,12 @@ import {
 } from "@/lib/server/tasks";
 import { deleteTrash, listTrash, restoreTrash } from "@/lib/server/trash";
 import { searchWorkspace } from "@/lib/server/unified-search";
-import { calendarDate, plainText } from "@/lib/server/validation";
+import { calendarDate } from "@/lib/server/validation";
 import { strFromU8 } from "fflate";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { taskStages } from "../boards";
+import { writingPlainText } from "../writing";
 import { authorizeContentPath, type AgentPrincipal } from "./agent-access";
 import { agentCounts } from "./agent-counts";
 import { agentSearch } from "./agent-search";
@@ -136,8 +137,18 @@ const result = (data: unknown, status = 200): ContentResult => ({
   data,
   status,
 });
+function containsBlockType(blocks: unknown, type: string): boolean {
+  if (!Array.isArray(blocks)) return false;
+  return blocks.some((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return false;
+    const block = value as { type?: unknown; children?: unknown };
+    return block.type === type || containsBlockType(block.children, type);
+  });
+}
 export const contentAreas = new Set([
   "forms",
+  "capture",
   "overview",
   "search",
   "trash",
@@ -157,6 +168,8 @@ export const contentAreas = new Set([
   "jobs",
   "calendar",
   "events",
+  "templates",
+  "writing",
 ]);
 export async function executeContent(
   command: ContentCommand,
@@ -216,6 +229,31 @@ async function executeContentOperation(
   )
     return response;
   const data = { ...(response.data as Record<string, unknown>) };
+  const hydrateNote = async (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return value;
+    const note = value as Record<string, unknown>;
+    const document = note.document as { blocks?: unknown } | undefined;
+    if (
+      typeof note.id !== "string" ||
+      !("journalPeriod" in note) ||
+      !document ||
+      !Array.isArray(document.blocks)
+    )
+      return value;
+    const writing = await import("./writing-service");
+    return {
+      ...note,
+      document: writing.materializeTaskLinks(
+        document as import("../types").Document,
+        command.ownerId,
+        note.id,
+      ),
+    };
+  };
+  const hydrated = await hydrateNote(data);
+  if (hydrated !== data) Object.assign(data, hydrated);
+  if ("note" in data) data.note = await hydrateNote(data.note);
   const pageMaximum =
     command.path[0] === "calendar" && command.path[1] === "range" ? 10000 : 100;
   if (Array.isArray(data.items) && typeof data.next === "number") {
@@ -226,7 +264,11 @@ async function executeContentOperation(
       pageMaximum,
     ).cursor(data.next);
   }
-  if (Array.isArray(data.items) && !("next" in data)) {
+  if (
+    Array.isArray(data.items) &&
+    !("next" in data) &&
+    (typeof data.nextOffset === "number" || data.nextOffset === null)
+  ) {
     const page = offsetPagination(
       command.query ?? new URLSearchParams(),
       "/" + command.path.join("/"),
@@ -238,7 +280,8 @@ async function executeContentOperation(
   if (
     ["POST", "PATCH"].includes(command.method) &&
     typeof data.id === "string" &&
-    ["artifacts", "bookmarks"].includes(command.path[0])
+    ["artifacts", "bookmarks"].includes(command.path[0]) &&
+    command.path.length <= 2
   ) {
     data.jobs = sqlite()
       .prepare(
@@ -271,12 +314,45 @@ async function executeContentInternal(
   const operation = operationFor("/api/v1/" + path.join("/"), method);
   if (!operation)
     throw new HttpError(404, "This content operation was not found.");
+  if (principal && operation.access === "owner")
+    throw new HttpError(403, "This operation requires the owner session.");
   validateQuery(operation, query);
   validateBody(operation, payload);
   const database = sqlite();
   if (area === "forms")
     return (await import("./form-service")).executeForms(command);
+  if (area === "capture") {
+    const handled = await (
+      await import("./capture-service")
+    ).executeCapture(command);
+    if (handled) return handled;
+  }
   if (["export", "import"].includes(area)) return executeTransfer(command);
+  if (
+    area === "templates" ||
+    area === "writing" ||
+    area === "journals" ||
+    (area === "notes" && path[2] === "tasks")
+  ) {
+    const writing = await import("./writing-service");
+    const handled = await writing.executeWriting(command);
+    if (handled) return handled;
+  }
+  if (area === "tasks" && id && path[2] === "steps") {
+    const planner = await import("./task-planning-service");
+    const handled = await planner.executeTaskPlanning(command);
+    if (handled) return handled;
+  }
+  if (
+    area === "bookmarks" &&
+    (path[1] === "read-state" ||
+      path[2] === "article" ||
+      path[2] === "highlights")
+  ) {
+    const reading = await import("./bookmark-reading-service");
+    const handled = await reading.executeBookmarkReading(command);
+    if (handled) return handled;
+  }
   if (area === "journals") {
     if (method === "POST" && !id) {
       const value = apiInputs.journalCreate.parse(payload);
@@ -288,7 +364,7 @@ async function executeContentInternal(
     }
     if (id) {
       const note = needNote(id);
-      if (!note.dailyDate)
+      if (!note.journalPeriod)
         throw new HttpError(404, "This journal was not found.");
       return executeContent({ ...command, path: ["notes", ...path.slice(1)] });
     }
@@ -419,6 +495,9 @@ async function executeContentInternal(
         query: params.get("q") || "",
         favorite: params.get("favorite") === "1",
         unfiled: params.get("unfiled") === "1",
+        readingState: z
+          .enum(["all", "unread", "read"])
+          .parse(params.get("readingState") || "all"),
         collection: params.has("collection")
           ? params.get("collection")!.slice(0, 80)
           : undefined,
@@ -626,7 +705,6 @@ async function executeContentInternal(
     if (method === "DELETE" && id) {
       const input = revisionInput.parse(payload);
       deleteTask(owner.id, id, input.revision);
-      if (!principal) completionEvent(owner.id, "content", id, "trashed");
       return result({ ok: true });
     }
   }
@@ -769,7 +847,9 @@ async function executeContentInternal(
         const input = z
           .object({ revision: z.number().int().positive() })
           .parse(payload);
-        return result(withUrl(await publishNote(note, input.revision)));
+        return result(
+          withUrl(await publishNote(note, input.revision, owner.id)),
+        );
       }
       if (method === "DELETE") {
         await revokePublication(id);
@@ -780,10 +860,19 @@ async function executeContentInternal(
       return result(id ? needNote(id) : notePage(query, owner.id, "notes"));
     if (method === "POST" && !id) {
       const input = apiInputs.noteCreate.parse(payload);
+      if (
+        input.document &&
+        containsBlockType(input.document.blocks, "taskLink")
+      )
+        throw new HttpError(
+          400,
+          "Create linked tasks from a saved note so Nivra can keep the connection secure.",
+        );
       return result(createNote(owner.id, input.title, input.document), 201);
     }
     if (method === "PATCH" && id) {
       const input = apiInputs.noteUpdate.parse(payload);
+      const writing = input.document ? await import("./writing-service") : null;
       const note = database
         .transaction(() => {
           const previous = needNote(id);
@@ -792,7 +881,13 @@ async function executeContentInternal(
               409,
               "This note changed in another tab. Save your edits as a new note or reload it.",
             );
-          const document = input.document || previous.document;
+          const document = input.document
+            ? writing!.canonicalizeExistingTaskLinks(
+                input.document,
+                owner.id,
+                id,
+              )
+            : previous.document;
           if (
             (input.title !== undefined && input.title !== previous.title) ||
             (input.document !== undefined &&
@@ -810,7 +905,7 @@ async function executeContentInternal(
             .run(
               input.title ?? previous.title,
               JSON.stringify(document),
-              plainText(document.blocks),
+              writingPlainText(document),
               Number(input.favorite ?? previous.favorite),
               input.editorWidth ?? previous.editorWidth,
               input.trashed === undefined

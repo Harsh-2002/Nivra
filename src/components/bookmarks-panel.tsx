@@ -1,4 +1,5 @@
 "use client";
+import { useRouter } from "next/navigation";
 import {
   guardComposition,
   returnToCreation,
@@ -23,6 +24,9 @@ import {
   Star,
   Trash2,
   FileText,
+  BookOpen,
+  Check,
+  Share2,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/client";
 import type { Bookmark, Page } from "@/lib/types";
@@ -48,6 +52,7 @@ import {
 import { useConfirm } from "./confirm-provider";
 import { NotePicker } from "./note-picker";
 import type { CapturedItem } from "./quick-capture";
+import { BookmarkReader } from "./bookmark-reader";
 function PreviewImage({
   src,
   kind,
@@ -70,16 +75,21 @@ type BookmarkList = {
   next: string | null;
   total: number | null;
 };
-const scopeOf = (favorites: boolean, collection: string) =>
-  `${favorites}|${collection}`;
+const scopeOf = (
+  favorites: boolean,
+  collection: string,
+  readingState = "all",
+) => `${favorites}|${collection}|${readingState}`;
 const listKey = (scope: string) => `bookmarks:list:${scope}`;
 const bookmarkParams = (
   query: string,
   favorites: boolean,
   collection: string,
   summary = false,
+  readingState = "all",
 ) =>
   new URLSearchParams({
+    readingState,
     ...(summary ? { summary: "1" } : { limit: "60" }),
     ...(query.trim() ? { q: query.trim() } : {}),
     ...(favorites ? { favorite: "1" } : {}),
@@ -110,6 +120,7 @@ export function BookmarksPanel({
   focusCreate?: boolean;
   onOpenNote: (id: string) => Promise<boolean>;
 }) {
+  const router = useRouter();
   const warm = sectionCache.get<BookmarkList>(listKey(scopeOf(false, "all")));
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(warm?.items ?? []);
   const [next, setNext] = useState<string | null>(warm?.next ?? null);
@@ -124,6 +135,8 @@ export function BookmarksPanel({
   const [query, setQuery] = useState(initialQuery);
   const [collection, setCollection] = useState("all");
   const [favorites, setFavorites] = useState(false);
+  const [readingState, setReadingState] = useState("all");
+  const [reader, setReader] = useState<Bookmark | null>(null);
   const [editing, setEditing] = useState<Bookmark | null>(null);
   const [loading, setLoading] = useState(!warm);
   const [busy, setBusy] = useState(false);
@@ -131,17 +144,21 @@ export function BookmarksPanel({
   const [notice, setNotice] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const confirm = useConfirm();
-  const unfiltered = !query.trim() && !favorites && collection === "all";
+  const unfiltered =
+    !query.trim() &&
+    !favorites &&
+    collection === "all" &&
+    readingState === "all";
   const invalidate = () => sectionCache.clear("bookmarks:list:", "overview");
   const refreshSummary = useCallback(async () => {
     try {
       const counts = await api<BookmarkSummary>(
-        `bookmarks?${bookmarkParams(query, favorites, collection, true)}`,
+        `bookmarks?${bookmarkParams(query, favorites, collection, true, readingState)}`,
       );
       setTotal(counts.total);
       setCollections(counts.collections);
     } catch {}
-  }, [query, favorites, collection]);
+  }, [query, favorites, collection, readingState]);
   useEffect(() => {
     const received = (event: Event) => {
       const result = (event as CustomEvent<CapturedItem>).detail;
@@ -166,7 +183,7 @@ export function BookmarksPanel({
       window.removeEventListener("beforeunload", leaving);
     };
   }, [busy, url, newCollection, editing]);
-  const view = `${query}\n${favorites}\n${collection}`;
+  const view = `${query}\n${favorites}\n${collection}\n${readingState}`;
   const currentView = useRef(view);
   const loadVersion = useRef(0);
   const load = useCallback(
@@ -177,18 +194,18 @@ export function BookmarksPanel({
       try {
         const [first, counts] = await Promise.all([
           api<Page<Bookmark>>(
-            `bookmarks?${bookmarkParams(query, favorites, collection)}`,
+            `bookmarks?${bookmarkParams(query, favorites, collection, false, readingState)}`,
             { signal },
           ),
           api<BookmarkSummary>(
-            `bookmarks?${bookmarkParams(query, favorites, collection, true)}`,
+            `bookmarks?${bookmarkParams(query, favorites, collection, true, readingState)}`,
             { signal },
           ),
         ]);
         if (signal?.aborted || version !== loadVersion.current) return;
         setBookmarks(first.items);
         setNext(first.next);
-        setListScope(scopeOf(favorites, collection));
+        setListScope(scopeOf(favorites, collection, readingState));
         setTotal(counts.total);
         setCollections(counts.collections);
         setError("");
@@ -200,7 +217,7 @@ export function BookmarksPanel({
           setLoading(false);
       }
     },
-    [query, favorites, collection, view],
+    [query, favorites, collection, readingState, view],
   );
   useCompletion("bookmark", () => {
     void load();
@@ -218,7 +235,7 @@ export function BookmarksPanel({
   }, [load, query]);
   useEffect(() => {
     if (
-      listScope === scopeOf(favorites, collection) &&
+      listScope === scopeOf(favorites, collection, readingState) &&
       !query.trim() &&
       !loading
     )
@@ -232,6 +249,7 @@ export function BookmarksPanel({
     listScope,
     favorites,
     collection,
+    readingState,
     query,
     loading,
   ]);
@@ -242,7 +260,7 @@ export function BookmarksPanel({
     setLoadingMore(true);
     try {
       const more = await api<Page<Bookmark>>(
-        `bookmarks?${bookmarkParams(query, favorites, collection)}&after=${encodeURIComponent(next)}`,
+        `bookmarks?${bookmarkParams(query, favorites, collection, false, readingState)}&after=${encodeURIComponent(next)}`,
       );
       if (currentView.current !== started || version !== loadVersion.current)
         return;
@@ -304,6 +322,7 @@ export function BookmarksPanel({
       setQuery("");
       setCollection("all");
       setFavorites(false);
+      setReadingState("all");
       returnToCreation(input.current);
       setNotice(
         saved.metadataStatus === "pending"
@@ -335,7 +354,43 @@ export function BookmarksPanel({
       if (changes.title !== undefined) setEditing(null);
     });
   }
-  const scope = scopeOf(favorites, collection);
+  async function markRead(item: Bookmark) {
+    return markReadItems([item], item.readAt == null);
+  }
+  async function markReadItems(items: Bookmark[], read: boolean) {
+    await mutate(async () => {
+      const result = await api<{
+        items: {
+          id: string;
+          status: "updated" | "unchanged" | "conflict" | "not_found";
+          bookmark?: Bookmark;
+        }[];
+      }>("bookmarks/read-state", {
+        method: "POST",
+        body: JSON.stringify({
+          items: items.map((item) => ({
+            id: item.id,
+            revision: item.revision,
+            read,
+          })),
+        }),
+      });
+      const updated = result.items.flatMap((entry) =>
+        entry.bookmark ? [entry.bookmark] : [],
+      );
+      setBookmarks((current) => mergeBookmarks(current, updated));
+      const open = updated.find((item) => item.id === reader?.id);
+      if (open) setReader(open);
+      invalidate();
+      void refreshSummary();
+      const failed = result.items.filter((entry) => !entry.bookmark).length;
+      if (failed)
+        throw new Error(
+          `${failed} ${failed === 1 ? "link changed" : "links changed"} or became unavailable. Updated links were saved; refresh before retrying the others.`,
+        );
+    });
+  }
+  const scope = scopeOf(favorites, collection, readingState);
   const cached = query.trim()
     ? undefined
     : sectionCache.get<BookmarkList>(listKey(scope));
@@ -346,6 +401,8 @@ export function BookmarksPanel({
   const visible = (rows ?? []).filter(
     (b) =>
       (!favorites || b.favorite) &&
+      (readingState === "all" ||
+        (readingState === "read" ? b.readAt != null : b.readAt == null)) &&
       (collection === "all" ||
         (collection === "unfiled"
           ? !b.collection
@@ -439,6 +496,45 @@ export function BookmarksPanel({
                   ))}
                 </SelectContent>
               </Select>
+              <Select
+                value={readingState}
+                onValueChange={setReadingState}
+                disabled={busy || !!editing}
+              >
+                <SelectTrigger aria-label="Filter bookmark reading state">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All links</SelectItem>
+                  <SelectItem value="unread">Unread</SelectItem>
+                  <SelectItem value="read">Read</SelectItem>
+                </SelectContent>
+              </Select>
+              {readingState !== "all" && visible.length > 0 && (
+                <Button
+                  variant="ghost"
+                  disabled={busy || !!editing}
+                  onClick={() =>
+                    void markReadItems(
+                      visible.slice(0, 100),
+                      readingState === "unread",
+                    )
+                  }
+                >
+                  Mark {Math.min(visible.length, 100)}{" "}
+                  {readingState === "unread" ? "read" : "unread"}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                disabled={
+                  busy || !!editing || !!url.trim() || !!newCollection.trim()
+                }
+                onClick={() => router.push("/capture")}
+              >
+                <Share2 size={15} />
+                Save from browser
+              </Button>
             </div>
             <div className="task-search">
               <Search size={15} />
@@ -610,6 +706,15 @@ export function BookmarksPanel({
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label={`Read saved article for ${item.title}`}
+                          disabled={busy || !!editing}
+                          onClick={() => setReader(item)}
+                        >
+                          <BookOpen size={16} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           disabled={busy}
                           aria-label={`${item.favorite ? "Unfavorite" : "Favorite"} ${item.title}`}
                           aria-pressed={item.favorite}
@@ -644,6 +749,12 @@ export function BookmarksPanel({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onSelect={() => void markRead(item)}
+                            >
+                              <Check size={15} />
+                              Mark {item.readAt ? "unread" : "read"}
+                            </DropdownMenuItem>
                             <DropdownMenuItem
                               onSelect={() =>
                                 scheduleItem("bookmark", item.id, item.title)
@@ -732,12 +843,18 @@ export function BookmarksPanel({
             <div className="tasks-empty">
               <BookmarkIcon size={30} strokeWidth={1.5} />
               <h2>
-                {query || favorites || collection !== "all"
+                {query ||
+                favorites ||
+                collection !== "all" ||
+                readingState !== "all"
                   ? "No matching bookmarks."
                   : "A home for your useful links."}
               </h2>
               <p>
-                {query || favorites || collection !== "all"
+                {query ||
+                favorites ||
+                collection !== "all" ||
+                readingState !== "all"
                   ? "Try another search or collection."
                   : "Paste a link above. Nivra will save the details and preview."}
               </p>
@@ -761,6 +878,19 @@ export function BookmarksPanel({
                 : `${shownTotal} ${shownTotal === 1 ? "bookmark" : "bookmarks"}`}
               {busy && <Loader2 size={13} className="animate-spin" />}
             </p>
+          )}
+          {reader && (
+            <BookmarkReader
+              bookmark={reader}
+              onClose={() => setReader(null)}
+              onChanged={(item) => {
+                setBookmarks((items) => mergeBookmarks(items, [item]));
+                setReader(item);
+                invalidate();
+                void refreshSummary();
+              }}
+              onOpenNote={onOpenNote}
+            />
           )}
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod";
 export const taskStages = ["todo", "in_progress", "done"] as const;
 export type TaskStage = (typeof taskStages)[number];
 export const stageLabels: Record<TaskStage, string> = {

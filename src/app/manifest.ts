@@ -8,6 +8,14 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
+    ...{
+      share_target: {
+        action: "/capture/receive",
+        method: "POST",
+        enctype: "application/x-www-form-urlencoded",
+        params: { title: "title", text: "text", url: "url" },
+      },
+    },
     background_color: "#ffffff",
     theme_color: "#111111",
     icons: [

@@ -140,6 +140,26 @@ function readAiWorkerTrace(projectRoot) {
   return trace;
 }
 
+export function verifyBookmarkReaderArtifact(standaloneRoot, readerTrace) {
+  if (
+    !Array.isArray(readerTrace) ||
+    !readerTrace.every((file) => typeof file === "string")
+  )
+    throw new Error(
+      "The bookmark reader dependency trace must be a string array.",
+    );
+  for (const relative of [
+    "generated/bookmark-reader-worker.mjs",
+    ...readerTrace,
+  ]) {
+    const target = assertRelativeTracePath(standaloneRoot, relative);
+    if (!existsSync(target))
+      throw new Error(
+        `Bookmark reader dependency missing from shipping artifact: ${relative}`,
+      );
+  }
+}
+
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 if (invokedPath === fileURLToPath(import.meta.url)) {
   const projectRoot = process.cwd();
@@ -148,5 +168,15 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
     publicReaderRoot: path.join(projectRoot, "public/reader"),
     aiWorkerTrace: readAiWorkerTrace(projectRoot),
   });
+  const readerTrace = JSON.parse(
+    readFileSync(
+      path.join(projectRoot, "generated/bookmark-reader-trace.json"),
+      "utf8",
+    ),
+  );
+  verifyBookmarkReaderArtifact(
+    path.join(projectRoot, ".next/standalone"),
+    readerTrace,
+  );
   console.log("Shipping artifact excludes private instance data.");
 }

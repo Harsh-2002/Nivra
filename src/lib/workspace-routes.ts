@@ -1,3 +1,5 @@
+import { validDate } from "./dates";
+
 export const workspaceRoutes = {
   overview: "/overview",
   all: "/notes",
@@ -74,11 +76,13 @@ export function cleanWorkspaceUrl(url: URL): URL {
           ? formRoute(result.pathname)?.tab === "responses"
             ? ["date", "timezone"]
             : []
-          : ["all", "journal", "favorites"].includes(view)
-            ? ["note", "tag"]
-            : view === "artifacts" || view === "bookmarks"
-              ? ["tag"]
-              : [];
+          : view === "journal"
+            ? ["note", "tag", "period", "date"]
+            : ["all", "favorites"].includes(view)
+              ? ["note", "tag"]
+              : view === "artifacts" || view === "bookmarks"
+                ? ["tag"]
+                : [];
   for (const key of [...result.searchParams.keys()])
     if (!keys.includes(key)) result.searchParams.delete(key);
   if (
@@ -86,5 +90,18 @@ export function cleanWorkspaceUrl(url: URL): URL {
     !["list", "board"].includes(result.searchParams.get("view") ?? "")
   )
     result.searchParams.delete("view");
+  if (
+    view === "journal" &&
+    !["daily", "weekly", "monthly"].includes(
+      result.searchParams.get("period") ?? "",
+    )
+  ) {
+    result.searchParams.delete("period");
+    result.searchParams.delete("date");
+  }
+  if (view === "journal" && result.searchParams.has("date")) {
+    if (!validDate(result.searchParams.get("date")!))
+      result.searchParams.delete("date");
+  }
   return result;
 }

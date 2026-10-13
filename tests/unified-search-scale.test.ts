@@ -44,6 +44,9 @@ test("bounded unified search preserves order, matched context, tags and owner is
           ).run(`note-${i}`);
       }
     }).immediate();
+    d.prepare(
+      "INSERT INTO task_steps(id,owner_id,task_id,text,completed,position,revision,created_at,updated_at) VALUES('step-search','owner','task-999','privatehandoffstep completion checklist',0,0,1,2,2)",
+    ).run();
     const { listNotes } = await import("../src/lib/server/notes");
     const params = new URLSearchParams({
       view: "all",
@@ -77,6 +80,7 @@ test("bounded unified search preserves order, matched context, tags and owner is
     for (const result of results) {
       const table = {
         note: "notes",
+        journal: "notes",
         task: "tasks",
         bookmark: "bookmarks",
         artifact: "artifacts",
@@ -93,6 +97,14 @@ test("bounded unified search preserves order, matched context, tags and owner is
       assert.ok(result.matchTerms?.some((t) => t === "discoveryterm"));
       assert.ok(result.excerpt.length < 500);
     }
+    const stepMatch = searchWorkspace("owner", "privatehandoffstep");
+    assert.equal(stepMatch.length, 1);
+    assert.equal(stepMatch[0].id, "task-999");
+    assert.equal(stepMatch[0].type, "task");
+    assert.match(stepMatch[0].excerpt, /privatehandoffstep/);
+    d.prepare("UPDATE tasks SET trashed_at=10 WHERE id='task-999'").run();
+    assert.deepEqual(searchWorkspace("owner", "privatehandoffstep"), []);
+    d.prepare("UPDATE tasks SET trashed_at=NULL WHERE id='task-999'").run();
     const originalPrepare = d.prepare.bind(d);
     let fuzzyReads = 0;
     d.prepare = ((sql: string) => {

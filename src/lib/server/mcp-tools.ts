@@ -1,4 +1,9 @@
 import { apiInputs } from "./api-schemas";
+import { captureInput } from "../capture";
+import { writingInputs } from "./writing-contract";
+import { articleActionSchema } from "../bookmark-reading";
+import { taskRecurrenceRuleSchema, taskScheduleSchema } from "../task-planning";
+import { journalPeriodStart } from "../writing";
 import { formApiInputs } from "./form-api-schemas";
 import { formFile } from "./form-uploads";
 import { getForm } from "./forms";
@@ -149,14 +154,22 @@ function params(
 }
 function collectionPage(value: unknown) {
   const page = value as {
-    items: { type: string; dailyDate?: string | null }[];
+    items: {
+      type: string;
+      dailyDate?: string | null;
+      journalPeriod?: string | null;
+      journalPeriodStart?: string | null;
+    }[];
     next: string | number | null;
     nextOffset?: number | null;
   };
   return {
     items: page.items.map((row) => ({
       ...row,
-      type: row.type === "note" && row.dailyDate ? "journal" : row.type,
+      type:
+        row.type === "note" && (row.journalPeriod || row.dailyDate)
+          ? "journal"
+          : row.type,
     })),
     nextOffset:
       page.nextOffset ?? (typeof page.next === "number" ? page.next : null),
@@ -180,6 +193,22 @@ async function content(input: Record<string, unknown>) {
     (c.markdown !== undefined ? await markdownDocument(c.markdown) : undefined)
   );
 }
+function operationKey(name: string, input: Record<string, unknown>) {
+  return createHash("sha256")
+    .update(JSON.stringify({ name, input }))
+    .digest("hex");
+}
+add(
+  "save_capture",
+  "Save a note, task, or bookmark from a quick capture.",
+  captureInput.and(z.object(creationKey)),
+  true,
+  async ({ idempotencyKey: _key, ...input }, c) => {
+    void _key;
+    return c.call("capture", "POST", captureInput.parse(input));
+  },
+  { openWorld: true },
+);
 add(
   "count_items",
   "Count items exactly by type and task status.",
@@ -213,10 +242,20 @@ add(
     (
       (await c.call(
         `search?mode=suggest&strategy=${i.strategy}&q=${encodeURIComponent(String(i.query))}`,
-      )) as { items: { type: string; dailyDate?: string | null }[] }
+      )) as {
+        items: {
+          type: string;
+          dailyDate?: string | null;
+          journalPeriod?: string | null;
+          journalPeriodStart?: string | null;
+        }[];
+      }
     ).items.map((row) => ({
       ...row,
-      type: row.type === "note" && row.dailyDate ? "journal" : row.type,
+      type:
+        row.type === "note" && (row.journalPeriod || row.dailyDate)
+          ? "journal"
+          : row.type,
     })),
 );
 add(
@@ -248,21 +287,45 @@ for (const journal of [false, true]) {
   add(
     journal ? "list_journals" : "list_notes",
     journal
-      ? "List paginated journals, newest dates first."
+      ? "List paginated journals, optionally filtered by text."
       : "List paginated note summaries.",
-    z.object({
-      limit: page.limit,
-      offset: z.number().int().min(0).max(1000000).default(0),
-      query: page.query,
-    }),
+    journal
+      ? z
+          .object({
+            limit: page.limit,
+            after: page.after,
+            query: page.query,
+            period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+            from: calendarDate.optional(),
+            to: calendarDate.optional(),
+          })
+          .strict()
+      : z
+          .object({
+            limit: page.limit,
+            offset: z.number().int().min(0).max(1000000).default(0),
+            query: page.query,
+          })
+          .strict(),
     false,
     async (i, c) => {
+      if (journal) {
+        const query = new URLSearchParams({
+          limit: String(i.limit),
+          period: String(i.period),
+          ...(i.from ? { from: String(i.from) } : {}),
+          ...(i.to ? { to: String(i.to) } : {}),
+          ...(i.query ? { q: String(i.query) } : {}),
+          ...(i.after ? { after: String(i.after) } : {}),
+        });
+        return c.call(`journals?${query}`);
+      }
       const p = params(i, {
-        view: journal ? "journal" : "all",
+        view: "all",
         preview: "1",
         offset: String(i.offset),
       });
-      const page = (await c.call(`${journal ? "journals" : "notes"}?${p}`)) as {
+      const page = (await c.call(`notes?${p}`)) as {
         items: unknown[];
         next: string | null;
         nextOffset: number | null;
@@ -287,15 +350,30 @@ add(
 );
 add(
   "get_journal",
-  "Read a journal by date.",
-  z.object({ date: calendarDate }),
+  "Read a journal entry by period date.",
+  z.object({
+    date: calendarDate,
+    period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+  }),
   false,
   async (i, c) => {
+    const input = z
+      .object({
+        date: calendarDate,
+        period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+      })
+      .parse(i);
     const row = sqlite()
       .prepare(
-        "SELECT id FROM notes WHERE owner_id=? AND daily_date=? AND trashed_at IS NULL",
+        "SELECT id FROM notes WHERE owner_id=? AND kind='note' AND trashed_at IS NULL AND ((journal_period=? AND journal_period_start=?) OR (?='daily' AND journal_period IS NULL AND daily_date=?))",
       )
-      .get(c.principal.ownerId, i.date) as { id: string } | undefined;
+      .get(
+        c.principal.ownerId,
+        input.period,
+        journalPeriodStart(input.date, input.period),
+        input.period,
+        input.date,
+      ) as { id: string } | undefined;
     if (!row) throw new HttpError(404, "This journal was not found.");
     return c.call(`notes/${row.id}`);
   },
@@ -315,18 +393,166 @@ add(
 );
 add(
   "create_journal",
-  "Open or create a daily journal; initial content applies to new entries.",
+  "Create or open a dated journal entry.",
   z.object({
     date: calendarDate,
+    period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
     markdown: text.optional(),
     document: documentInput.optional(),
+    templateId: id.nullable().optional(),
+    templateRevision: revision.optional(),
+    timezone: zoneSchema.default("UTC"),
     ...creationKey,
   }),
   true,
   async (i, c) => {
-    return c.call("journals", "POST", {
+    const body: Record<string, unknown> = {
       date: i.date,
+      period: i.period,
       document: await content(i),
+      timezone: i.timezone,
+      ...(Object.hasOwn(i, "templateId") ? { templateId: i.templateId } : {}),
+      ...(i.templateRevision !== undefined
+        ? { templateRevision: i.templateRevision }
+        : {}),
+    };
+    return c.call("journals", "POST", {
+      ...body,
+    });
+  },
+);
+add(
+  "create_task_from_note_block",
+  "Create a task linked to a note block.",
+  z.object({
+    noteId: id,
+    revision,
+    blockId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/),
+    title: z.string().trim().min(1).max(300).optional(),
+    selectedText: z.string().min(1).max(300).optional(),
+    idempotencyKey: z.string().min(8).max(128).optional(),
+  }),
+  true,
+  async (i, c) =>
+    c.call(`notes/${i.noteId}/tasks`, "POST", {
+      revision: i.revision,
+      blockId: i.blockId,
+      ...(i.title ? { title: i.title } : {}),
+      ...(i.selectedText ? { selectedText: i.selectedText } : {}),
+      idempotencyKey:
+        i.idempotencyKey ?? operationKey("create_task_from_note_block", i),
+    }),
+);
+add(
+  "unlink_task_from_note",
+  "Remove a task link from a note block.",
+  z.object({
+    noteId: id,
+    revision,
+    blockId: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/),
+  }),
+  true,
+  async (i, c) =>
+    c.call(`notes/${i.noteId}/tasks/${i.blockId}`, "DELETE", {
+      revision: i.revision,
+    }),
+);
+add(
+  "review_journal_period",
+  "Review a journal period and its related activity.",
+  z.object({
+    period: z.enum(["daily", "weekly", "monthly"]),
+    date: calendarDate,
+    timezone: zoneSchema.default("UTC"),
+  }),
+  false,
+  async (i, c) =>
+    c.call(
+      `journals/review?${new URLSearchParams({ period: String(i.period), date: String(i.date), timezone: String(i.timezone) })}`,
+    ),
+);
+add(
+  "find_journals_on_this_day",
+  "Find journal entries written on the same date in prior years.",
+  z.object({ date: calendarDate }),
+  false,
+  async (i, c) =>
+    c.call(`journals/on-this-day?date=${encodeURIComponent(String(i.date))}`),
+);
+add(
+  "navigate_journal",
+  "Find the previous or next entry in this journal series.",
+  z.object({ id, direction: z.enum(["previous", "next"]) }),
+  false,
+  async (i, c) => c.call(`journals/${i.id}/navigate?direction=${i.direction}`),
+);
+add(
+  "list_writing_templates",
+  "List note and journal templates.",
+  writingInputs.templateList,
+  false,
+  async (i, c) =>
+    c.call(
+      `templates?${new URLSearchParams(
+        Object.entries(i)
+          .filter(([, value]) => value !== undefined)
+          .map(([key, value]) => [key, String(value)]),
+      )}`,
+    ),
+);
+add(
+  "get_writing_template",
+  "Read a template and its copied attachments.",
+  z.object({ id }),
+  false,
+  async (i, c) => c.call(`templates/${i.id}`),
+);
+add(
+  "create_writing_template",
+  "Create a note or journal template.",
+  writingInputs.templateCreate,
+  true,
+  async (i, c) => c.call("templates", "POST", i),
+);
+add(
+  "update_writing_template",
+  "Update a template using its current revision.",
+  z
+    .object({
+      id,
+      revision,
+      name: z.string().trim().min(1).max(80).optional(),
+      description: z.string().trim().max(500).optional(),
+      document: documentInput.optional(),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        value.name !== undefined ||
+        value.description !== undefined ||
+        value.document !== undefined,
+      "Provide a template change.",
+    ),
+  true,
+  async (i, c) => {
+    const { id: templateId, ...body } = i;
+    return c.call(`templates/${templateId}`, "PATCH", body);
+  },
+);
+add(
+  "apply_writing_template",
+  "Create a note or journal entry from a template.",
+  writingInputs.templateApply.extend({
+    id,
+    idempotencyKey: z.string().min(8).max(128).optional(),
+  }),
+  true,
+  async (i, c) => {
+    const { id: templateId, idempotencyKey, ...body } = i;
+    return c.call(`templates/${templateId}/apply`, "POST", {
+      ...body,
+      idempotencyKey:
+        idempotencyKey ?? operationKey("apply_writing_template", i),
     });
   },
 );
@@ -550,6 +776,8 @@ add(
   z.object({
     title: z.string().trim().min(1).max(300),
     ...taskSchedule,
+    schedule: taskScheduleSchema.nullable().optional(),
+    recurrenceRule: taskRecurrenceRuleSchema.nullable().optional(),
     ...taskBoardFields,
     status: z.enum(["todo", "in_progress"]).optional(),
     ...creationKey,
@@ -563,6 +791,8 @@ add(
       dueDate: i.dueDate,
       plannedDate: i.plannedDate,
       recurrence: i.recurrence,
+      schedule: i.schedule,
+      recurrenceRule: i.recurrenceRule,
       noteId: i.noteId,
     }),
 );
@@ -575,10 +805,79 @@ add(
     title: z.string().trim().min(1).max(300).optional(),
     completed: z.boolean().optional(),
     ...taskSchedule,
+    schedule: taskScheduleSchema.nullable().optional(),
+    recurrenceRule: taskRecurrenceRuleSchema.nullable().optional(),
     ...taskBoardFields,
   }),
   true,
   async ({ id, ...i }, c) => c.call(`tasks/${id}`, "PATCH", i),
+);
+add(
+  "list_task_steps",
+  "List a task's checklist steps.",
+  z.object({ id }),
+  false,
+  async (i, c) => c.call(`tasks/${i.id}/steps`),
+);
+add(
+  "add_task_step",
+  "Add a checklist step to a task.",
+  z.object({
+    id,
+    revision,
+    text: z.string().trim().min(1).max(300),
+    position: z.number().int().min(0).max(99).optional(),
+    ...creationKey,
+  }),
+  true,
+  async ({ id, idempotencyKey: _key, ...i }, c) => {
+    void _key;
+    return c.call(`tasks/${id}/steps`, "POST", i);
+  },
+);
+add(
+  "update_task_step",
+  "Edit, complete or move a checklist step.",
+  z.object({
+    id,
+    stepId: z.string().uuid(),
+    revision,
+    text: z.string().trim().min(1).max(300).optional(),
+    completed: z.boolean().optional(),
+    position: z.number().int().min(0).max(99).optional(),
+    ...creationKey,
+  }),
+  true,
+  async ({ id, stepId, idempotencyKey: _key, ...i }, c) => {
+    void _key;
+    return c.call(`tasks/${id}/steps/${stepId}`, "PATCH", i);
+  },
+);
+add(
+  "delete_task_step",
+  "Remove a checklist step.",
+  z.object({ id, stepId: z.string().uuid(), revision, ...creationKey }),
+  true,
+  async ({ id, stepId, idempotencyKey: _key, ...i }, c) => {
+    void _key;
+    return c.call(`tasks/${id}/steps/${stepId}`, "DELETE", i);
+  },
+  { destructive: true },
+);
+add(
+  "reorder_task_steps",
+  "Set the complete order of a task's checklist steps.",
+  z.object({
+    id,
+    revision,
+    stepIds: z.array(z.string().uuid()).max(100),
+    ...creationKey,
+  }),
+  true,
+  async ({ id, idempotencyKey: _key, ...i }, c) => {
+    void _key;
+    return c.call(`tasks/${id}/steps/reorder`, "POST", i);
+  },
 );
 add(
   "list_bookmarks",
@@ -587,11 +886,12 @@ add(
     ...page,
     collection: z.string().max(80).optional(),
     favorite: z.boolean().default(false),
+    readingState: z.enum(["all", "unread", "read"]).default("all"),
   }),
   false,
   async (i, c) =>
     c.call(
-      `bookmarks?${params(i, { favorite: i.favorite ? "1" : "0", ...(i.collection !== undefined ? { collection: String(i.collection) } : {}) })}`,
+      `bookmarks?${params(i, { favorite: i.favorite ? "1" : "0", readingState: String(i.readingState), ...(i.collection !== undefined ? { collection: String(i.collection) } : {}) })}`,
     ),
 );
 add(
@@ -639,6 +939,128 @@ add(
   }),
   true,
   async ({ id, ...i }, c) => c.call(`bookmarks/${id}`, "PATCH", i),
+);
+add(
+  "set_bookmark_read_state",
+  "Mark one or more bookmarks as read or unread.",
+  z
+    .object({
+      items: z
+        .array(z.object({ id, revision, read: z.boolean() }).strict())
+        .min(1)
+        .max(100),
+    })
+    .strict(),
+  true,
+  async (i, c) => c.call("bookmarks/read-state", "POST", i),
+);
+add(
+  "get_bookmark_article",
+  "Read a saved article and its extracted text.",
+  z.object({ id, version: z.number().int().positive().optional() }),
+  false,
+  async (i, c) =>
+    c.call(
+      `bookmarks/${i.id}/article${i.version ? `?version=${i.version}` : ""}`,
+    ),
+);
+add(
+  "list_bookmark_article_versions",
+  "List saved article versions for a bookmark.",
+  z
+    .object({
+      id,
+      limit: z.number().int().min(1).max(50).optional(),
+      after: z.string().max(2048).optional(),
+    })
+    .strict(),
+  false,
+  async (i, c) => {
+    const query = new URLSearchParams();
+    if (i.limit) query.set("limit", String(i.limit));
+    if (i.after) query.set("after", String(i.after));
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return c.call(`bookmarks/${i.id}/article/versions${suffix}`);
+  },
+);
+add(
+  "save_bookmark_article",
+  "Save or refresh a bookmark's readable article.",
+  z.object({ id, ...articleActionSchema.shape }),
+  true,
+  async ({ id: bookmarkId, action }, c) =>
+    c.call(`bookmarks/${bookmarkId}/article`, "POST", { action }),
+  { openWorld: true },
+);
+add(
+  "list_bookmark_highlights",
+  "List highlights from a saved article.",
+  z
+    .object({
+      id,
+      version: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      after: z.string().max(2048).optional(),
+    })
+    .strict(),
+  false,
+  async (i, c) => {
+    const query = new URLSearchParams();
+    if (i.version) query.set("version", String(i.version));
+    if (i.limit) query.set("limit", String(i.limit));
+    if (i.after) query.set("after", String(i.after));
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return c.call(`bookmarks/${i.id}/highlights${suffix}`);
+  },
+);
+add(
+  "create_bookmark_highlight",
+  "Save a highlighted quote and optional annotation.",
+  z
+    .object({
+      id,
+      articleVersion: z.number().int().positive(),
+      quote: z.string().min(1).max(10000),
+      prefix: z.string().max(256).default(""),
+      suffix: z.string().max(256).default(""),
+      startOffset: z.number().int().nonnegative(),
+      endOffset: z.number().int().positive(),
+      annotation: z.string().max(3000).default(""),
+    })
+    .strict()
+    .refine((input) => input.endOffset > input.startOffset),
+  true,
+  async ({ id: bookmarkId, ...body }, c) =>
+    c.call(`bookmarks/${bookmarkId}/highlights`, "POST", body),
+);
+add(
+  "update_bookmark_highlight",
+  "Update an annotation or re-anchor a saved highlight.",
+  z
+    .object({
+      id,
+      highlightId: id,
+      revision,
+      annotation: z.string().max(3000).optional(),
+      reanchor: z
+        .object({
+          articleVersion: z.number().int().positive(),
+          quote: z.string().min(1).max(10000),
+          prefix: z.string().max(256).default(""),
+          suffix: z.string().max(256).default(""),
+          startOffset: z.number().int().nonnegative(),
+          endOffset: z.number().int().positive(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .refine(
+      (input) => input.annotation !== undefined || input.reanchor !== undefined,
+    ),
+  true,
+  async ({ id: bookmarkId, highlightId, ...body }, c) =>
+    c.call(`bookmarks/${bookmarkId}/highlights/${highlightId}`, "PATCH", body),
 );
 add(
   "refresh_bookmark",
@@ -694,8 +1116,8 @@ add(
 );
 add(
   "processing_status",
-  "Get background processing status for an artifact or bookmark.",
-  z.object({ id, kind: z.enum(["artifact", "bookmark"]) }),
+  "Get background processing status for an artifact, bookmark or article.",
+  z.object({ id, kind: z.enum(["artifact", "bookmark", "article"]) }),
   false,
   async (i, c) => {
     const row = sqlite()
@@ -1520,7 +1942,7 @@ add(
 );
 add(
   "get_task_reminders",
-  "Read a task’s planned-date and due-date reminders.",
+  "Read a task's schedule, planned-date and due-date reminders.",
   z.object({ id }),
   false,
   async (i, c) => ({
@@ -1529,12 +1951,12 @@ add(
 );
 add(
   "set_task_reminders",
-  "Set reminders for a task’s planned or due date.",
+  "Set reminders for a task's scheduled, planned or due time.",
   z.object({
     id,
     revision,
     timezone: zoneSchema,
-    field: z.enum(["planned", "due"]),
+    field: z.enum(["schedule", "planned", "due"]),
     offsets: z.array(z.number().int().min(0).max(10080)).max(3),
   }),
   true,

@@ -7,15 +7,19 @@ import {
   ChevronRight,
   Loader2,
   Plus,
+  Download,
 } from "lucide-react";
 import {
   addDays,
+  eventPayload,
+  localInstant,
   type CalendarEvent,
   type CalendarItem,
   type CalendarRange,
 } from "@/lib/calendar";
 import { localDate, validDate } from "@/lib/dates";
-import { api } from "@/lib/client";
+import { api, downloadRequest } from "@/lib/client";
+import type { Task } from "@/lib/types";
 import { useCompletion } from "@/lib/completion-client";
 import { SectionHeading } from "./section-heading";
 import { Button } from "./ui/button";
@@ -24,6 +28,14 @@ import { DatePicker } from "./date-picker";
 import { CalendarEventEditor, CalendarSelect } from "./calendar-event-editor";
 import { useConfirm } from "./confirm-provider";
 import { CalendarTimeGrid } from "./calendar-time-grid";
+import { CalendarTaskDialog } from "./calendar-task-dialog";
+import { TaskDetails } from "./task-details";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./ui/dialog";
 
 type TaskPage = {
   items: {
@@ -106,13 +118,25 @@ export function CalendarPanel({
     [editor, setEditor] = useState<{
       event: CalendarEvent | null;
       occurrence?: string;
+      move?: { startAt: number; endAt: number };
     } | null>(() =>
       typeof window !== "undefined" &&
       new URL(window.location.href).searchParams.get("new") === "1"
         ? { event: null }
         : null,
     ),
+    [taskDialog, setTaskDialog] = useState<{
+      date: string;
+      time: string;
+      task?: Task;
+    } | null>(null),
+    [detailTask, setDetailTask] = useState<Task | null>(null),
     [busy, setBusy] = useState(false),
+    [exportOpen, setExportOpen] = useState(false),
+    [exportFrom, setExportFrom] = useState(""),
+    [exportThrough, setExportThrough] = useState(""),
+    [exportBusy, setExportBusy] = useState(false),
+    [exportError, setExportError] = useState(""),
     [refresh, setRefresh] = useState(0);
   const monthGrid = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -143,7 +167,7 @@ export function CalendarPanel({
     async () =>
       !dirty.current ||
       (await confirm({
-        title: "Discard event changes?",
+        title: "Discard calendar changes?",
         description: "Your unsaved changes will be lost.",
         action: "Discard changes",
       })),
@@ -273,6 +297,20 @@ export function CalendarPanel({
     window.dispatchEvent(new Event("nivra:route-updated"));
   };
   async function open(item: CalendarItem) {
+    if (item.type === "task") {
+      setBusy(true);
+      setError("");
+      try {
+        setDetailTask(
+          await api<Task>("tasks/" + encodeURIComponent(item.sourceId)),
+        );
+      } catch (cause) {
+        setError((cause as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (item.type !== "event") {
       onOpenItem(item);
       return;
@@ -291,6 +329,158 @@ export function CalendarPanel({
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+  async function scheduleTask(item: CalendarItem) {
+    setBusy(true);
+    setError("");
+    try {
+      const task = await api<Task>(
+        "tasks/" + encodeURIComponent(item.sourceId),
+      );
+      const start = task.schedule?.start;
+      setTaskDialog({
+        task,
+        date: start?.slice(0, 10) ?? item.date,
+        time: start?.slice(11, 16) ?? "09:00",
+      });
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function moveItem(
+    item: CalendarItem,
+    startAt: number,
+    endAt: number,
+    kind: "move" | "resize",
+  ) {
+    setError("");
+    if (item.type === "task") {
+      setBusy(true);
+      try {
+        const task = await api<Task>(
+          "tasks/" + encodeURIComponent(item.sourceId),
+        );
+        if (task.revision !== item.revision)
+          throw new Error(
+            "This task changed elsewhere. Refresh the calendar before moving it.",
+          );
+        const timezone = task.schedule?.timezone ?? zone;
+        const start = localInstant(startAt, timezone);
+        const schedule = {
+          start,
+          timezone,
+          durationMinutes:
+            kind === "resize"
+              ? Math.max(5, Math.round((endAt - startAt) / 60_000))
+              : (task.schedule?.durationMinutes ??
+                Math.max(5, Math.round((endAt - startAt) / 60_000))),
+          disambiguation: task.schedule?.disambiguation ?? "reject",
+        } as const;
+        await api<Task>("tasks/" + encodeURIComponent(task.id), {
+          method: "PATCH",
+          body: JSON.stringify({
+            revision: task.revision,
+            plannedDate: start.slice(0, 10),
+            schedule,
+          }),
+        });
+        setRefresh((value) => value + 1);
+      } catch (cause) {
+        setError((cause as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (item.type !== "event") return;
+    setBusy(true);
+    try {
+      const event = await api<CalendarEvent>(
+        "events/" + encodeURIComponent(item.sourceId),
+      );
+      if (event.revision !== item.revision)
+        throw new Error(
+          "This event changed elsewhere. Refresh the calendar before moving it.",
+        );
+      if (event.recurrence) {
+        setEditor({
+          event,
+          occurrence: item.occurrence,
+          move: { startAt, endAt },
+        });
+        const url = new URL(window.location.href);
+        url.searchParams.set("event", event.id);
+        if (item.occurrence)
+          url.searchParams.set("occurrence", item.occurrence);
+        window.history.pushState(null, "", url);
+        window.dispatchEvent(new Event("nivra:route-updated"));
+        return;
+      }
+      const input = {
+        ...eventPayload(event),
+        allDay: false,
+        start: localInstant(startAt, event.timezone),
+        end: localInstant(endAt, event.timezone),
+        timezone: event.timezone,
+      };
+      await api("events/" + encodeURIComponent(event.id), {
+        method: "PATCH",
+        body: JSON.stringify({
+          input,
+          revision: event.revision,
+          scope: "series",
+        }),
+      });
+      setRefresh((value) => value + 1);
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  function openCalendarExport() {
+    setExportFrom(from);
+    setExportThrough(addDays(to, -1));
+    setExportError("");
+    setExportOpen(true);
+  }
+  async function exportCalendar() {
+    setExportError("");
+    if (!validDate(exportFrom) || !validDate(exportThrough)) {
+      setExportError("Choose a valid start and end date.");
+      return;
+    }
+    const toExclusive = addDays(exportThrough, 1);
+    const dayCount = Temporal.PlainDate.from(exportFrom).until(
+      Temporal.PlainDate.from(toExclusive),
+    ).days;
+    if (dayCount < 1) {
+      setExportError("The end date must be on or after the start date.");
+      return;
+    }
+    if (dayCount > 366) {
+      setExportError("Choose a range of 366 days or less.");
+      return;
+    }
+    setExportBusy(true);
+    try {
+      const query = new URLSearchParams({
+        from: exportFrom,
+        to: toExclusive,
+        timezone: zone,
+      });
+      await downloadRequest(
+        `calendar/export?${query}`,
+        `nivra-calendar-${exportFrom}-through-${exportThrough}.ics`,
+      );
+      setExportOpen(false);
+    } catch (cause) {
+      setExportError((cause as Error).message);
+    } finally {
+      setExportBusy(false);
     }
   }
   function shift(direction: number) {
@@ -320,7 +510,7 @@ export function CalendarPanel({
               new Date(item.endAt).getHours() !== 0)
           : item.date === date),
     );
-  const entry = (item: CalendarItem) => (
+  const entryButton = (item: CalendarItem) => (
     <Button
       key={item.id}
       variant="ghost"
@@ -353,6 +543,23 @@ export function CalendarPanel({
       </span>
     </Button>
   );
+  const entry = (item: CalendarItem) =>
+    item.type === "task" && route.mode === "planning" ? (
+      <div key={item.id} className="planning-agenda-task">
+        {entryButton(item)}
+        <Button
+          variant="outline"
+          className="planning-agenda-schedule"
+          disabled={busy}
+          onClick={() => void scheduleTask(item)}
+        >
+          <CalendarDays size={15} />
+          {item.startAt ? "Move time" : "Schedule"}
+        </Button>
+      </div>
+    ) : (
+      entryButton(item)
+    );
   const days =
     route.view === "month"
       ? monthDays(route.date)
@@ -422,6 +629,21 @@ export function CalendarPanel({
             <Button onClick={() => setEditor({ event: null })}>
               <Plus size={16} />
               New event
+            </Button>
+            {route.mode === "planning" && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setTaskDialog({ date: route.date, time: "09:00" })
+                }
+              >
+                <CalendarDays size={16} />
+                New task
+              </Button>
+            )}
+            <Button variant="outline" onClick={openCalendarExport}>
+              <Download size={16} />
+              Export
             </Button>
           </div>
         </div>
@@ -648,7 +870,12 @@ export function CalendarPanel({
                 <CalendarTimeGrid
                   days={days}
                   items={(data?.items ?? []).filter(visible)}
+                  timezone={zone}
                   onOpen={(item) => void open(item)}
+                  onEmptySlot={(date, time) => setTaskDialog({ date, time })}
+                  onMove={(item, startAt, endAt, kind) =>
+                    void moveItem(item, startAt, endAt, kind)
+                  }
                 />
               )}
             <section
@@ -828,6 +1055,7 @@ export function CalendarPanel({
           }
           event={editor.event}
           occurrence={editor.occurrence}
+          move={editor.move}
           date={route.date}
           zone={zone}
           onDirty={setDirty}
@@ -838,6 +1066,94 @@ export function CalendarPanel({
           }}
         />
       )}
+      {taskDialog && (
+        <CalendarTaskDialog
+          date={taskDialog.date}
+          time={taskDialog.time}
+          timezone={taskDialog.task?.schedule?.timezone ?? zone}
+          task={taskDialog.task}
+          onDirty={setDirty}
+          onClose={() => setTaskDialog(null)}
+          onSaved={() => {
+            setTaskDialog(null);
+            setRefresh((value) => value + 1);
+          }}
+        />
+      )}
+      {detailTask && (
+        <TaskDetails
+          key={detailTask.id}
+          task={detailTask}
+          onClose={() => setDetailTask(null)}
+          onDirty={setDirty}
+          onSaved={(task) => {
+            setDetailTask(task);
+            setRefresh((value) => value + 1);
+          }}
+          onOpenNote={async (id) => {
+            setDetailTask(null);
+            onOpenItem({
+              id,
+              sourceId: id,
+              type: "note",
+              title: "Linked note",
+              date: route.date,
+              label: "Note",
+              revision: 1,
+            });
+            return true;
+          }}
+        />
+      )}
+      <Dialog
+        open={exportOpen}
+        onOpenChange={(open) => {
+          if (!exportBusy) setExportOpen(open);
+        }}
+      >
+        <DialogContent className="planning-export-dialog">
+          <DialogTitle>Export calendar</DialogTitle>
+          <DialogDescription>
+            Download an iCalendar snapshot. Reminders are not included.
+          </DialogDescription>
+          <div className="planning-export-dates">
+            <DatePicker
+              label="From"
+              value={exportFrom}
+              disabled={exportBusy}
+              onChange={(value) => value && setExportFrom(value)}
+            />
+            <DatePicker
+              label="Through"
+              value={exportThrough}
+              disabled={exportBusy}
+              onChange={(value) => value && setExportThrough(value)}
+            />
+          </div>
+          {exportError && (
+            <p className="planning-field-error" role="alert">
+              {exportError}
+            </p>
+          )}
+          <div className="planning-export-actions">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={exportBusy}
+              onClick={() => setExportOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={exportBusy}
+              onClick={() => void exportCalendar()}
+            >
+              {exportBusy ? "Preparing…" : "Download snapshot"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

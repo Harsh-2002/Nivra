@@ -21,6 +21,8 @@ import {
 import type { ContentCommand, ContentResult } from "./content-service";
 import { sqlite } from "./db";
 import { HttpError } from "./http";
+import { storedTaskScheduleSchema } from "../task-planning";
+import { exportCalendarIcs } from "./calendar-ics";
 const response = (data: unknown, status = 200): ContentResult => ({
   data,
   status,
@@ -36,6 +38,10 @@ export async function executeCalendar(
   } = command;
   const [, area, id] = command.path;
   const query = command.query ?? new URLSearchParams();
+  if (area === "export" && method === "GET") {
+    const range = apiQueries.calendarExport.parse(Object.fromEntries(query));
+    return { response: exportCalendarIcs(owner, range) };
+  }
   if (area === "range" && method === "GET") {
     const value = apiQueries.calendar.parse(Object.fromEntries(query));
     const v = {
@@ -103,17 +109,48 @@ export async function executeCalendar(
   }
   if (area === "task-reminders" && id && method === "PUT") {
     const body = apiInputs.taskReminders.parse(payload);
-    if (
-      !sqlite()
-        .prepare(
-          "SELECT 1 FROM tasks WHERE id=? AND owner_id=? AND revision=? AND trashed_at IS NULL",
-        )
-        .get(id, owner, body.revision)
-    )
+    const task = sqlite()
+      .prepare(
+        "SELECT schedule_start_local AS start,schedule_timezone AS timezone,schedule_duration_minutes AS durationMinutes,schedule_disambiguation AS disambiguation,schedule_issue AS scheduleIssue FROM tasks WHERE id=? AND owner_id=? AND revision=? AND trashed_at IS NULL",
+      )
+      .get(id, owner, body.revision) as
+      | {
+          start: string | null;
+          timezone: string | null;
+          durationMinutes: number | null;
+          disambiguation: "earlier" | "later" | "reject" | null;
+          scheduleIssue: "needs-scheduling" | null;
+        }
+      | undefined;
+    if (!task)
       throw new HttpError(
         409,
         "This task changed. Reload it before setting reminders.",
       );
+    if (body.field === "schedule") {
+      if (
+        task.scheduleIssue ||
+        !task.start ||
+        !task.timezone ||
+        task.durationMinutes === null ||
+        !task.disambiguation
+      )
+        throw new HttpError(
+          400,
+          "Add a valid scheduled time before setting a schedule reminder.",
+        );
+      const schedule = storedTaskScheduleSchema.parse({
+        start: task.start,
+        timezone: task.timezone,
+        durationMinutes: task.durationMinutes,
+        disambiguation: task.disambiguation,
+      });
+      if (body.timezone !== schedule.timezone)
+        throw new HttpError(
+          400,
+          "Use the timezone saved with the task schedule.",
+        );
+    }
     sqlite()
       .prepare(
         "INSERT INTO calendar_task_reminders VALUES(?,?,?,?) ON CONFLICT(task_id,field) DO UPDATE SET timezone=excluded.timezone,field=excluded.field,offsets=excluded.offsets",

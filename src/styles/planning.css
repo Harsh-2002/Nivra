@@ -1,0 +1,665 @@
+.planning-inline-status {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.planning-inline-error {
+  color: var(--destructive);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.planning-schedule-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.planning-schedule-empty > div,
+.planning-selected-task {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 4px;
+}
+
+.planning-schedule-empty span,
+.planning-selected-task span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.planning-schedule-editor,
+.planning-recurrence,
+.planning-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.planning-schedule-editor {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.planning-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.planning-section-heading h3 {
+  font-size: 14px;
+  font-weight: 550;
+}
+
+.planning-section-heading p {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.planning-schedule-grid,
+.planning-recurrence-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.planning-schedule-field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6px;
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.planning-schedule-field small,
+.planning-weekdays small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.planning-schedule-field input,
+.planning-schedule-field [data-slot="select-trigger"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.planning-duration-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.planning-duration-control span,
+.planning-timezone-note {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.planning-timezone-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.planning-field-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: var(--destructive);
+  font-size: 12px;
+}
+
+.planning-recurrence {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--muted);
+}
+
+.planning-weekdays {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.planning-weekdays [role="group"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.planning-weekdays button {
+  min-width: 44px;
+  min-height: 40px;
+}
+
+.planning-steps {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.planning-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planning-step-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 3px 4px;
+  border-radius: 7px;
+  touch-action: pan-y;
+}
+
+.planning-step-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+}
+
+.planning-step-text {
+  min-width: 0;
+  min-height: 40px;
+  padding: 7px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: start;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
+.planning-step-text:hover {
+  background: var(--muted);
+}
+
+.planning-step-text.is-complete {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+
+.planning-step-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.planning-step-actions button,
+.planning-step-edit button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.planning-step-edit {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+}
+
+.planning-step-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.planning-step-add input {
+  min-width: 0;
+  flex: 1;
+}
+
+.planning-step-add button {
+  min-height: 40px;
+}
+
+.planning-task-dialog[data-slot="dialog-content"] {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(760px, calc(100dvh - 32px));
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.planning-task-dialog-heading {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.planning-task-dialog-heading [data-slot="dialog-description"] {
+  margin-top: 5px;
+}
+
+.planning-task-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 20px 24px;
+  overflow: auto;
+}
+
+.planning-task-dialog-body .planning-schedule-editor {
+  padding: 14px;
+}
+
+.planning-task-search {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.planning-task-search h3 {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.planning-task-search-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding-left: 10px;
+  border: 1px solid var(--input);
+  border-radius: 10px;
+  color: var(--muted-foreground);
+}
+
+.planning-task-search-input input {
+  border: 0;
+  box-shadow: none;
+}
+
+.planning-task-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.planning-task-result {
+  width: 100%;
+  min-height: 44px;
+  justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.planning-task-create-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.planning-task-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 24px max(14px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+
+.planning-task-dialog-footer button {
+  min-height: 40px;
+}
+
+.planning-agenda-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.planning-agenda-task .schedule-agenda-entry {
+  min-width: 0;
+}
+
+.planning-agenda-schedule {
+  min-height: 40px;
+  align-self: center;
+}
+
+.schedule-time-hours {
+  isolation: isolate;
+}
+
+.schedule-time-slots {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+}
+
+.schedule-time-slot {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 2.083333%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.schedule-time-slot:hover {
+  background: color-mix(in srgb, var(--muted) 58%, transparent);
+}
+
+.schedule-time-slot:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.schedule-time-entry {
+  z-index: 2;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.schedule-time-grid .schedule-time-entry {
+  position: absolute;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  padding: 1px;
+  overflow: hidden;
+  text-align: start;
+  white-space: normal;
+  background: var(--muted);
+}
+
+.schedule-time-entry-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px 7px 23px;
+  overflow: hidden;
+  text-align: start;
+  white-space: normal;
+}
+
+.schedule-time-grid .schedule-time-entry-open {
+  height: 100%;
+  min-height: 0;
+}
+
+.schedule-time-grid .schedule-time-entry-open.is-compact {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 1px 5px;
+}
+
+.schedule-time-entry-open span,
+.schedule-time-entry-open strong {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.schedule-time-grid .schedule-time-entry-open.is-compact span {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 52%;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.schedule-time-grid .schedule-time-entry-open.is-compact strong {
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-time-extend,
+.schedule-time-shorten {
+  position: absolute;
+  bottom: 1px;
+  z-index: 3;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  opacity: 0;
+}
+
+.schedule-time-extend {
+  right: 1px;
+}
+
+.schedule-time-shorten {
+  right: 23px;
+}
+
+.schedule-time-entry:hover .schedule-time-extend,
+.schedule-time-entry:hover .schedule-time-shorten,
+.schedule-time-entry:focus-within .schedule-time-extend,
+.schedule-time-entry:focus-within .schedule-time-shorten {
+  opacity: 1;
+}
+
+.schedule-time-grid .schedule-time-entry.is-compact .schedule-time-extend,
+.schedule-time-grid .schedule-time-entry.is-compact .schedule-time-shorten {
+  display: none;
+}
+
+.planning-grid-error {
+  grid-column: 1 / -1;
+  margin-bottom: 8px;
+}
+
+.planning-export-dialog {
+  width: min(100% - 32px, 460px);
+}
+
+.planning-export-dates,
+.planning-export-actions {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  min-width: 0;
+}
+
+.planning-export-dates > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.planning-export-actions {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.task-row-open {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  text-align: start;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+
+.task-row-open:hover .task-title,
+.task-row-open:focus-visible .task-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.task-row-open:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .schedule-period > button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .planning-task-dialog-body :is(button, input, [data-slot="select-trigger"]) {
+    min-height: 44px;
+  }
+
+  .planning-task-dialog-body button[data-size="icon"] {
+    min-width: 44px;
+  }
+
+  .planning-export-dates {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .planning-export-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .planning-export-actions button {
+    min-height: 44px;
+  }
+  .planning-schedule-grid,
+  .planning-recurrence-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-schedule-empty {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .planning-step-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: start;
+    gap: 4px 8px;
+    padding: 4px;
+  }
+
+  .planning-step-check {
+    grid-row: 1;
+    min-height: 44px;
+  }
+
+  .planning-step-text,
+  .planning-step-edit {
+    grid-column: 2;
+  }
+
+  .planning-step-actions {
+    grid-column: 2;
+    justify-content: flex-end;
+  }
+
+  .planning-step-actions button,
+  .planning-step-edit button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .planning-step-add {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .planning-step-add input,
+  .planning-step-add button,
+  .planning-agenda-schedule {
+    min-height: 44px;
+  }
+
+  .planning-task-dialog[data-slot="dialog-content"] {
+    inset: 0;
+    transform: none;
+    --tw-translate-x: 0px;
+    --tw-translate-y: 0px;
+    width: 100%;
+    max-width: 100%;
+    max-height: 100dvh;
+    height: 100dvh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .planning-task-dialog-heading {
+    padding: max(16px, env(safe-area-inset-top)) 20px 16px;
+  }
+
+  .planning-task-dialog-body {
+    padding: 16px 20px;
+  }
+
+  .planning-task-dialog-footer {
+    padding-inline: 20px;
+  }
+
+  .planning-task-dialog-footer button {
+    min-height: 44px;
+  }
+}
+
+@media (pointer: coarse) {
+  .schedule-time-extend,
+  .schedule-time-shorten {
+    display: none;
+  }
+}

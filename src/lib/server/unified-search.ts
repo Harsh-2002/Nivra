@@ -3,6 +3,7 @@ import { decodeMatches } from "../search-context";
 import { sqlite } from "./db";
 import { ftsQuery } from "./validation";
 import { fuzzyQuery } from "./search";
+import { journalPeriodSql } from "./journal-classification";
 import type { SearchResult } from "../types";
 export function parseSearch(input: string) {
   let type = "";
@@ -38,13 +39,173 @@ export function searchWorkspace(
 ): SearchResult[] {
   const { type, tag, text } = parseSearch(input);
   const database = sqlite();
-  type Candidate = SearchResult & { searchRow: number };
+  type Candidate = SearchResult & {
+    searchRow: number;
+    searchSource?: "primary" | "article" | "highlight" | "task-step";
+  };
   const results: Candidate[] = [];
   const enrichers = new Map<
     SearchResult["type"],
     (rows: Candidate[]) => SearchResult[]
   >();
   const fallbacks: (() => void)[] = [];
+  const tagMatch = tag
+    ? "EXISTS(SELECT 1 FROM bookmark_tags bt JOIN tags t ON t.id=bt.tag_id WHERE bt.bookmark_id=b.id AND t.name=? COLLATE NOCASE)"
+    : "";
+  const readBookmarkText = (
+    fts: "bookmark_articles_fts" | "bookmark_highlights_fts",
+    query: string,
+  ) => {
+    if (!query) return;
+    const start = `[[${randomUUID()}]]`;
+    const end = `[[/${randomUUID()}]]`;
+    const source = fts === "bookmark_articles_fts" ? "article" : "highlight";
+    const matches =
+      source === "article"
+        ? (database
+            .prepare(
+              `SELECT b.id,b.title,b.updated_at AS updatedAt,
+                 (SELECT a.rowid FROM bookmark_articles a
+                  WHERE a.bookmark_id=b.id AND a.owner_id=b.owner_id
+                    AND a.rowid IN (SELECT rowid FROM bookmark_articles_fts WHERE bookmark_articles_fts MATCH ?)
+                  ORDER BY a.version DESC LIMIT 1) AS sourceRow
+               FROM bookmarks AS b INDEXED BY bookmarks_search_order_idx
+               WHERE b.owner_id=? AND b.trashed_at IS NULL
+                 AND b.id IN (
+                   SELECT a.bookmark_id FROM bookmark_articles a
+                   WHERE a.owner_id=b.owner_id
+                     AND a.rowid IN (SELECT rowid FROM bookmark_articles_fts WHERE bookmark_articles_fts MATCH ?)
+                 ) ${tagMatch ? `AND ${tagMatch}` : ""}
+               ORDER BY b.updated_at DESC,b.id LIMIT 12`,
+            )
+            .all(query, owner, query, ...(tagMatch ? [tag] : [])) as {
+            id: string;
+            title: string;
+            updatedAt: number;
+            sourceRow: number;
+          }[])
+        : (database
+            .prepare(
+              `SELECT b.id,b.title,b.updated_at AS updatedAt,
+                 (SELECT h.rowid FROM bookmark_highlights h
+                  WHERE h.bookmark_id=b.id AND h.owner_id=b.owner_id
+                    AND h.rowid IN (SELECT rowid FROM bookmark_highlights_fts WHERE bookmark_highlights_fts MATCH ?)
+                  ORDER BY h.updated_at DESC,h.id LIMIT 1) AS sourceRow
+               FROM bookmarks AS b INDEXED BY bookmarks_search_order_idx
+               WHERE b.owner_id=? AND b.trashed_at IS NULL
+                 AND b.id IN (
+                   SELECT h.bookmark_id FROM bookmark_highlights h
+                   WHERE h.owner_id=b.owner_id
+                     AND h.rowid IN (SELECT rowid FROM bookmark_highlights_fts WHERE bookmark_highlights_fts MATCH ?)
+                 ) ${tagMatch ? `AND ${tagMatch}` : ""}
+               ORDER BY b.updated_at DESC,b.id LIMIT 12`,
+            )
+            .all(query, owner, query, ...(tagMatch ? [tag] : [])) as {
+            id: string;
+            title: string;
+            updatedAt: number;
+            sourceRow: number;
+          }[]);
+    if (!matches.length) return;
+    const marked = database
+      .prepare(
+        `SELECT rowid AS sourceRow,snippet(${fts},-1,?,?,'…',24) AS excerpt
+         FROM ${fts} WHERE ${fts} MATCH ? AND rowid IN (${matches.map(() => "?").join(",")})`,
+      )
+      .all(start, end, query, ...matches.map((row) => row.sourceRow)) as {
+      sourceRow: number;
+      excerpt: string;
+    }[];
+    const snippets = new Map(marked.map((row) => [row.sourceRow, row.excerpt]));
+    for (const row of matches) {
+      const rawExcerpt = snippets.get(row.sourceRow);
+      if (!rawExcerpt) continue;
+      const excerpt = decodeMatches(rawExcerpt, start, end);
+      results.push({
+        searchRow: row.sourceRow,
+        id: row.id,
+        type: "bookmark",
+        title: row.title,
+        excerpt: excerpt.text,
+        updatedAt: row.updatedAt,
+        excerptMatches: excerpt.ranges,
+        matchTerms: [
+          ...new Set(
+            excerpt.ranges.map(([from, to]) => excerpt.text.slice(from, to)),
+          ),
+        ].slice(0, 20),
+        searchSource: source,
+      });
+    }
+  };
+  const readTaskSteps = (query: string) => {
+    if (!query) return;
+    const start = `[[${randomUUID()}]]`;
+    const end = `[[/${randomUUID()}]]`;
+    const taskTag = tag
+      ? "AND EXISTS(SELECT 1 FROM task_tags tt JOIN tags tg ON tg.id=tt.tag_id WHERE tt.task_id=t.id AND tg.name=? COLLATE NOCASE)"
+      : "";
+    const candidates = database
+      .prepare(
+        `SELECT t.id,t.title,t.updated_at AS updatedAt,
+           t.completed_at IS NOT NULL AS completed,
+           (SELECT s.rowid FROM task_steps s
+            WHERE s.owner_id=t.owner_id AND s.task_id=t.id
+              AND s.rowid IN (SELECT rowid FROM task_steps_fts WHERE task_steps_fts MATCH ?)
+            ORDER BY s.position,s.id LIMIT 1) AS sourceRow
+         FROM tasks t
+         WHERE t.owner_id=? AND t.trashed_at IS NULL
+           AND t.id IN (SELECT s.task_id FROM task_steps s
+             WHERE s.owner_id=?
+               AND s.rowid IN (SELECT rowid FROM task_steps_fts WHERE task_steps_fts MATCH ?))
+           ${taskTag}
+         ORDER BY t.updated_at DESC,t.id LIMIT 12`,
+      )
+      .all(query, owner, owner, query, ...(tag ? [tag] : [])) as {
+      id: string;
+      title: string;
+      updatedAt: number;
+      completed: number | boolean;
+      sourceRow: number;
+    }[];
+    if (!candidates.length) return;
+    const snippets = database
+      .prepare(
+        `SELECT rowid AS sourceRow,snippet(task_steps_fts,0,?,?,'…',24) AS excerpt
+         FROM task_steps_fts WHERE task_steps_fts MATCH ? AND rowid IN (${candidates.map(() => "?").join(",")})`,
+      )
+      .all(start, end, query, ...candidates.map((row) => row.sourceRow)) as {
+      sourceRow: number;
+      excerpt: string;
+    }[];
+    const byRow = new Map(snippets.map((row) => [row.sourceRow, row.excerpt]));
+    for (const task of candidates) {
+      const raw = byRow.get(task.sourceRow);
+      if (!raw) continue;
+      const excerpt = decodeMatches(raw, start, end);
+      results.push({
+        searchRow: task.sourceRow,
+        searchSource: "task-step",
+        id: task.id,
+        type: "task",
+        title: task.title,
+        excerpt: purpose === "link" ? "" : excerpt.text,
+        updatedAt: task.updatedAt,
+        completed: Boolean(task.completed),
+        ...(purpose === "link" ? {} : { excerptMatches: excerpt.ranges }),
+        matchTerms:
+          purpose === "link"
+            ? []
+            : [
+                ...new Set(
+                  excerpt.ranges.map(([from, to]) =>
+                    excerpt.text.slice(from, to),
+                  ),
+                ),
+              ].slice(0, 20),
+      });
+    }
+  };
   for (const area of [
     "note",
     "task",
@@ -73,9 +234,9 @@ export function searchWorkspace(
     const params: (string | number)[] = [owner];
     if (area === "note") conditions.push("trashed_at IS NULL AND kind='note'");
     if (area === "note" && type === "journal")
-      conditions.push("daily_date IS NOT NULL");
+      conditions.push(`${journalPeriodSql("notes")} IS NOT NULL`);
     if (area === "note" && type === "note")
-      conditions.push("daily_date IS NULL");
+      conditions.push(`${journalPeriodSql("notes")} IS NULL`);
     if (tag) {
       conditions.push(
         `EXISTS(SELECT 1 FROM ${area}_tags it JOIN tags t ON t.id=it.tag_id WHERE it.${area}_id=${table}.id AND t.name=? COLLATE NOCASE)`,
@@ -105,7 +266,7 @@ export function searchWorkspace(
       ) =>
         database
           .prepare(
-            `SELECT rowid AS searchRow,id,title,${query || purpose === "link" ? "''" : `substr(replace(${excerpt},char(10),' '),1,180)`} AS excerpt,updated_at AS updatedAt${completed}${area === "note" ? ",daily_date AS dailyDate" : ""} FROM ${table}${index} WHERE ${where.join(" AND ")} ORDER BY updated_at DESC,id LIMIT ?`,
+            `SELECT rowid AS searchRow,id,title,${query || purpose === "link" ? "''" : `substr(replace(${excerpt},char(10),' '),1,180)`} AS excerpt,updated_at AS updatedAt${completed}${area === "note" ? ",daily_date AS dailyDate,journal_period AS journalPeriod,journal_period_start AS journalPeriodStart" : ""} FROM ${table}${index} WHERE ${where.join(" AND ")} ORDER BY updated_at DESC,id LIMIT ?`,
           )
           .all(...values, limit) as (Omit<SearchResult, "type"> & {
           searchRow: number;
@@ -129,17 +290,17 @@ export function searchWorkspace(
       }
       return read(where, values, index);
     };
-    const context = (
-      rows: (Omit<SearchResult, "type"> & { searchRow: number })[],
-      query: string,
-    ) => {
+    const context = (rows: Candidate[], query: string) => {
       const start = `[[${randomUUID()}]]`;
       const end = `[[/${randomUUID()}]]`;
       if (purpose === "link" || !query || !rows.length)
-        return rows.map(({ searchRow, ...row }) => {
-          void searchRow;
-          return row;
-        });
+        return rows.map(
+          ({ searchRow, searchSource: _searchSource, ...row }) => {
+            void searchRow;
+            void _searchSource;
+            return row;
+          },
+        );
       // Keep one FTS cursor so snippet's phrase cache survives across selected rows.
       const marked = database
         .prepare(
@@ -156,7 +317,8 @@ export function searchWorkspace(
           query,
         ) as { searchRow: number; title: string; excerpt: string }[];
       const byRow = new Map(marked.map((row) => [row.searchRow, row]));
-      return rows.map(({ searchRow, ...row }) => {
+      return rows.map(({ searchRow, searchSource: _searchSource, ...row }) => {
+        void _searchSource;
         const match = byRow.get(searchRow);
         if (!match) return row;
         const title = decodeMatches(match.title, start, end);
@@ -179,18 +341,25 @@ export function searchWorkspace(
     if (text && !query) continue;
     const collect = (usedQuery: string) => {
       const found = run(usedQuery);
-      enrichers.set(area, (rows) =>
-        context(rows, usedQuery).map((row) => ({ ...row, type: area })),
-      );
+      enrichers.set(area, (rows) => context(rows, usedQuery));
       results.push(
         ...found.map((r) => ({
           ...r,
-          type: area,
+          type:
+            area === "note" && (r.journalPeriod || r.dailyDate)
+              ? "journal"
+              : (area as SearchResult["type"]),
+          searchSource: "primary" as const,
           ...(area === "task" ? { completed: Boolean(r.completed) } : {}),
         })),
       );
+      if (area === "bookmark" && usedQuery) {
+        readBookmarkText("bookmark_articles_fts", usedQuery);
+        readBookmarkText("bookmark_highlights_fts", usedQuery);
+      }
     };
     collect(query);
+    if (area === "task" && query) readTaskSteps(query);
     if (purpose === "workspace" && query && area !== "event" && area !== "form")
       fallbacks.push(() => {
         const fuzzy = fuzzyQuery(
@@ -201,13 +370,47 @@ export function searchWorkspace(
       });
   }
   if (!results.length) for (const fallback of fallbacks) fallback();
-  const selected = results
+  const unique = new Map<string, Candidate>();
+  const sourcePriority = {
+    primary: 0,
+    article: 1,
+    highlight: 2,
+    "task-step": 3,
+  } as const;
+  for (const row of results) {
+    const key = `${row.type}:${row.id}`;
+    const previous = unique.get(key);
+    if (
+      !previous ||
+      sourcePriority[row.searchSource ?? "primary"] >
+        sourcePriority[previous.searchSource ?? "primary"]
+    )
+      unique.set(key, row);
+  }
+  const selected = [...unique.values()]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, purpose === "link" ? 10 : 30);
   const enriched = new Map<string, SearchResult>();
   for (const [area, enrich] of enrichers) {
-    for (const row of enrich(selected.filter((row) => row.type === area)))
-      enriched.set(`${area}:${row.id}`, row);
+    for (const row of enrich(
+      selected.filter(
+        (row) =>
+          (row.type === area || (area === "note" && row.type === "journal")) &&
+          row.searchSource === "primary",
+      ) as Candidate[],
+    ))
+      enriched.set(`${row.type}:${row.id}`, row);
   }
-  return selected.map((row) => enriched.get(`${row.type}:${row.id}`)!);
+  return selected.map((row) => {
+    const matched = enriched.get(`${row.type}:${row.id}`);
+    if (matched) return matched;
+    const {
+      searchRow: _searchRow,
+      searchSource: _searchSource,
+      ...result
+    } = row;
+    void _searchRow;
+    void _searchSource;
+    return result;
+  });
 }

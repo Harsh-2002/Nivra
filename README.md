@@ -12,8 +12,10 @@ Nivra brings notes, journals, tasks, bookmarks and files into one quiet workspac
   <img alt="Nivra Overview with tasks, upcoming events and recent workspace items, using demonstration content" src="docs/images/overview.webp">
 </picture>
 
-- **Write and collect:** rich-text notes, drawings, attachments, bookmarks, tags, favourites and searchable artifacts with background OCR and thumbnails.
-- **Plan:** daily journals, task dates, recurring tasks, Kanban boards, calendar events and push reminders.
+- **Write:** rich-text notes, reusable templates, daily/weekly/monthly journals, linked tasks, drawings and attachments.
+- **Plan:** dated and scheduled tasks, checklists, recurrence, Kanban boards, calendar events, and push reminders.
+- **Read and collect:** bookmarks with private saved-article snapshots, highlights and reading state; searchable artifacts with background OCR and thumbnails.
+- **Capture:** save through Quick, or review shared links and passages through the supported PWA share menu and browser bookmarklet.
 - **Collect responses:** build and publish forms with text, choices, amounts and file uploads; review versioned responses, summaries and CSV/JSON exports.
 - **Organize and find:** optional smart tagging uses your existing tags and examples you approve. Review suggestions by default, or opt into automatic tagging, where recurring topics can become reusable tags. Optional semantic search finds related content by meaning alongside keyword search, including extracted document and OCR text.
 - **Connect:** MCP at `/mcp`, with API keys or OAuth, read-only or read/write access, and exact counts alongside paginated tools.
@@ -22,6 +24,7 @@ Nivra brings notes, journals, tasks, bookmarks and files into one quiet workspac
 Smart tagging and semantic search are currently in preview on `main`.
 
 See the [website](https://harsh-2002.github.io/Nivra/) for more workflows.
+See [architecture](docs/architecture.md#writing-journals-and-linked-tasks) for writing and task behavior, [saved bookmark reading](docs/architecture.md#saved-bookmark-reading) for article snapshots, and [capture](docs/architecture.md#capture) for share flows.
 
 ## Get started with Docker
 

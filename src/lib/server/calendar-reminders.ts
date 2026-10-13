@@ -10,6 +10,10 @@ import { HttpError } from "./http";
 import { calendarRange, getEvent } from "./calendar";
 import { completionEvent } from "./jobs";
 import { addDays, eventInstant, localInstant } from "../calendar";
+import {
+  resolveTaskSchedule,
+  storedTaskScheduleSchema,
+} from "../task-planning";
 const state = globalThis as unknown as {
   nivraReminderWorker?: {
     timer?: ReturnType<typeof setTimeout>;
@@ -195,7 +199,7 @@ export function prepareReminders(now = Date.now()) {
     }
     const tasks = sqlite()
       .prepare(
-        "SELECT t.id,t.title,t.revision,t.planned_date AS plannedDate,t.due_date AS dueDate,r.timezone,r.field,r.offsets FROM tasks t JOIN calendar_task_reminders r ON r.task_id=t.id WHERE t.owner_id=? AND t.trashed_at IS NULL AND t.completed_at IS NULL",
+        "SELECT t.id,t.title,t.revision,t.planned_date AS plannedDate,t.due_date AS dueDate,t.schedule_start_local AS scheduleStartLocal,t.schedule_timezone AS scheduleTimezone,t.schedule_duration_minutes AS scheduleDurationMinutes,t.schedule_disambiguation AS scheduleDisambiguation,t.schedule_issue AS scheduleIssue,r.timezone,r.field,r.offsets FROM tasks t JOIN calendar_task_reminders r ON r.task_id=t.id WHERE t.owner_id=? AND t.trashed_at IS NULL AND t.completed_at IS NULL",
       )
       .all(owner.id) as {
       id: string;
@@ -203,24 +207,61 @@ export function prepareReminders(now = Date.now()) {
       revision: number;
       plannedDate: string | null;
       dueDate: string | null;
+      scheduleStartLocal: string | null;
+      scheduleTimezone: string | null;
+      scheduleDurationMinutes: number | null;
+      scheduleDisambiguation: "earlier" | "later" | "reject" | null;
+      scheduleIssue: "needs-scheduling" | null;
       timezone: string;
       field: string;
       offsets: string;
     }[];
     for (const task of tasks) {
-      const date = task.field === "planned" ? task.plannedDate : task.dueDate;
-      if (!date || date < addDays(day, -1) || date >= addDays(day, 9)) continue;
-      const start = Number(
-        Temporal.PlainDateTime.from(date + "T09:00").toZonedDateTime(
-          task.timezone,
-        ).epochMilliseconds,
-      );
+      let occurrence: string;
+      let start: number;
+      if (task.field === "schedule") {
+        if (
+          !task.scheduleStartLocal ||
+          !task.scheduleTimezone ||
+          task.scheduleDurationMinutes === null ||
+          !task.scheduleDisambiguation ||
+          task.scheduleIssue
+        )
+          continue;
+        try {
+          const schedule = storedTaskScheduleSchema.parse({
+            start: task.scheduleStartLocal,
+            timezone: task.scheduleTimezone,
+            durationMinutes: task.scheduleDurationMinutes,
+            disambiguation: task.scheduleDisambiguation,
+          });
+          occurrence = schedule.start;
+          start = resolveTaskSchedule(schedule).startAt;
+        } catch {
+          continue;
+        }
+      } else {
+        const date = task.field === "planned" ? task.plannedDate : task.dueDate;
+        if (!date) continue;
+        occurrence = date;
+        start = Number(
+          Temporal.PlainDateTime.from(date + "T09:00").toZonedDateTime(
+            task.timezone,
+          ).epochMilliseconds,
+        );
+      }
+      const occurrenceDate = occurrence.slice(0, 10);
+      if (
+        occurrenceDate < addDays(day, -1) ||
+        occurrenceDate >= addDays(day, 9)
+      )
+        continue;
       for (const offset of JSON.parse(task.offsets) as number[])
         enqueue(
           owner.id,
           "task",
           task.id,
-          date,
+          occurrence,
           task.revision,
           task.title,
           start - offset * 60000,

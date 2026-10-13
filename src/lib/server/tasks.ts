@@ -11,6 +11,17 @@ import type { Page, Task, TaskFilter } from "../types";
 import { decodeCursor, encodeCursor } from "./pagination";
 import { nextDate, validDate, type Recurrence } from "../dates";
 import { requireLinkedNote } from "./connections";
+import {
+  nextRuleDate,
+  resolveTaskSchedule,
+  shiftTaskScheduleDate,
+  storedTaskScheduleSchema,
+  taskRecurrenceRuleSchema,
+  taskScheduleSchema,
+  type TaskRecurrenceRule,
+  type TaskSchedule,
+} from "../task-planning";
+import { Temporal } from "@js-temporal/polyfill";
 const fields = {
   id: tasks.id,
   boardId: tasks.boardId,
@@ -26,6 +37,12 @@ const fields = {
   plannedDate: tasks.plannedDate,
   recurrence: tasks.recurrence,
   recurrenceDay: tasks.recurrenceDay,
+  scheduleStartLocal: tasks.scheduleStartLocal,
+  scheduleTimezone: tasks.scheduleTimezone,
+  scheduleDurationMinutes: tasks.scheduleDurationMinutes,
+  scheduleDisambiguation: tasks.scheduleDisambiguation,
+  scheduleIssue: tasks.scheduleIssue,
+  recurrenceRule: tasks.recurrenceRule,
   parentTaskId: tasks.parentTaskId,
   noteId: tasks.noteId,
 };
@@ -37,47 +54,129 @@ export type TaskChanges = {
   dueDate?: string | null;
   plannedDate?: string | null;
   recurrence?: Recurrence | null;
+  recurrenceRule?: TaskRecurrenceRule | null;
+  schedule?: TaskSchedule | null;
   noteId?: string | null;
 };
-function enrich(
-  task: Omit<Task, "noteTitle" | "status"> & {
-    openStage: "todo" | "in_progress";
-  },
-): Task {
-  const note = task.noteId
+type TaskStorageRow = Record<string, unknown> & {
+  scheduleStartLocal: string | null;
+  scheduleTimezone: string | null;
+  scheduleDurationMinutes: number | null;
+  scheduleDisambiguation: TaskSchedule["disambiguation"] | null;
+  scheduleIssue: Task["scheduleIssue"] | null;
+  recurrenceRule: TaskRecurrenceRule | string | null;
+};
+const rawScheduleFields = new Set([
+  "scheduleStartLocal",
+  "scheduleTimezone",
+  "scheduleDurationMinutes",
+  "scheduleDisambiguation",
+]);
+function fromStorage(row: TaskStorageRow): Task {
+  const {
+    scheduleStartLocal,
+    scheduleTimezone,
+    scheduleDurationMinutes,
+    scheduleDisambiguation,
+    scheduleIssue,
+    recurrenceRule,
+    openStage,
+    ...rest
+  } = row;
+  const present = [
+    scheduleStartLocal,
+    scheduleTimezone,
+    scheduleDurationMinutes,
+    scheduleDisambiguation,
+  ].filter((value) => value !== null && value !== undefined).length;
+  if (present !== 0 && present !== rawScheduleFields.size)
+    throw new Error("Task schedule fields are incomplete.");
+  const schedule =
+    present === 0
+      ? null
+      : (scheduleIssue ? storedTaskScheduleSchema : taskScheduleSchema).parse({
+          start: scheduleStartLocal,
+          timezone: scheduleTimezone,
+          durationMinutes: scheduleDurationMinutes,
+          disambiguation: scheduleDisambiguation,
+        });
+  let rule: TaskRecurrenceRule | null = null;
+  if (typeof recurrenceRule === "string") {
+    try {
+      rule = taskRecurrenceRuleSchema.parse(JSON.parse(recurrenceRule));
+    } catch {
+      throw new Error("Task recurrence data is invalid.");
+    }
+  } else if (recurrenceRule) {
+    rule = taskRecurrenceRuleSchema.parse(recurrenceRule);
+  }
+  const task = {
+    ...rest,
+    status:
+      "completedAt" in rest && rest.completedAt !== null
+        ? "done"
+        : (openStage ?? rest.status),
+    schedule,
+    scheduleIssue: scheduleIssue ?? null,
+    recurrenceRule: rule,
+  } as Task;
+  return task;
+}
+function attachStepProgress(items: Task[], owner: string) {
+  if (!items.length) return items;
+  const progress = new Map<string, { completed: number; total: number }>();
+  for (let index = 0; index < items.length; index += 400) {
+    const ids = items.slice(index, index + 400).map((item) => item.id);
+    const rows = sqlite()
+      .prepare(
+        `SELECT task_id AS taskId,count(*) AS total,sum(completed) AS completed FROM task_steps WHERE owner_id=? AND task_id IN (${ids.map(() => "?").join(",")}) GROUP BY task_id`,
+      )
+      .all(owner, ...ids) as {
+      taskId: string;
+      total: number;
+      completed: number;
+    }[];
+    for (const row of rows)
+      progress.set(row.taskId, { completed: row.completed, total: row.total });
+  }
+  for (const item of items) {
+    const value = progress.get(item.id) ?? { completed: 0, total: 0 };
+    item.stepProgress = value;
+  }
+  return items;
+}
+function enrich(task: TaskStorageRow, owner: string): Task {
+  const stored = fromStorage(task);
+  const note = stored.noteId
     ? db()
         .select({ title: notes.title })
         .from(notes)
-        .where(and(eq(notes.id, task.noteId), eq(notes.kind, "note")))
+        .where(and(eq(notes.id, stored.noteId), eq(notes.kind, "note")))
         .get()
     : undefined;
-  const { openStage, ...rest } = task;
-  return {
-    ...rest,
-    status: task.completedAt !== null ? "done" : openStage,
-    noteTitle: note?.title ?? null,
-  };
+  stored.noteTitle = note?.title ?? null;
+  return attachStepProgress([stored], owner)[0];
 }
 export function listTasks(owner: string, includeTrash = false): Task[] {
-  return db()
-    .select({ ...fields, noteTitle: notes.title })
-    .from(tasks)
-    .leftJoin(notes, and(eq(notes.id, tasks.noteId), eq(notes.kind, "note")))
-    .where(
-      and(
-        eq(tasks.ownerId, owner),
-        ...(includeTrash ? [] : [isNull(tasks.trashedAt)]),
-      ),
-    )
-    .orderBy(desc(tasks.createdAt), desc(tasks.id))
-    .all()
-    .map((task) => ({
-      ...task,
-      status: task.completedAt !== null ? ("done" as const) : task.openStage,
-    }));
+  return attachStepProgress(
+    db()
+      .select({ ...fields, noteTitle: notes.title })
+      .from(tasks)
+      .leftJoin(notes, and(eq(notes.id, tasks.noteId), eq(notes.kind, "note")))
+      .where(
+        and(
+          eq(tasks.ownerId, owner),
+          ...(includeTrash ? [] : [isNull(tasks.trashedAt)]),
+        ),
+      )
+      .orderBy(desc(tasks.createdAt), desc(tasks.id))
+      .all()
+      .map((task) => fromStorage(task as unknown as TaskStorageRow)),
+    owner,
+  );
 }
 const taskColumns =
-  "t.id,t.title,t.board_id AS boardId,t.board_position AS boardPosition,CASE WHEN t.completed_at IS NOT NULL THEN 'done' ELSE t.open_stage END AS status,(SELECT name FROM task_boards WHERE id=t.board_id) AS boardName,t.completed_at AS completedAt,t.revision,t.created_at AS createdAt,t.updated_at AS updatedAt,t.due_date AS dueDate,t.planned_date AS plannedDate,t.recurrence,t.recurrence_day AS recurrenceDay,t.parent_task_id AS parentTaskId,t.note_id AS noteId,n.title AS noteTitle";
+  "t.id,t.title,t.board_id AS boardId,t.board_position AS boardPosition,CASE WHEN t.completed_at IS NOT NULL THEN 'done' ELSE t.open_stage END AS status,(SELECT name FROM task_boards WHERE id=t.board_id) AS boardName,t.completed_at AS completedAt,t.revision,t.created_at AS createdAt,t.updated_at AS updatedAt,t.due_date AS dueDate,t.planned_date AS plannedDate,t.recurrence,t.recurrence_day AS recurrenceDay,t.schedule_start_local AS scheduleStartLocal,t.schedule_timezone AS scheduleTimezone,t.schedule_duration_minutes AS scheduleDurationMinutes,t.schedule_disambiguation AS scheduleDisambiguation,t.schedule_issue AS scheduleIssue,t.recurrence_rule_json AS recurrenceRule,t.parent_task_id AS parentTaskId,t.note_id AS noteId,n.title AS noteTitle";
 const taskOrder = "t.created_at DESC,t.id DESC";
 export function listTaskPage(
   owner: string,
@@ -113,9 +212,9 @@ export function listTaskPage(
       .join(" AND ");
     if (match) {
       where.push(
-        "t.rowid IN (SELECT rowid FROM tasks_fts WHERE tasks_fts MATCH ?)",
+        "(t.rowid IN (SELECT rowid FROM tasks_fts WHERE tasks_fts MATCH ?) OR EXISTS(SELECT 1 FROM task_steps s WHERE s.task_id=t.id AND s.owner_id=t.owner_id AND s.rowid IN (SELECT rowid FROM task_steps_fts WHERE task_steps_fts MATCH ?)))",
       );
-      values.push(match);
+      values.push(match, match);
     } else where.push("0=1");
   }
   const cursor = decodeCursor(options.after ?? null, ["number", "string"]);
@@ -132,8 +231,11 @@ export function listTaskPage(
     .prepare(
       `SELECT ${taskColumns} FROM tasks t LEFT JOIN notes n ON n.id=t.note_id AND n.kind='note' WHERE ${where.join(" AND ")} ORDER BY ${boardOrder ? "t.board_position,t.id" : taskOrder} LIMIT ?`,
     )
-    .all(...values, options.limit + 1) as Task[];
-  const items = rows.slice(0, options.limit);
+    .all(...values, options.limit + 1) as TaskStorageRow[];
+  const items = attachStepProgress(
+    rows.slice(0, options.limit).map((task) => fromStorage(task)),
+    owner,
+  );
   if (items.length) {
     const tagRows = sqlite()
       .prepare(
@@ -188,8 +290,35 @@ export function createTask(
   if (options.status === "done")
     throw new HttpError(400, "Create an open task, then complete it.");
   requireLinkedNote(owner, options.noteId);
-  if (options.recurrence && !options.dueDate)
+  const recurrenceRule = options.recurrenceRule
+    ? taskRecurrenceRuleSchema.parse(options.recurrenceRule)
+    : null;
+  if (options.recurrence && recurrenceRule)
+    throw new HttpError(400, "Choose one task recurrence rule.");
+  if ((options.recurrence || recurrenceRule) && !options.dueDate)
     throw new HttpError(400, "Choose a due date before repeating a task.");
+  if (
+    recurrenceRule?.until &&
+    options.dueDate &&
+    recurrenceRule.until < options.dueDate
+  )
+    throw new HttpError(
+      400,
+      "The recurrence end date must be on or after its due date.",
+    );
+  const schedule = options.schedule
+    ? taskScheduleSchema.parse(options.schedule)
+    : null;
+  const plannedDate =
+    options.plannedDate === undefined
+      ? (schedule?.start.slice(0, 10) ?? null)
+      : options.plannedDate;
+  if (schedule && plannedDate !== schedule.start.slice(0, 10))
+    throw new HttpError(
+      400,
+      "The planned date must match the scheduled time's date.",
+    );
+  if (schedule) resolveTaskSchedule(schedule);
   return sqlite()
     .transaction(() =>
       enrich(
@@ -211,15 +340,22 @@ export function createTask(
             createdAt: now,
             updatedAt: now,
             dueDate: options.dueDate,
-            plannedDate: options.plannedDate,
+            plannedDate,
             recurrence: options.recurrence,
+            recurrenceRule,
             recurrenceDay: options.dueDate
               ? Number(options.dueDate.slice(8))
               : null,
+            scheduleStartLocal: schedule?.start ?? null,
+            scheduleTimezone: schedule?.timezone ?? null,
+            scheduleDurationMinutes: schedule?.durationMinutes ?? null,
+            scheduleDisambiguation: schedule?.disambiguation ?? null,
+            scheduleIssue: null,
             noteId: options.noteId,
           })
           .returning(fields)
           .get(),
+        owner,
       ),
     )
     .immediate();
@@ -252,6 +388,7 @@ export function updateTask(
           409,
           "This task changed in another tab. Refresh tasks and try again.",
         );
+      const previousTask = fromStorage(previous as unknown as TaskStorageRow);
       if (
         input.status !== undefined &&
         input.completed !== undefined &&
@@ -277,6 +414,8 @@ export function updateTask(
         input.dueDate !== undefined ||
         input.plannedDate !== undefined ||
         input.recurrence !== undefined ||
+        input.recurrenceRule !== undefined ||
+        input.schedule !== undefined ||
         (completed !== undefined &&
           completed !== (previous.completedAt !== null))
       )
@@ -291,10 +430,64 @@ export function updateTask(
       requireLinkedNote(owner, input.noteId);
       const due =
         input.dueDate === undefined ? previous.dueDate : input.dueDate;
+      const recurrenceRule =
+        input.recurrenceRule === undefined
+          ? input.recurrence
+            ? null
+            : previousTask.recurrenceRule
+          : input.recurrenceRule
+            ? taskRecurrenceRuleSchema.parse(input.recurrenceRule)
+            : null;
       const repeat =
-        input.recurrence === undefined ? previous.recurrence : input.recurrence;
-      if (repeat && !due)
+        input.recurrence === undefined
+          ? input.recurrenceRule && recurrenceRule
+            ? null
+            : previous.recurrence
+          : input.recurrence;
+      if (repeat && recurrenceRule)
+        throw new HttpError(400, "Choose one task recurrence rule.");
+      if ((repeat || recurrenceRule) && !due)
         throw new HttpError(400, "Choose a due date before repeating a task.");
+      if (recurrenceRule?.until && due && recurrenceRule.until < due)
+        throw new HttpError(
+          400,
+          "The recurrence end date must be on or after its due date.",
+        );
+      let plannedDate =
+        input.plannedDate === undefined
+          ? previousTask.plannedDate
+          : input.plannedDate;
+      let schedule = previousTask.schedule;
+      let scheduleIssue = previousTask.scheduleIssue;
+      if (input.schedule !== undefined) {
+        schedule = input.schedule
+          ? taskScheduleSchema.parse(input.schedule)
+          : null;
+        scheduleIssue = null;
+        if (schedule) {
+          const scheduleDate = schedule.start.slice(0, 10);
+          if (input.plannedDate === undefined) plannedDate = scheduleDate;
+          else if (plannedDate !== scheduleDate)
+            throw new HttpError(
+              400,
+              "The planned date must match the scheduled time's date.",
+            );
+          resolveTaskSchedule(schedule);
+        }
+      } else if (input.plannedDate !== undefined) {
+        if (plannedDate === null) {
+          schedule = null;
+          scheduleIssue = null;
+        } else if (schedule && plannedDate !== previousTask.plannedDate) {
+          schedule = shiftTaskScheduleDate(schedule, plannedDate);
+          scheduleIssue = null;
+        }
+      }
+      if (schedule && plannedDate !== schedule.start.slice(0, 10))
+        throw new HttpError(
+          400,
+          "The planned date must match the scheduled time's date.",
+        );
       const anchor =
         input.dueDate !== undefined && due !== previous.dueDate
           ? due
@@ -318,15 +511,29 @@ export function updateTask(
               }
             : {}),
           revision: input.revision + 1,
-          ...(input.plannedDate !== undefined
-            ? { plannedDate: input.plannedDate }
+          ...(input.plannedDate !== undefined || input.schedule !== undefined
+            ? { plannedDate }
             : {}),
           updatedAt: Date.now(),
           ...(input.dueDate !== undefined
             ? { dueDate: input.dueDate, recurrenceDay: anchor }
             : {}),
-          ...(input.recurrence !== undefined
-            ? { recurrence: input.recurrence }
+          ...(input.recurrence !== undefined ||
+          input.recurrenceRule !== undefined
+            ? { recurrence: repeat }
+            : {}),
+          ...(input.recurrenceRule !== undefined ||
+          input.recurrence !== undefined
+            ? { recurrenceRule }
+            : {}),
+          ...(input.plannedDate !== undefined || input.schedule !== undefined
+            ? {
+                scheduleStartLocal: schedule?.start ?? null,
+                scheduleTimezone: schedule?.timezone ?? null,
+                scheduleDurationMinutes: schedule?.durationMinutes ?? null,
+                scheduleDisambiguation: schedule?.disambiguation ?? null,
+                scheduleIssue,
+              }
             : {}),
           ...(input.noteId !== undefined ? { noteId: input.noteId } : {}),
         })
@@ -359,10 +566,26 @@ export function updateTask(
           "This task changed in another tab. Refresh tasks and try again.",
         );
       }
+      const canonicalTask = fromStorage(task as unknown as TaskStorageRow);
+      if (
+        input.title !== undefined ||
+        input.dueDate !== undefined ||
+        input.plannedDate !== undefined ||
+        input.recurrence !== undefined ||
+        input.recurrenceRule !== undefined ||
+        input.schedule !== undefined ||
+        (completed !== undefined &&
+          completed !== (previous.completedAt !== null))
+      )
+        sqlite()
+          .prepare(
+            "UPDATE calendar_reminders SET state='cancelled' WHERE source_type='task' AND source_id=? AND state='queued'",
+          )
+          .run(id);
       if (
         completed === true &&
         previous.completedAt === null &&
-        repeat &&
+        (repeat || recurrenceRule) &&
         due &&
         !db()
           .select({ id: tasks.id })
@@ -370,56 +593,102 @@ export function updateTask(
           .where(eq(tasks.parentTaskId, id))
           .get()
       ) {
-        const following = nextDate(due, repeat, anchor ?? undefined);
-        if (!validDate(following))
+        const completionDate = previousTask.schedule
+          ? Temporal.Instant.fromEpochMilliseconds(Date.now())
+              .toZonedDateTimeISO(previousTask.schedule.timezone)
+              .toPlainDate()
+              .toString()
+          : Temporal.Instant.fromEpochMilliseconds(Date.now())
+              .toZonedDateTimeISO("UTC")
+              .toPlainDate()
+              .toString();
+        const following = recurrenceRule
+          ? nextRuleDate(
+              recurrenceRule.anchor === "scheduled" ? due : completionDate,
+              recurrenceRule.anchor === "scheduled" && completionDate < due
+                ? due
+                : completionDate,
+              recurrenceRule,
+            )
+          : nextDate(due, repeat!, anchor ?? undefined);
+        if (following && !validDate(following))
           throw new HttpError(
             400,
             "The next occurrence is outside the supported date range.",
           );
-        const occurrenceId = randomUUID();
-        db()
-          .insert(tasks)
-          .values({
-            id: occurrenceId,
-            ownerId: owner,
-            boardId: task.boardId,
-            openStage: "todo",
-            boardPosition: insertionPosition(
-              owner,
-              task.boardId,
-              "todo",
-              occurrenceId,
-            ),
-            title: task.title,
-            dueDate: following,
-            plannedDate:
-              task.plannedDate && task.dueDate
-                ? new Date(
-                    Date.parse(task.plannedDate + "T12:00:00Z") +
-                      Date.parse(following + "T12:00:00Z") -
-                      Date.parse(task.dueDate + "T12:00:00Z"),
-                  )
-                    .toISOString()
-                    .slice(0, 10)
-                : null,
-            recurrence: repeat,
-            recurrenceDay: anchor,
-            parentTaskId: id,
-            noteId: task.noteId,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          })
-          .run();
-        sqlite()
-          .prepare(
-            "INSERT INTO task_tags(task_id,tag_id) SELECT ?,tag_id FROM task_tags WHERE task_id=?",
-          )
-          .run(occurrenceId, id);
-        sqlite()
-          .prepare(
-            "INSERT INTO calendar_task_reminders(task_id,timezone,field,offsets) SELECT ?,timezone,field,offsets FROM calendar_task_reminders WHERE task_id=?",
-          )
-          .run(occurrenceId, id);
+        if (following) {
+          const occurrenceId = randomUUID();
+          const plannedFollowing =
+            canonicalTask.plannedDate && canonicalTask.dueDate
+              ? Temporal.PlainDate.from(canonicalTask.plannedDate)
+                  .add({
+                    days: Temporal.PlainDate.from(canonicalTask.dueDate).until(
+                      Temporal.PlainDate.from(following),
+                    ).days,
+                  })
+                  .toString()
+              : null;
+          let occurrenceSchedule = canonicalTask.schedule;
+          let occurrenceScheduleIssue: Task["scheduleIssue"] = null;
+          if (occurrenceSchedule && canonicalTask.dueDate && plannedFollowing) {
+            const shifted = {
+              ...occurrenceSchedule,
+              start: `${plannedFollowing}T${occurrenceSchedule.start.slice(11)}`,
+            };
+            const validSchedule = taskScheduleSchema.safeParse(shifted);
+            if (validSchedule.success) occurrenceSchedule = validSchedule.data;
+            else {
+              occurrenceSchedule = storedTaskScheduleSchema.parse(shifted);
+              occurrenceScheduleIssue = "needs-scheduling";
+            }
+          }
+          const nextDueAnchor =
+            recurrenceRule?.anchor === "scheduled"
+              ? Number(following.slice(8))
+              : anchor;
+          db()
+            .insert(tasks)
+            .values({
+              id: occurrenceId,
+              ownerId: owner,
+              boardId: canonicalTask.boardId,
+              openStage: "todo",
+              boardPosition: insertionPosition(
+                owner,
+                canonicalTask.boardId,
+                "todo",
+                occurrenceId,
+              ),
+              title: canonicalTask.title,
+              dueDate: following,
+              plannedDate: plannedFollowing,
+              recurrence: repeat,
+              recurrenceRule,
+              recurrenceDay: nextDueAnchor,
+              scheduleStartLocal: occurrenceSchedule?.start ?? null,
+              scheduleTimezone: occurrenceSchedule?.timezone ?? null,
+              scheduleDurationMinutes:
+                occurrenceSchedule?.durationMinutes ?? null,
+              scheduleDisambiguation:
+                occurrenceSchedule?.disambiguation ?? null,
+              scheduleIssue: occurrenceScheduleIssue,
+              parentTaskId: id,
+              noteId: canonicalTask.noteId,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            })
+            .run();
+          sqlite()
+            .prepare(
+              "INSERT INTO task_tags(task_id,tag_id) SELECT ?,tag_id FROM task_tags WHERE task_id=?",
+            )
+            .run(occurrenceId, id);
+          sqlite()
+            .prepare(
+              "INSERT INTO calendar_task_reminders(task_id,timezone,field,offsets) SELECT ?,timezone,field,offsets FROM calendar_task_reminders WHERE task_id=?",
+            )
+            .run(occurrenceId, id);
+        }
       }
       const current = db()
         .select(fields)
@@ -433,12 +702,17 @@ export function updateTask(
         )
         .get();
       if (!current) throw new HttpError(404, "This task was not found.");
-      return enrich(current);
+      return enrich(current as unknown as TaskStorageRow, owner);
     })
     .immediate();
 }
 export function deleteTask(owner: string, id: string, revision: number) {
   moveToTrash(owner, "task", id, revision);
+  sqlite()
+    .prepare(
+      "UPDATE calendar_reminders SET state='cancelled' WHERE source_type='task' AND source_id=? AND state='queued'",
+    )
+    .run(id);
   invalidateCalendarReminders();
 }
 
@@ -447,14 +721,15 @@ export function getTask(owner: string, id: string): Task {
     .prepare(
       `SELECT ${taskColumns} FROM tasks t LEFT JOIN notes n ON n.id=t.note_id AND n.kind='note' WHERE t.id=? AND t.owner_id=? AND t.trashed_at IS NULL`,
     )
-    .get(id, owner) as Task | undefined;
+    .get(id, owner) as TaskStorageRow | undefined;
   if (!row) throw new HttpError(404, "This task was not found.");
-  row.tags = sqlite()
+  const task = enrich(row, owner);
+  task.tags = sqlite()
     .prepare(
       "SELECT t.id,t.name,t.color FROM task_tags tt JOIN tags t ON t.id=tt.tag_id WHERE tt.task_id=? ORDER BY t.name",
     )
     .all(id) as import("../types").Tag[];
-  return row;
+  return task;
 }
 export function moveTask(
   owner: string,

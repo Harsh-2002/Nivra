@@ -18,6 +18,7 @@ export function authorizeContentPath(
   if (
     ![
       "forms",
+      "capture",
       "notes",
       "journals",
       "events",
@@ -35,6 +36,7 @@ export function authorizeContentPath(
       "search",
       "overview",
       "calendar",
+      "templates",
       "export",
       "import",
     ].includes(path[0])
@@ -52,6 +54,20 @@ export function authorizeContentPath(
     );
   if (path[0] === "calendar" && path[1] === "subscriptions")
     throw new HttpError(403, "Enable device notifications in the app.");
+  if (path[0] === "templates" && method === "DELETE")
+    throw new HttpError(
+      403,
+      "Agents cannot permanently delete writing templates.",
+    );
+  if (
+    path[0] === "bookmarks" &&
+    path[2] === "highlights" &&
+    method === "DELETE"
+  )
+    throw new HttpError(
+      403,
+      "Agents cannot permanently delete article highlights.",
+    );
   if (method !== "GET") {
     if (path[0] === "trash")
       throw new HttpError(

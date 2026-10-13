@@ -6,6 +6,7 @@ import { HttpError } from "./http";
 import { plainText } from "./validation";
 import type { Document, Note, Publication } from "../types";
 import { publicationMedia } from "../media-url";
+import { freezeTaskLinks } from "./writing-service";
 import {
   renderPublicationHtml,
   publicationRendererVersion,
@@ -46,7 +47,7 @@ export async function revokePublication(noteId: string) {
     .run(published.token);
   await Promise.all(files.map((file) => storage.delete(file.storage_key)));
 }
-export async function publishNote(note: Note, revision: number) {
+export async function publishNote(note: Note, revision: number, owner: string) {
   if (note.trashedAt)
     throw new HttpError(400, "Restore this note before publishing it.");
   if (note.revision !== revision)
@@ -115,7 +116,8 @@ export async function publishNote(note: Note, revision: number) {
       }
       return value;
     };
-    const document = publicationMedia(clean(note.document) as Document, token);
+    const frozen = freezeTaskLinks(note.document, owner, note.id);
+    const document = publicationMedia(clean(frozen) as Document, token);
     const now = Date.now();
     const excerpt = plainText(document.blocks).slice(0, 200);
     const html = await renderPublicationHtml(

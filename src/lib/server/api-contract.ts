@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { formApiOperations } from "./form-api-schemas";
+import { captureOperations } from "./capture-service";
 import { extraOutputs } from "./api-extra-schemas";
+import { taskPlanningApiOperations } from "./task-planning-api";
+import { writingInputs } from "./writing-contract";
 import {
   apiInputs,
   apiOutputs,
@@ -29,7 +32,11 @@ export type ApiOperation = {
 };
 const object = z.record(z.string(), z.unknown());
 const empty = z.object({}).strict();
-export const apiOperations: ApiOperation[] = [...formApiOperations];
+export const apiOperations: ApiOperation[] = [
+  ...formApiOperations,
+  ...captureOperations,
+  ...taskPlanningApiOperations,
+];
 function add(
   path: string,
   method: string,
@@ -49,7 +56,7 @@ function add(
 }
 for (const area of ["notes", "journals"] as const) {
   add(area, "GET", `List ${area}`, listOutput(apiOutputs.noteSummary), {
-    query: apiQueries.notes,
+    query: area === "notes" ? apiQueries.notes : writingInputs.journalList,
   });
   add(
     `${area}/{id}`,
@@ -65,6 +72,7 @@ for (const area of ["notes", "journals"] as const) {
     {
       input: area === "notes" ? apiInputs.noteCreate : apiInputs.journalCreate,
       status: 201,
+      ...(area === "journals" ? { additionalStatuses: [200] } : {}),
     },
   );
   add(
@@ -78,6 +86,112 @@ for (const area of ["notes", "journals"] as const) {
     input: revisionInput,
   });
 }
+
+add(
+  "notes/{id}/tasks",
+  "POST",
+  "Turn a note block into a linked task",
+  apiOutputs.linkedTaskConversion,
+  {
+    input: writingInputs.linkedTaskCreate,
+    status: 201,
+    additionalStatuses: [200],
+  },
+);
+add(
+  "notes/{id}/tasks/{blockId}",
+  "DELETE",
+  "Unlink a task from a note block",
+  z.object({ note: apiOutputs.note }).strict(),
+  { input: revisionInput },
+);
+add(
+  "journals/review",
+  "GET",
+  "Review a journal period with related activity",
+  apiOutputs.journalReview,
+  {
+    query: writingInputs.journalReview,
+  },
+);
+add(
+  "journals/on-this-day",
+  "GET",
+  "Find entries from this day in prior years",
+  apiOutputs.journalHistory,
+  {
+    query: writingInputs.onThisDay,
+  },
+);
+add(
+  "journals/{id}/navigate",
+  "GET",
+  "Navigate to the adjacent journal period",
+  apiOutputs.journalNavigation,
+  {
+    query: writingInputs.journalNavigate,
+  },
+);
+add(
+  "templates",
+  "GET",
+  "List writing templates",
+  apiOutputs.writingTemplatePage,
+  {
+    query: writingInputs.templateList,
+  },
+);
+add(
+  "templates/{id}",
+  "GET",
+  "Read a writing template",
+  apiOutputs.writingTemplateDetail,
+);
+add(
+  "templates",
+  "POST",
+  "Create a writing template",
+  apiOutputs.writingTemplateDetail,
+  {
+    input: writingInputs.templateCreate,
+    status: 201,
+  },
+);
+add(
+  "templates/{id}",
+  "PATCH",
+  "Update a writing template",
+  apiOutputs.writingTemplateDetail,
+  {
+    input: writingInputs.templateUpdate,
+  },
+);
+add("templates/{id}", "DELETE", "Delete a writing template", apiOutputs.ok, {
+  input: revisionInput,
+  access: "owner",
+});
+add(
+  "templates/{id}/apply",
+  "POST",
+  "Create a note or journal entry from a template",
+  z.object({ note: apiOutputs.note, created: z.boolean() }).strict(),
+  {
+    input: writingInputs.templateApply,
+    status: 201,
+    additionalStatuses: [200],
+  },
+);
+for (const method of ["GET", "PATCH"] as const)
+  add(
+    "writing/preferences",
+    method,
+    "Read or update journal template preferences",
+    apiOutputs.writingPreferences,
+    {
+      access: "owner",
+      input: method === "PATCH" ? writingInputs.writingPreferences : undefined,
+    },
+  );
 add(
   "tasks",
   "GET",
@@ -167,6 +281,85 @@ add(
   "Queue bookmark metadata refresh",
   apiOutputs.bookmark,
   { input: revisionInput },
+);
+add(
+  "bookmarks/read-state",
+  "POST",
+  "Update read state for bookmarks",
+  apiOutputs.bookmarkReadState,
+  {
+    input: apiInputs.bookmarkReadState,
+  },
+);
+add(
+  "bookmarks/{id}/article",
+  "GET",
+  "Read a saved article version",
+  apiOutputs.bookmarkArticleResult,
+  {
+    query: apiQueries.bookmarkArticle,
+  },
+);
+add(
+  "bookmarks/{id}/article/versions",
+  "GET",
+  "List saved article versions",
+  apiOutputs.bookmarkArticleVersionPage,
+  {
+    query: apiQueries.bookmarkArticleVersions,
+  },
+);
+add(
+  "bookmarks/{id}/article",
+  "POST",
+  "Save or refresh a readable article",
+  z.union([
+    z.object({ jobId: idSchema, status: z.literal("pending") }).strict(),
+    apiOutputs.bookmarkArticleResult,
+  ]),
+  {
+    input: apiInputs.bookmarkArticleAction,
+    status: 202,
+    additionalStatuses: [200],
+  },
+);
+add(
+  "bookmarks/{id}/highlights",
+  "GET",
+  "List article highlights",
+  apiOutputs.bookmarkHighlightPage,
+  {
+    query: apiQueries.bookmarkHighlights,
+  },
+);
+add(
+  "bookmarks/{id}/highlights",
+  "POST",
+  "Create an article highlight",
+  apiOutputs.bookmarkHighlight,
+  {
+    input: apiInputs.bookmarkHighlightCreate,
+    status: 201,
+  },
+);
+add(
+  "bookmarks/{id}/highlights/{highlightId}",
+  "PATCH",
+  "Update or re-anchor an article highlight",
+  apiOutputs.bookmarkHighlight,
+  {
+    input: apiInputs.bookmarkHighlightUpdate,
+  },
+);
+add(
+  "bookmarks/{id}/highlights/{highlightId}",
+  "DELETE",
+  "Delete an article highlight",
+  apiOutputs.ok,
+  {
+    input: apiInputs.bookmarkHighlightDelete,
+    access: "owner",
+  },
 );
 for (const action of ["thumbnail", "icon"])
   add(
@@ -264,7 +457,26 @@ add(
   "Search indexed active content",
   listOutput(
     z
-      .object({ id: z.string(), title: z.string(), type: z.string() })
+      .object({
+        id: z.string(),
+        title: z.string(),
+        type: z.enum([
+          "note",
+          "journal",
+          "task",
+          "bookmark",
+          "artifact",
+          "event",
+          "form",
+          "response",
+        ]),
+        dailyDate: z.string().nullable().optional(),
+        journalPeriod: z
+          .enum(["daily", "weekly", "monthly"])
+          .nullable()
+          .optional(),
+        journalPeriodStart: z.string().nullable().optional(),
+      })
       .passthrough(),
   ),
   { query: apiQueries.search },
@@ -340,6 +552,17 @@ add(
   "Read bounded calendar occurrences and activity",
   extraOutputs.calendarRange,
   { query: apiQueries.calendar },
+);
+add(
+  "calendar/export",
+  "GET",
+  "Download calendar items as an iCalendar file",
+  z.object({ exported: z.literal(true) }).strict(),
+  {
+    query: apiQueries.calendarExport,
+    binary: "text/calendar",
+    access: "owner",
+  },
 );
 add("jobs/{id}", "GET", "Read background job status", jobSchema);
 add(
@@ -702,9 +925,17 @@ add(
   },
 );
 export function operationFor(path: string, method: string) {
-  return apiOperations.find(
-    (operation) => operation.method === method && matches(operation.path, path),
-  );
+  return apiOperations
+    .filter(
+      (operation) =>
+        operation.method === method && matches(operation.path, path),
+    )
+    .sort((a, b) => specificity(b.path) - specificity(a.path))[0];
+}
+function specificity(path: string) {
+  return path
+    .split("/")
+    .reduce((score, part) => score + (/^\{[^}]+\}$/.test(part) ? 0 : 1), 0);
 }
 export function matches(template: string, path: string) {
   const parts = template.split("/");
@@ -738,6 +969,44 @@ export function openApiDocument() {
       name = label.replace(/[^a-zA-Z0-9_]/g, "_");
       if (name in definitions) name += "_" + (known.size + 1);
       known.set(key, name);
+      const localDefinitions = (
+        converted as { $defs?: Record<string, unknown> }
+      ).$defs;
+      if (localDefinitions) {
+        delete (converted as { $defs?: Record<string, unknown> }).$defs;
+        const qualified = new Map(
+          Object.keys(localDefinitions).map((localName) => [
+            localName,
+            `${name}_${localName}`,
+          ]),
+        );
+        const rewrite = (value: unknown): unknown => {
+          if (Array.isArray(value)) return value.map(rewrite);
+          if (!value || typeof value !== "object") return value;
+          const entry = value as Record<string, unknown>;
+          if (typeof entry.$ref === "string") {
+            const prefix = "#/$defs/";
+            const localName = entry.$ref.startsWith(prefix)
+              ? entry.$ref.slice(prefix.length)
+              : "";
+            if (qualified.has(localName))
+              entry.$ref = `#/components/schemas/${qualified.get(localName)}`;
+          }
+          for (const [key, child] of Object.entries(entry))
+            entry[key] = rewrite(child);
+          return entry;
+        };
+        rewrite(converted);
+        for (const [localName, localSchema] of Object.entries(
+          localDefinitions,
+        )) {
+          const promoted = rewrite(localSchema);
+          const promotedName = qualified.get(localName)!;
+          if (promotedName in definitions)
+            throw new Error(`Duplicate generated schema ${promotedName}.`);
+          definitions[promotedName] = promoted;
+        }
+      }
       definitions[name] = converted;
     }
     return { $ref: "#/components/schemas/" + name };

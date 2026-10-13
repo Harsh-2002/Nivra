@@ -5,8 +5,11 @@ import {
   integer,
   real,
   index,
+  uniqueIndex,
+  foreignKey,
   primaryKey,
 } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 import type { Document } from "../types";
 
 export const taskBoards = sqliteTable("task_boards", {
@@ -46,12 +49,53 @@ export const tasks = sqliteTable(
     plannedDate: text("planned_date"),
     recurrence: text("recurrence").$type<import("../dates").Recurrence>(),
     recurrenceDay: integer("recurrence_day"),
+    scheduleStartLocal: text("schedule_start_local"),
+    scheduleTimezone: text("schedule_timezone"),
+    scheduleDurationMinutes: integer("schedule_duration_minutes"),
+    scheduleDisambiguation: text("schedule_disambiguation").$type<
+      "earlier" | "later" | "reject"
+    >(),
+    scheduleIssue: text("schedule_issue").$type<"needs-scheduling">(),
+    recurrenceRule: text("recurrence_rule_json", { mode: "json" }).$type<
+      import("../task-planning").TaskRecurrenceRule
+    >(),
     parentTaskId: text("parent_task_id"),
     noteId: text("note_id").references(() => notes.id, {
       onDelete: "set null",
     }),
   },
-  (t) => [index("tasks_owner_created_idx").on(t.ownerId, t.createdAt)],
+  (t) => [
+    index("tasks_owner_created_idx").on(t.ownerId, t.createdAt),
+    index("tasks_owner_schedule_idx").on(t.ownerId, t.scheduleStartLocal),
+  ],
+);
+
+export const taskSteps = sqliteTable(
+  "task_steps",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    completed: integer("completed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    position: integer("position").notNull().default(0),
+    revision: integer("revision").notNull().default(1),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    index("task_steps_owner_task_position_idx").on(
+      t.ownerId,
+      t.taskId,
+      t.position,
+    ),
+  ],
 );
 
 export const user = sqliteTable("user", {
@@ -145,6 +189,10 @@ export const notes = sqliteTable(
     document: text("document", { mode: "json" }).$type<Document>().notNull(),
     kind: text("kind").$type<"note">().notNull().default("note"),
     dailyDate: text("daily_date"),
+    journalPeriod: text("journal_period").$type<
+      "daily" | "weekly" | "monthly"
+    >(),
+    journalPeriodStart: text("journal_period_start"),
     editorWidth: text("editor_width")
       .$type<"standard" | "wide">()
       .notNull()
@@ -156,7 +204,36 @@ export const notes = sqliteTable(
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (t) => [index("notes_updated_idx").on(t.updatedAt)],
+  (t) => [
+    index("notes_updated_idx").on(t.updatedAt),
+    uniqueIndex("notes_owner_journal_period_start_idx")
+      .on(t.ownerId, t.journalPeriod, t.journalPeriodStart)
+      .where(sql`${t.kind}='note' AND ${t.journalPeriod} is not null`),
+    index("notes_journal_period_active_idx")
+      .on(t.ownerId, t.journalPeriod, t.journalPeriodStart, t.updatedAt, t.id)
+      .where(
+        sql`${t.kind}='note' AND ${t.journalPeriod} is not null AND ${t.trashedAt} is null`,
+      ),
+    index("notes_journal_date_page_idx")
+      .on(
+        t.ownerId,
+        sql`coalesce(${t.journalPeriodStart},${t.dailyDate}) DESC`,
+        t.id,
+      )
+      .where(
+        sql`${t.kind}='note' AND ${t.trashedAt} is null AND (${t.journalPeriod} is not null OR ${t.dailyDate} is not null)`,
+      ),
+    index("notes_journal_period_page_idx")
+      .on(
+        t.ownerId,
+        sql`coalesce(${t.journalPeriod},CASE WHEN ${t.dailyDate} IS NOT NULL THEN 'daily' END)`,
+        sql`coalesce(${t.journalPeriodStart},${t.dailyDate}) DESC`,
+        t.id,
+      )
+      .where(
+        sql`${t.kind}='note' AND ${t.trashedAt} is null AND (${t.journalPeriod} is not null OR ${t.dailyDate} is not null)`,
+      ),
+  ],
 );
 export const tags = sqliteTable("tags", {
   id: text("id").primaryKey(),
@@ -261,6 +338,13 @@ export const bookmarks = sqliteTable("bookmarks", {
   siteName: text("site_name").notNull().default(""),
   collection: text("collection").notNull().default(""),
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
+  readAt: integer("read_at"),
+  articleStatus: text("article_status")
+    .$type<"pending" | "ready" | "unavailable">()
+    .notNull()
+    .default("unavailable"),
+  articleGeneration: integer("article_generation").notNull().default(0),
+  articleVersion: integer("article_version").notNull().default(0),
   titleEdited: integer("title_edited").notNull().default(0),
   descriptionEdited: integer("description_edited").notNull().default(0),
   metadataStatus: text("metadata_status").notNull().default("unavailable"),
@@ -273,6 +357,66 @@ export const bookmarks = sqliteTable("bookmarks", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const bookmarkArticles = sqliteTable(
+  "bookmark_articles",
+  {
+    bookmarkId: text("bookmark_id")
+      .notNull()
+      .references(() => bookmarks.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    capturedAt: integer("captured_at").notNull(),
+    title: text("title").notNull(),
+    byline: text("byline"),
+    content: text("content_json", { mode: "json" })
+      .$type<import("../bookmark-reading").ArticleContent>()
+      .notNull(),
+    text: text("plain_text").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.bookmarkId, t.version] }),
+    index("bookmark_articles_owner_captured_idx").on(t.ownerId, t.capturedAt),
+    index("bookmark_articles_owner_fingerprint_idx").on(
+      t.ownerId,
+      t.fingerprint,
+    ),
+  ],
+);
+
+export const bookmarkHighlights = sqliteTable(
+  "bookmark_highlights",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    bookmarkId: text("bookmark_id").notNull(),
+    articleVersion: integer("article_version").notNull(),
+    quote: text("quote").notNull(),
+    prefix: text("prefix").notNull().default(""),
+    suffix: text("suffix").notNull().default(""),
+    startOffset: integer("start_offset").notNull(),
+    endOffset: integer("end_offset").notNull(),
+    annotation: text("annotation").notNull().default(""),
+    revision: integer("revision").notNull().default(1),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.bookmarkId, t.articleVersion],
+      foreignColumns: [bookmarkArticles.bookmarkId, bookmarkArticles.version],
+      name: "bookmark_highlights_article_fk",
+    }).onDelete("cascade"),
+    index("bookmark_highlights_owner_bookmark_idx").on(t.ownerId, t.bookmarkId),
+    index("bookmark_highlights_article_idx").on(t.bookmarkId, t.articleVersion),
+  ],
+);
 
 export const noteVersions = sqliteTable(
   "note_versions",
@@ -304,6 +448,89 @@ export const noteLinks = sqliteTable(
   ],
 );
 
+export const noteTaskLinks = sqliteTable(
+  "note_task_links",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    noteId: text("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    blockId: text("block_id").notNull(),
+    taskId: text("task_id").references(() => tasks.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.noteId, t.blockId] }),
+    index("note_task_links_owner_task_idx").on(t.ownerId, t.taskId),
+  ],
+);
+
+export const writingTemplates = sqliteTable(
+  "writing_templates",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    kind: text("kind").$type<"note" | "journal">().notNull(),
+    document: text("document", { mode: "json" }).$type<Document>().notNull(),
+    revision: integer("revision").notNull().default(1),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("writing_templates_owner_kind_name_idx").on(
+      t.ownerId,
+      t.kind,
+      sql`lower(${t.name})`,
+    ),
+    index("writing_templates_owner_updated_idx").on(t.ownerId, t.updatedAt),
+  ],
+);
+
+export const writingTemplateAttachments = sqliteTable(
+  "writing_template_attachments",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => writingTemplates.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    mime: text("mime").notNull(),
+    size: integer("size").notNull(),
+    storageKey: text("storage_key").notNull().unique(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("writing_template_attachments_template_idx").on(
+      t.ownerId,
+      t.templateId,
+      t.id,
+    ),
+  ],
+);
+
+export const writingPreferences = sqliteTable("writing_preferences", {
+  ownerId: text("owner_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  defaultJournalTemplateId: text("default_journal_template_id").references(
+    () => writingTemplates.id,
+    { onDelete: "set null" },
+  ),
+  revision: integer("revision").notNull().default(1),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const backgroundJobs = sqliteTable("background_jobs", {
   generation: integer("generation"),
   id: text("id").primaryKey(),
@@ -311,7 +538,7 @@ export const backgroundJobs = sqliteTable("background_jobs", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   kind: text("kind")
-    .$type<"artifact" | "bookmark" | "thumbnail" | "semantic">()
+    .$type<"artifact" | "bookmark" | "thumbnail" | "semantic" | "article">()
     .notNull(),
   targetId: text("target_id").notNull(),
   state: text("state")

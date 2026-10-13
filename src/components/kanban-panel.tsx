@@ -22,6 +22,7 @@ import {
   CalendarDays,
   Repeat2,
   FileText,
+  ListTodo,
   Columns3,
   Loader2,
   ArrowUp,
@@ -208,7 +209,13 @@ function Card({
       >
         {task.title}
       </button>
-      {(task.dueDate || task.recurrence || task.noteId) && (
+      {(task.dueDate ||
+        task.schedule ||
+        task.scheduleIssue ||
+        task.recurrence ||
+        task.recurrenceRule ||
+        task.noteId ||
+        task.stepProgress?.total) && (
         <div className="kanban-card-meta">
           {task.dueDate && (
             <span className={overdue ? "is-overdue" : ""}>
@@ -217,10 +224,53 @@ function Card({
               {formatDate(task.dueDate)}
             </span>
           )}
+          {task.schedule && (
+            <span>
+              <CalendarDays size={12} />
+              {formatDate(task.schedule.start.slice(0, 10))} ·{" "}
+              {task.schedule.start.slice(11, 16)}
+            </span>
+          )}
+          {!task.schedule && task.scheduleIssue === "needs-scheduling" && (
+            <span>
+              <CalendarDays size={12} />
+              Needs a time
+            </span>
+          )}
           {task.recurrence && (
-            <span title={`${task.recurrence} recurrence`}>
+            <span title={task.recurrence + " recurrence"}>
               <Repeat2 size={13} />
-              <span className="sr-only">Repeats {task.recurrence}</span>
+              Repeats {task.recurrence}
+            </span>
+          )}
+          {task.recurrenceRule && (
+            <span>
+              <Repeat2 size={13} />
+              <span>
+                Every {task.recurrenceRule.interval}{" "}
+                {
+                  {
+                    daily: "day",
+                    weekly: "week",
+                    monthly: "month",
+                    yearly: "year",
+                  }[task.recurrenceRule.frequency]
+                }
+                {task.recurrenceRule.interval === 1 ? "" : "s"}
+              </span>
+            </span>
+          )}
+          {!!task.stepProgress?.total && (
+            <span
+              aria-label={
+                task.stepProgress.completed +
+                " of " +
+                task.stepProgress.total +
+                " steps complete"
+              }
+            >
+              <ListTodo size={13} />
+              {task.stepProgress.completed}/{task.stepProgress.total} steps
             </span>
           )}
           {task.noteId && (

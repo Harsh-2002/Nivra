@@ -5,6 +5,11 @@ import { db, sqlite } from "./db";
 import { calendarEvents } from "./schema";
 import { HttpError } from "./http";
 import { completionEvent } from "./jobs";
+import { journalPeriodSql, journalStartSql } from "./journal-classification";
+import {
+  resolveTaskSchedule,
+  storedTaskScheduleSchema,
+} from "../task-planning";
 import {
   eventInput,
   eventPayload,
@@ -54,9 +59,9 @@ function validateLinks(owner: string, input: EventInput) {
           tables[link.type] +
           " WHERE id=? AND owner_id=? AND trashed_at IS NULL" +
           (link.type === "journal"
-            ? " AND daily_date IS NOT NULL"
+            ? ` AND ${journalPeriodSql("notes")} IS NOT NULL`
             : link.type === "note"
-              ? " AND kind='note' AND daily_date IS NULL"
+              ? ` AND kind='note' AND ${journalPeriodSql("notes")} IS NULL`
               : ""),
       )
       .get(link.id, owner);
@@ -304,42 +309,129 @@ export function trashEvent(
     })
     .immediate();
 }
-function taskItems(owner: string, from: string, to: string): CalendarItem[] {
+function taskItems(
+  owner: string,
+  from: string,
+  to: string,
+  zone: string,
+): CalendarItem[] {
   const rows = sqlite()
     .prepare(
-      "SELECT id,title,revision,planned_date AS plannedDate,due_date AS dueDate,completed_at AS completedAt FROM tasks INDEXED BY tasks_owner_planned_idx WHERE owner_id=? AND trashed_at IS NULL AND planned_date>=? AND planned_date<? UNION SELECT id,title,revision,planned_date AS plannedDate,due_date AS dueDate,completed_at AS completedAt FROM tasks INDEXED BY tasks_owner_due_idx WHERE owner_id=? AND trashed_at IS NULL AND due_date>=? AND due_date<?",
+      "SELECT id,title,revision,planned_date AS plannedDate,due_date AS dueDate,completed_at AS completedAt,schedule_start_local AS scheduleStartLocal,schedule_timezone AS scheduleTimezone,schedule_duration_minutes AS scheduleDurationMinutes,schedule_disambiguation AS scheduleDisambiguation,schedule_issue AS scheduleIssue FROM tasks INDEXED BY tasks_owner_planned_idx WHERE owner_id=? AND trashed_at IS NULL AND planned_date>=? AND planned_date<? UNION SELECT id,title,revision,planned_date AS plannedDate,due_date AS dueDate,completed_at AS completedAt,schedule_start_local AS scheduleStartLocal,schedule_timezone AS scheduleTimezone,schedule_duration_minutes AS scheduleDurationMinutes,schedule_disambiguation AS scheduleDisambiguation,schedule_issue AS scheduleIssue FROM tasks INDEXED BY tasks_owner_due_idx WHERE owner_id=? AND trashed_at IS NULL AND due_date>=? AND due_date<? UNION SELECT id,title,revision,planned_date AS plannedDate,due_date AS dueDate,completed_at AS completedAt,schedule_start_local AS scheduleStartLocal,schedule_timezone AS scheduleTimezone,schedule_duration_minutes AS scheduleDurationMinutes,schedule_disambiguation AS scheduleDisambiguation,schedule_issue AS scheduleIssue FROM tasks INDEXED BY tasks_owner_schedule_idx WHERE owner_id=? AND trashed_at IS NULL AND schedule_start_local>=? AND schedule_start_local<?",
     )
-    .all(owner, from, to, owner, from, to) as {
+    .all(
+      owner,
+      from,
+      to,
+      owner,
+      from,
+      to,
+      owner,
+      `${addDays(from, -2)}T00:00`,
+      `${addDays(to, 2)}T00:00`,
+    ) as {
     id: string;
     title: string;
     revision: number;
     plannedDate: string | null;
     dueDate: string | null;
     completedAt: number | null;
+    scheduleStartLocal: string | null;
+    scheduleTimezone: string | null;
+    scheduleDurationMinutes: number | null;
+    scheduleDisambiguation: "earlier" | "later" | "reject" | null;
+    scheduleIssue: "needs-scheduling" | null;
   }[];
-  return rows.flatMap((row) =>
-    [
+  return rows.flatMap((row) => {
+    const items: CalendarItem[] = [];
+    const hasSchedule =
+      row.scheduleStartLocal !== null &&
+      row.scheduleTimezone !== null &&
+      row.scheduleDurationMinutes !== null &&
+      row.scheduleDisambiguation !== null;
+    let scheduleDate: string | null = null;
+    if (hasSchedule) {
+      try {
+        const schedule = storedTaskScheduleSchema.parse({
+          start: row.scheduleStartLocal,
+          timezone: row.scheduleTimezone,
+          durationMinutes: row.scheduleDurationMinutes,
+          disambiguation: row.scheduleDisambiguation,
+        });
+        const resolved = resolveTaskSchedule(schedule);
+        scheduleDate = Temporal.Instant.fromEpochMilliseconds(resolved.startAt)
+          .toZonedDateTimeISO(zone)
+          .toPlainDate()
+          .toString();
+        if (scheduleDate >= from && scheduleDate < to) {
+          if (row.scheduleIssue) {
+            items.push({
+              id: `${row.id}:schedule-issue`,
+              sourceId: row.id,
+              type: "task",
+              title: row.title,
+              date: scheduleDate,
+              label: "Needs scheduling",
+              revision: row.revision,
+              completed: row.completedAt !== null,
+              scheduleIssue: "needs-scheduling",
+            });
+          } else {
+            items.push({
+              id: `${row.id}:schedule`,
+              sourceId: row.id,
+              type: "task",
+              title: row.title,
+              date: scheduleDate,
+              startAt: resolved.startAt,
+              endAt: resolved.endAt,
+              label:
+                row.dueDate === scheduleDate ? "Scheduled · Due" : "Scheduled",
+              revision: row.revision,
+              completed: row.completedAt !== null,
+            });
+          }
+        }
+      } catch {
+        scheduleDate = row.plannedDate;
+        if (scheduleDate && scheduleDate >= from && scheduleDate < to)
+          items.push({
+            id: `${row.id}:schedule-issue`,
+            sourceId: row.id,
+            type: "task",
+            title: row.title,
+            date: scheduleDate,
+            label: "Needs scheduling",
+            revision: row.revision,
+            completed: row.completedAt !== null,
+            scheduleIssue: "needs-scheduling",
+          });
+      }
+    }
+    const markerDates = [
       ...new Set(
-        [row.plannedDate, row.dueDate].filter(
-          (v): v is string => !!v && v >= from && v < to,
+        (hasSchedule ? [row.dueDate] : [row.plannedDate, row.dueDate]).filter(
+          (value): value is string =>
+            !!value && value >= from && value < to && value !== scheduleDate,
         ),
       ),
-    ].map((date) => ({
-      id: row.id + ":" + date,
-      sourceId: row.id,
-      type: "task" as const,
-      title: row.title,
-      date,
-      label:
-        date === row.plannedDate && date === row.dueDate
-          ? "Planned · Due"
-          : date === row.plannedDate
-            ? "Planned"
-            : "Due",
-      revision: row.revision,
-      completed: row.completedAt !== null,
-    })),
-  );
+    ];
+    for (const date of markerDates) {
+      const planned = date === row.plannedDate;
+      const due = date === row.dueDate;
+      items.push({
+        id: `${row.id}:${date}`,
+        sourceId: row.id,
+        type: "task",
+        title: row.title,
+        date,
+        label: planned && due ? "Planned · Due" : planned ? "Planned" : "Due",
+        revision: row.revision,
+        completed: row.completedAt !== null,
+      });
+    }
+    return items;
+  });
 }
 function activity(
   owner: string,
@@ -370,7 +462,9 @@ function activity(
         "SELECT id," +
           (type === "artifact" ? "coalesce(nullif(title,''),name)" : "title") +
           " AS title,revision,created_at AS at" +
-          (type === "note" ? ",daily_date AS dailyDate" : "") +
+          (type === "note"
+            ? ",daily_date AS dailyDate,journal_period AS journalPeriod,journal_period_start AS journalPeriodStart"
+            : "") +
           " FROM " +
           table +
           (type === "note" ? " INDEXED BY notes_activity_idx" : "") +
@@ -382,12 +476,17 @@ function activity(
       revision: number;
       at: number;
       dailyDate?: string;
+      journalPeriod?: string | null;
+      journalPeriodStart?: string | null;
     }[];
     result.push(
       ...rows.map((row) => ({
         id: "created:" + row.id,
         sourceId: row.id,
-        type: row.dailyDate ? "journal" : (type as CalendarItem["type"]),
+        type:
+          row.journalPeriod || row.dailyDate
+            ? "journal"
+            : (type as CalendarItem["type"]),
         title: row.title,
         date: activityDate(row.at),
         startAt: row.at,
@@ -493,10 +592,10 @@ export function calendarRange(
   let items: CalendarItem[] = [];
   if (options.mode === "activity") items = activity(owner, from, to, zone);
   else {
-    items = options.eventsOnly ? [] : taskItems(owner, from, to);
+    items = options.eventsOnly ? [] : taskItems(owner, from, to, zone);
     const journals = sqlite()
       .prepare(
-        "SELECT id,title,revision,daily_date AS date FROM notes WHERE owner_id=? AND kind='note' AND trashed_at IS NULL AND daily_date>=? AND daily_date<?",
+        `SELECT id,title,revision,${journalStartSql("notes")} AS date FROM notes WHERE owner_id=? AND kind='note' AND trashed_at IS NULL AND ${journalPeriodSql("notes")} IS NOT NULL AND ${journalStartSql("notes")}>=? AND ${journalStartSql("notes")}<?`,
       )
       .all(owner, options.eventsOnly ? to : from, to) as {
       id: string;

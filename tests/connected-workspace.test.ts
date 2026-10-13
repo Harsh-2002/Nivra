@@ -555,7 +555,10 @@ test("connected workspace retains private search, recovery, journal and schedule
           (await call("journals", "POST", { date: "2026-02-30" })).status,
           400,
         );
-        assert.equal((await call("templates")).status, 404);
+        assert.deepEqual(
+          (await value<{ items: unknown[] }>("templates")).items,
+          [],
+        );
       },
     );
     await t.test(
@@ -654,7 +657,7 @@ test("connected workspace retains private search, recovery, journal and schedule
         const manifest = JSON.parse(
           strFromU8(unzipSync(bytes)["manifest.json"]),
         );
-        assert.equal(manifest.version, 4);
+        assert.equal(manifest.version, 5);
         assert.ok(
           manifest.calendar.artifacts.some(
             (item: { id: string }) => item.id === artifact.id,

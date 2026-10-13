@@ -5,6 +5,7 @@ import { HttpError } from "./http";
 import { completionEvent } from "./jobs";
 import { ftsQuery } from "./validation";
 import { fingerprint, sourceFor, sourceText } from "./ai/content";
+import { journalPeriodSql } from "./journal-classification";
 import type { Tag, TaggedItem } from "../types";
 
 export const taggedTypes = [
@@ -313,43 +314,53 @@ function collectionItems(
     const search = ftsQuery(query);
     if (query.trim() && !search) return { items: [], next: null };
     const values: (string | number)[] = [];
-    const types = tag
-      ? [...taggedTypes, "response" as const]
-      : (["note", "bookmark", "form"] as const);
+    const types: (TaggedType | "journal")[] = tag
+      ? [...taggedTypes, "journal", "response"]
+      : ["note", "journal", "bookmark", "form"];
     const readers = new Map<string, Database.Statement>();
     const unions = types.map((type) => {
-      const table = tables[type];
+      const storageType = type === "journal" ? "note" : type;
+      const table = tables[storageType];
       const timestamp = type === "response" ? "i.created_at" : "i.updated_at";
       const authorization =
         type === "response"
           ? "EXISTS(SELECT 1 FROM forms f WHERE f.id=i.form_id AND f.owner_id=? AND f.trashed_at IS NULL)"
           : "i.owner_id=?";
-      const fts = type === "event" ? "events_fts" : `${table}_fts`;
+      const fts = storageType === "event" ? "events_fts" : `${table}_fts`;
       const excerpt =
-        type === "note"
+        storageType === "note"
           ? "substr(i.text,1,180)"
-          : type === "bookmark" || type === "form"
+          : storageType === "bookmark" || storageType === "form"
             ? "substr(i.description,1,180)"
-            : type === "response"
+            : storageType === "response"
               ? "substr(i.search_text,1,180)"
               : "''";
       const title =
-        type === "artifact"
+        storageType === "artifact"
           ? "coalesce(nullif(i.name,''),nullif(i.title,''),'Untitled')"
-          : type === "response"
+          : storageType === "response"
             ? "(SELECT title FROM forms WHERE id=i.form_id)||' — response'"
             : "i.title";
+      const assignmentType = storageType;
       if (tag) values.push(tag);
       values.push(owner);
       if (search) values.push(search);
-      const predicate = `${tag ? `i.id IN(SELECT ${type}_id FROM ${type}_tags WHERE tag_id=?) AND` : "i.favorite=1 AND"} ${authorization} AND i.trashed_at IS NULL ${type === "note" ? "AND i.kind='note'" : ""} ${search ? `AND i.rowid IN (SELECT rowid FROM ${fts} WHERE ${fts} MATCH ?)` : ""}`;
+      const periodFilter =
+        storageType === "note"
+          ? ` AND i.kind='note' AND ${journalPeriodSql("i")} IS ${type === "journal" ? "NOT " : ""}NULL`
+          : "";
+      const predicate = `${tag ? `i.id IN(SELECT ${assignmentType}_id FROM ${assignmentType}_tags WHERE tag_id=?) AND` : storageType === "note" || storageType === "bookmark" || storageType === "form" ? "i.favorite=1 AND" : "0=1 AND"} ${authorization} AND i.trashed_at IS NULL${periodFilter} ${search ? `AND i.rowid IN (SELECT rowid FROM ${fts} WHERE ${fts} MATCH ?)` : ""}`;
+      const dailyDate = storageType === "note" ? "i.daily_date" : "NULL";
+      const period = storageType === "note" ? "i.journal_period" : "NULL";
+      const periodStart =
+        storageType === "note" ? "i.journal_period_start" : "NULL";
       readers.set(
         type,
         d.prepare(
-          `SELECT '${type}' AS type,i.id,${title} AS title,${excerpt} AS excerpt,${timestamp} AS updatedAt,${type === "note" ? "i.daily_date" : "NULL"} AS dailyDate,${type === "note" || type === "bookmark" || type === "form" ? "i.favorite" : "0"} AS favorite,${type === "task" ? "i.completed_at IS NOT NULL" : "0"} AS completed,${type === "response" ? "i.form_id" : "NULL"} AS formId FROM ${table} i WHERE i.id=? AND ${authorization} AND i.trashed_at IS NULL`,
+          `SELECT '${type}' AS type,i.id,${title} AS title,${excerpt} AS excerpt,${timestamp} AS updatedAt,${dailyDate} AS dailyDate,${period} AS journalPeriod,${periodStart} AS journalPeriodStart,${storageType === "note" || storageType === "bookmark" || storageType === "form" ? "i.favorite" : "0"} AS favorite,${storageType === "task" ? "i.completed_at IS NOT NULL" : "0"} AS completed,${storageType === "response" ? "i.form_id" : "NULL"} AS formId FROM ${table} i WHERE i.id=? AND ${authorization} AND i.trashed_at IS NULL${periodFilter}`,
         ),
       );
-      return `SELECT '${type}' AS type,i.id,${timestamp} AS updatedAt FROM ${table} i ${type === "response" ? "" : `INDEXED BY ${tag ? `${table}_search_order_idx` : `${table}_favorites_order_idx`}`} WHERE ${predicate}`;
+      return `SELECT '${type}' AS type,i.id,${timestamp} AS updatedAt FROM ${table} i ${storageType === "response" ? "" : `INDEXED BY ${tag ? `${table}_search_order_idx` : `${table}_favorites_order_idx`}`} WHERE ${predicate}`;
     });
     const candidates = d
       .prepare(
@@ -362,14 +373,19 @@ function collectionItems(
     );
     const selected = rows.slice(0, limit);
     const linked = new Map<string, Tag[]>();
-    for (const type of [...taggedTypes, "response" as const]) {
+    for (const type of [
+      ...taggedTypes,
+      "journal" as const,
+      "response" as const,
+    ]) {
+      const storageType = type === "journal" ? "note" : type;
       const ids = selected
         .filter((row) => row.type === type)
         .map((row) => row.id);
       if (!ids.length) continue;
       const tags = d
         .prepare(
-          `SELECT it.${type}_id AS itemId,t.id,t.name,t.color FROM ${type}_tags it JOIN tags t ON t.id=it.tag_id WHERE it.${type}_id IN (${ids.map(() => "?").join(",")}) ORDER BY t.name`,
+          `SELECT it.${storageType}_id AS itemId,t.id,t.name,t.color FROM ${storageType}_tags it JOIN tags t ON t.id=it.tag_id WHERE it.${storageType}_id IN (${ids.map(() => "?").join(",")}) ORDER BY t.name`,
         )
         .all(...ids) as (Tag & { itemId: string })[];
       for (const { itemId, ...tag } of tags) {

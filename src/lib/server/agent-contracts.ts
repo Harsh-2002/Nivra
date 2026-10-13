@@ -3,6 +3,7 @@ import { formApiOperations } from "./form-api-schemas";
 import { eventInput, dateSchema, zoneSchema } from "../calendar";
 import { z } from "zod";
 import { documentInput } from "./validation";
+import { apiOutputs } from "./api-schemas";
 const count = z.number().int().nonnegative();
 const tag = z
   .object({
@@ -25,6 +26,8 @@ const note = summary
     text: z.string(),
     tags: z.array(tag),
     dailyDate: z.string().nullable(),
+    journalPeriod: z.enum(["daily", "weekly", "monthly"]).nullable(),
+    journalPeriodStart: z.string().nullable(),
   })
   .passthrough();
 const task = summary
@@ -70,6 +73,8 @@ const item = z
       "form",
       "response",
     ]),
+    journalPeriod: z.enum(["daily", "weekly", "monthly"]).nullable().optional(),
+    journalPeriodStart: z.string().nullable().optional(),
   })
   .passthrough();
 const cursorPage = (row: z.ZodType) =>
@@ -118,7 +123,7 @@ const schemas: Record<string, z.ZodType> = {
   get_task_reminders: z.object({
     reminders: z.array(
       z.object({
-        field: z.enum(["planned", "due"]),
+        field: z.enum(["schedule", "planned", "due"]),
         timezone: zoneSchema,
         offsets: z.array(z.number().int().min(0).max(10080)).max(3),
       }),
@@ -190,6 +195,14 @@ const schemas: Record<string, z.ZodType> = {
   create_board: board,
   update_board: board,
   move_task: task,
+  save_capture: z
+    .object({
+      type: z.enum(["note", "task", "bookmark"]),
+      id: z.string().uuid(),
+      noteId: z.string().uuid().nullable(),
+      alreadySaved: z.boolean(),
+    })
+    .strict(),
   list_bookmarks: cursorPage(bookmark),
   list_artifacts: cursorPage(artifact),
   list_favorites: offsetPage(item),
@@ -240,6 +253,33 @@ const schemas: Record<string, z.ZodType> = {
   ),
   file_transfer: transfer,
   upload_transfer: transfer,
+  list_task_steps: apiOutputs.taskStepList,
+  add_task_step: apiOutputs.taskStepChange,
+  update_task_step: apiOutputs.taskStepChange,
+  delete_task_step: apiOutputs.taskChange,
+  reorder_task_steps: apiOutputs.taskStepsChange,
+  create_task_from_note_block: apiOutputs.linkedTaskConversion,
+  unlink_task_from_note: z.object({ note }),
+  review_journal_period: apiOutputs.journalReview,
+  find_journals_on_this_day: apiOutputs.journalHistory,
+  navigate_journal: apiOutputs.journalNavigation,
+  list_writing_templates: apiOutputs.writingTemplatePage,
+  get_writing_template: apiOutputs.writingTemplateDetail,
+  create_writing_template: apiOutputs.writingTemplateDetail,
+  update_writing_template: apiOutputs.writingTemplateDetail,
+  apply_writing_template: apiOutputs.templateApply,
+  get_bookmark_article: apiOutputs.bookmarkArticleResult,
+  list_bookmark_article_versions: apiOutputs.bookmarkArticleVersionPage,
+  save_bookmark_article: z.union([
+    z
+      .object({ jobId: z.string().uuid(), status: z.literal("pending") })
+      .strict(),
+    apiOutputs.bookmarkArticleResult,
+  ]),
+  list_bookmark_highlights: apiOutputs.bookmarkHighlightPage,
+  create_bookmark_highlight: apiOutputs.bookmarkHighlight,
+  update_bookmark_highlight: apiOutputs.bookmarkHighlight,
+  set_bookmark_read_state: apiOutputs.bookmarkReadState,
 };
 for (const [name, path, method] of [
   ["list_forms", "forms", "GET"],

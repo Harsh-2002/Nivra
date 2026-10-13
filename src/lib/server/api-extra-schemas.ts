@@ -178,6 +178,7 @@ export const extraOutputs = {
           revision: z.number().int().positive(),
           completed: z.boolean().optional(),
           occurrence: z.string().optional(),
+          scheduleIssue: z.enum(["needs-scheduling"]).optional(),
         }),
       )
       .max(10000),
@@ -193,6 +194,7 @@ export const extraOutputs = {
       revision: z.number().int().positive(),
       dueDate: z.string().nullable(),
       plannedDate: z.string().nullable(),
+      scheduleIssue: z.enum(["needs-scheduling"]).nullable().optional(),
     }),
   ),
   taskReminders: z

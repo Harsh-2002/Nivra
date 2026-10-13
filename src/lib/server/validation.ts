@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isLoginIdentifier } from "../login-identifier";
 import { validDate } from "../dates";
+import { canonicalizeTaskLinks, taskLinkBlockPropsSchema } from "../writing";
 export const calendarDate = z
   .string()
   .refine(validDate, "Choose a valid calendar date (YYYY-MM-DD).");
@@ -35,6 +36,7 @@ const blockTypes = new Set([
   "paragraph",
   "quote",
   "table",
+  "taskLink",
   "toggleListItem",
   "video",
   "diagram",
@@ -100,13 +102,24 @@ export const documentInput = z
             ctx.addIssue({ code: "custom", message: "Invalid nested blocks." });
           else visit(block.children, depth + 1);
         }
+        if (block.type === "taskLink") {
+          const props = taskLinkBlockPropsSchema.safeParse(block.props);
+          if (!props.success)
+            ctx.addIssue({
+              code: "custom",
+              message: "This linked task block contains invalid data.",
+            });
+        }
       }
     };
     visit(document.blocks, 0);
   });
+export const canonicalDocumentInput = documentInput.transform(
+  canonicalizeTaskLinks,
+);
 export const noteInput = z.object({
   title: z.string().max(300).optional(),
-  document: documentInput.optional(),
+  document: canonicalDocumentInput.optional(),
   favorite: z.boolean().optional(),
   editorWidth: z.enum(["standard", "wide"]).optional(),
   trashed: z.boolean().optional(),

@@ -400,3 +400,23 @@ A form opens at `/forms/{id}/build`, with Build, Responses and Share navigation.
 Responses starts with summaries separated by published version. Submissions has search, review/version filters and complete exports; detail is read-only and preserves historical labels/options, with review and Trash actions. Share shows one selectable canonical link and publication controls beside concise state feedback. Public forms show only their title, description, fields and submission feedback in one column. They follow the device theme independently of the owner's saved preference, including initial hydration and later system changes, with no theme switcher or owner navigation. Theme changes suppress color transitions using the page's CSP nonce so controls retain contrast. Long choice labels wrap inside their controls. Each nested owner URL survives refresh and browser history. Mobile action rows wrap within safe areas; no horizontal overflow or floating notifications.
 
 Share includes the existing mini date picker for an optional closing date, valid through the end of that date in its saved timezone. Its popup respects the available viewport height and scrolls internally on short or landscape screens. Calendar planning derives a closing entry from the form; activity groups submissions per form and local day. Opening a submission count retains that date filter through response detail and Back.
+
+## Writing and Journals
+
+Keep template management inside Notes and Journal. Use one bounded section panel with a list and selected-template detail on desktop; on mobile, stack the list above its detail rather than nesting a second modal. Keep preview and edit states explicit, and retain a visible Blank option even when a default Journal template exists. The template editor uses the same BlockNote reading column and visible field labels as note writing. Literal date, time and title tokens are previewed as their resolved values; template attachment rows remain metadata rather than exposing storage paths.
+
+On desktop, Journal review sits beside the writing surface as a sticky, factual activity rail with clear period navigation. On mobile, keep the Journal editor and review activity as separate panes with a labeled Writing/Activity switch, 44px targets and safe-area spacing. Do not compress the editor to fit the review rail or show both columns on a narrow screen. On This Day contains links to previous daily entries, not excerpts that compete with current writing.
+
+Linked-task blocks look like a compact checklist row within the document. The checkbox keeps its standard visual size but receives a touch-sized target; task actions remain keyboard reachable with a visible focus outline. Live task completion uses the task endpoint, not note autosave. Unavailable tasks retain their saved title and state, and unlink returns a normal checklist item without deleting the task.
+
+## Task planning
+
+Task details open in read-only mode; Edit is an explicit action. The detail view groups due date, planned date, optional time block, recurrence, linked note and checklist steps without introducing a competing dashboard. Calendar time blocks display their saved IANA timezone and duration; errors during daylight-saving gaps or overlaps are inline and explain the choice needed. Checklist steps support both pointer controls and labeled keyboard move actions, use visible focus, and fit the same scrollable detail surface on desktop and mobile. No plan action silently creates a calendar event.
+
+## Saved bookmark reading
+
+Open the reader as a focused overlay: a wide, fixed-height reading surface on desktop and a safe-area full-screen reader on mobile. Preserve article typography, version context, read state and annotation actions while keeping the original bookmark available. Text selection and highlight tools must not replace the normal reading controls; annotations stay connected to the selected saved version. Loading, unsupported pages and refresh failures appear in the reader’s content area with explicit retry actions. The reader is a saved server-side snapshot, not an offline guarantee for the PWA.
+
+## Capture
+
+Capture begins with the received URL, title and selected text already filled in, then gives the owner a chance to choose Note, Task or Bookmark, edit fields and save. The PWA share target and bookmarklet both land on the same review page. Preserve the selected content in a URL fragment only until the page reads it, then remove it from browser history; do not autosave or place capture text in a toast. Keep the form single-column with labeled inputs, inline errors and a clear destination after save. The same layout must work with a mobile keyboard and narrow viewport.

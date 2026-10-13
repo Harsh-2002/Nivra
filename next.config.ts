@@ -51,6 +51,17 @@ const config: NextConfig = {
       "./node_modules/@huggingface/tokenizers/**/*",
       "./generated/processing-worker.cjs",
       "./generated/thumbnail-worker.cjs",
+      "./generated/bookmark-reader-worker.mjs",
+      ...new Set(
+        (
+          JSON.parse(
+            readFileSync("generated/bookmark-reader-trace.json", "utf8"),
+          ) as string[]
+        ).map((file) => {
+          const dependency = file.match(/^node_modules\/(?:@[^/]+\/)?[^/]+/);
+          return dependency ? `./${dependency[0]}/**/*` : `./${file}`;
+        }),
+      ),
       ...new Set(
         (
           JSON.parse(

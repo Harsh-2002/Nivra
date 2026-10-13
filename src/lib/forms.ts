@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "./zod";
 import { validDate } from "./dates";
 import { dateSchema, zoneSchema } from "./calendar";
 

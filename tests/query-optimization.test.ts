@@ -92,12 +92,21 @@ test("query index upgrade preserves content and indexed literal bookmark matchin
     for (const [table, rows] of snapshots)
       assert.deepEqual(
         d.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(),
-        table === "tags"
-          ? (rows as Record<string, unknown>[]).map((row) => ({
-              ...row,
-              aliases: "[]",
-            }))
-          : rows,
+        (rows as Record<string, unknown>[]).map((row) => ({
+          ...row,
+          ...(table === "tags" ? { aliases: "[]" } : {}),
+          ...(table === "notes"
+            ? { journal_period: null, journal_period_start: null }
+            : {}),
+          ...(table === "bookmarks"
+            ? {
+                read_at: null,
+                article_status: "unavailable",
+                article_generation: 0,
+                article_version: 0,
+              }
+            : {}),
+        })),
         table,
       );
     globalDb.nivraSqlite = d;
@@ -144,7 +153,7 @@ test("query index upgrade preserves content and indexed literal bookmark matchin
     }
     const expectedSearch = d
       .prepare(
-        "SELECT * FROM (SELECT id,'note' AS type,title,substr(replace(text,char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,daily_date AS dailyDate FROM notes WHERE kind='note' AND trashed_at IS NULL AND owner_id='owner' UNION ALL SELECT id,'bookmark' AS type,title,substr(replace(description,char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,NULL AS dailyDate FROM bookmarks WHERE trashed_at IS NULL AND owner_id='owner' UNION ALL SELECT id,'artifact' AS type,title,substr(replace(content,char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,NULL AS dailyDate FROM artifacts WHERE trashed_at IS NULL AND owner_id='owner') ORDER BY updatedAt DESC,type,id LIMIT 60 OFFSET 500",
+        "SELECT * FROM (SELECT id,'note' AS type,title,substr(replace(text,char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,daily_date AS dailyDate,journal_period AS journalPeriod,journal_period_start AS journalPeriodStart FROM notes WHERE kind='note' AND trashed_at IS NULL AND owner_id='owner' UNION ALL SELECT id,'bookmark' AS type,title,substr(replace(description,char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,NULL AS dailyDate,NULL AS journalPeriod,NULL AS journalPeriodStart FROM bookmarks WHERE trashed_at IS NULL AND owner_id='owner' UNION ALL SELECT id,'artifact' AS type,title,substr(replace(content,char(10),' '),1,180) AS excerpt,revision,updated_at AS updatedAt,NULL AS dailyDate,NULL AS journalPeriod,NULL AS journalPeriodStart FROM artifacts WHERE trashed_at IS NULL AND owner_id='owner') ORDER BY updatedAt DESC,type,id LIMIT 60 OFFSET 500",
       )
       .all();
     assert.deepEqual(

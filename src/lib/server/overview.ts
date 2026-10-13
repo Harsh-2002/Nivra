@@ -5,6 +5,7 @@ import { calendarRange } from "./calendar";
 import { addDays } from "../calendar";
 import { modelVersion } from "./ai/model";
 import { listTagProposals } from "./ai/tagging";
+import { journalKindSql, journalStartSql } from "./journal-classification";
 import type { Overview } from "../types";
 
 export function workspaceOverview(
@@ -107,7 +108,7 @@ function recentCandidateItems(owner: string): Overview["recentItems"] {
     .prepare(
       `SELECT id,type,title,updatedAt,url,siteName,journalDate FROM (
          SELECT * FROM (
-           SELECT id,CASE WHEN daily_date IS NULL THEN 'note' ELSE 'journal' END AS type,title,updated_at AS updatedAt,NULL AS url,NULL AS siteName,daily_date AS journalDate
+           SELECT id,${journalKindSql("notes")} AS type,title,updated_at AS updatedAt,NULL AS url,NULL AS siteName,${journalStartSql("notes")} AS journalDate
            FROM notes INDEXED BY notes_search_order_idx WHERE owner_id=? AND kind='note' AND trashed_at IS NULL ORDER BY updated_at DESC,id LIMIT 8
          )
          UNION ALL

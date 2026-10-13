@@ -56,8 +56,10 @@ test("ranked note search pages 1,000 matches without duplicates or journal leaka
         }
         const journal = createNote(owner.id, "Searchable reference journal");
         sqlite()
-          .prepare("UPDATE notes SET daily_date='2026-10-06' WHERE id=?")
-          .run(journal.id);
+          .prepare(
+            "UPDATE notes SET daily_date=?,journal_period='daily',journal_period_start=? WHERE id=?",
+          )
+          .run("2026-10-06", "2026-10-06", journal.id);
       })
       .immediate();
     const found = new Set<string>();

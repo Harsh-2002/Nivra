@@ -142,6 +142,7 @@ function createAuth(origin: string) {
     ],
     hooks: { before: authGuard, after: passkeyOptions },
     trustedOrigins: [origin],
+    onAPIError: { errorURL: `${origin}/oauth/error` },
     rateLimit: { enabled: true, window: 60, max: 30 },
     session: {
       expiresIn: 60 * 60 * 24 * 14,

@@ -1,0 +1,192 @@
+.bookmark-reading-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bookmark-card-footer > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bookmark-reader {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
+}
+.bookmark-reader-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.bookmark-reader-content {
+  max-width: 740px;
+  width: 100%;
+  margin-inline: auto;
+  line-height: 1.75;
+  font-size: 16px;
+}
+.bookmark-reader-content > * + * {
+  margin-top: 16px;
+}
+.bookmark-reader-content h1,
+.bookmark-reader-content h2,
+.bookmark-reader-content h3 {
+  line-height: 1.4;
+  font-weight: 600;
+}
+.bookmark-reader-content h1 {
+  font-size: 24px;
+}
+.bookmark-reader-content h2 {
+  font-size: 21px;
+}
+.bookmark-reader-content h3 {
+  font-size: 18px;
+}
+.bookmark-reader-content h4,
+.bookmark-reader-content h5,
+.bookmark-reader-content h6 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.bookmark-reader-content ul,
+.bookmark-reader-content ol {
+  padding-left: 24px;
+}
+.bookmark-reader-content ul {
+  list-style: disc;
+}
+.bookmark-reader-content ol {
+  list-style: decimal;
+}
+.bookmark-reader-content blockquote {
+  padding-inline: 16px;
+  color: var(--muted-foreground);
+}
+.bookmark-reader-content pre,
+.bookmark-reader-content .reader-table {
+  overflow-x: auto;
+  padding: 12px;
+  background: var(--muted);
+  border-radius: 8px;
+}
+.bookmark-reader-content a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.bookmark-reader-content table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.bookmark-reader-content td,
+.bookmark-reader-content th {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.bookmark-reader-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.bookmark-highlight-list {
+  display: grid;
+  gap: 16px;
+}
+.bookmark-highlight {
+  display: grid;
+  gap: 8px;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.bookmark-highlight-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bookmark-reader-status {
+  color: var(--muted-foreground);
+}
+.capture-page {
+  width: min(100% - 40px, 640px);
+  margin: 40px auto;
+  display: grid;
+  gap: 24px;
+}
+.capture-shell {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom);
+}
+.capture-form > div {
+  display: grid;
+  gap: 8px;
+}
+.capture-form > .capture-actions {
+  display: flex;
+}
+.capture-help,
+.capture-intro p,
+.capture-setup p {
+  color: var(--muted-foreground);
+  line-height: 1.65;
+}
+.capture-back {
+  justify-self: start;
+}
+.capture-setup {
+  display: grid;
+  gap: 12px;
+}
+.capture-setup summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+}
+.capture-setup > * + * {
+  margin-top: 12px;
+}
+.capture-form {
+  display: grid;
+  gap: 16px;
+}
+.capture-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.capture-intro {
+  display: grid;
+  gap: 8px;
+}
+.capture-intro h1 {
+  font-size: 26px;
+  font-weight: 600;
+}
+@media (max-width: 767px) {
+  .capture-page button,
+  .capture-page input,
+  .capture-page [role="combobox"] {
+    min-height: 44px;
+  }
+  .capture-page input,
+  .capture-page textarea {
+    font-size: 16px;
+  }
+  .bookmark-reader-toolbar > button,
+  .bookmark-highlight-actions > button {
+    min-height: 44px;
+  }
+  .capture-page {
+    margin-block: 24px;
+  }
+}

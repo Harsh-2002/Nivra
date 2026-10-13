@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main, feature/local-ai]
+    branches: [main, feature/local-ai, feature/connected-foundations]
   pull_request:
 permissions:
   contents: read
@@ -27,12 +27,15 @@ jobs:
       - run: npm run verify:api
       - run: npm test
       - run: npm run build
-      - name: Verify tag actions, smart features and live Overview
+      - name: Verify connected workflows, tag actions and live Overview
         run: |
           npx playwright install --with-deps chromium firefox webkit
-          export NIVRA_DATA_DIR="$(mktemp -d)"
+          foundations_dir="$(mktemp -d /tmp/nivra-foundations.XXXXXX)"
+          chmod 700 "$foundations_dir"
+          export NIVRA_DATA_DIR="$foundations_dir/data"
           export NIVRA_PUBLIC_URL=http://localhost:3015
-          export NIVRA_BROWSER_SESSION="$RUNNER_TEMP/tag-actions-session.json"
+          export NIVRA_BROWSER_TEST_URL=http://localhost:3015
+          export NIVRA_BROWSER_SESSION="$foundations_dir/browser-session.json"
           export NIVRA_AUDIT_WIDTHS=320,768,1440
           npm run start -- --port 3015 > "$RUNNER_TEMP/tag-actions-server.log" 2>&1 &
           server_pid=$!
@@ -43,6 +46,7 @@ jobs:
           done
           curl --fail --silent http://localhost:3015/health > /dev/null
           for browser in chromium firefox webkit; do
+            NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-foundations.mjs
             NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-tag-actions.mjs
             NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-local-ai.mjs
           done
@@ -85,6 +89,7 @@ jobs:
           docker image inspect nivra:ci --format 'Image bytes: {{.Size}}'
           node scripts/smoke-container.mjs nivra:ci
           docker run --rm --network none --cpus 1 --memory 1536m --memory-swap 1536m --read-only --tmpfs /tmp -e NIVRA_DATA_DIR=/tmp/ai-smoke --entrypoint node nivra:ci scripts/smoke-ai-runtime.mjs
+          docker run --rm --network none --cpus 1 --memory 512m --memory-swap 512m --read-only --tmpfs /tmp -v "$GITHUB_WORKSPACE/scripts/smoke-bookmark-reader.mjs:/app/scripts/smoke-bookmark-reader.mjs:ro" --entrypoint node nivra:ci scripts/smoke-bookmark-reader.mjs
 
       - name: Measure encrypted retrieval under the runtime resource limits
         run: |

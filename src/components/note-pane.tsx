@@ -27,10 +27,12 @@ import {
   AlertCircle,
   Share2,
   History,
+  FileText,
   AlignCenter,
   MoveHorizontal,
   CalendarDays,
   Zap,
+  ListTodo,
 } from "lucide-react";
 import { FeedbackOutlet } from "./inline-feedback";
 import { notify } from "@/lib/feedback";
@@ -47,12 +49,29 @@ import {
 } from "./ui/dropdown-menu";
 import { remapDocument } from "@/lib/document";
 import { api, ApiError, downloadRequest } from "@/lib/client";
-import type { Note, Tag, SearchResult } from "@/lib/types";
+import type {
+  Note,
+  Tag,
+  SearchResult,
+  Task,
+  WritingTemplate,
+} from "@/lib/types";
+import { localDate } from "@/lib/dates";
 import { HistoryDialog } from "./history-dialog";
 import { NoteConnections } from "./note-connections";
-import type { EditorTools } from "./editor";
+import type { EditorTools, TaskSelection } from "./editor";
+import type { TaskLinkActions } from "./task-link-block";
 import { useConfirm } from "./confirm-provider";
 import { PublishDialog } from "./publish-dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { TemplatePicker } from "./template-picker";
+import {
+  TemplateEditor,
+  insertableTemplateBlocks,
+  previewTemplateDocument,
+} from "./template-editor";
+import { JournalReview } from "./journal-review";
 
 const Editor = dynamic(() => import("./editor"), {
   ssr: false,
@@ -105,6 +124,24 @@ export function NotePane({
   const tools = useRef<EditorTools | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
+  const [taskDraft, setTaskDraft] = useState<{
+    selection: TaskSelection;
+    title: string;
+    idempotencyKey: string;
+  } | null>(null);
+  const [taskMutationPending, setTaskMutationPending] = useState(false);
+  const [taskLinkError, setTaskLinkError] = useState("");
+  const taskTitleRef = useRef<HTMLInputElement>(null);
+  const taskLinkMutation = useRef(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [templateEditor, setTemplateEditor] = useState<{
+    template?: WritingTemplate;
+    source?: { noteId: string; revision: number };
+  } | null>(null);
+  const [templateRefresh, setTemplateRefresh] = useState(0);
+  const [mobileJournalPane, setMobileJournalPane] = useState<
+    "writing" | "activity"
+  >("writing");
   useLayoutEffect(() => {
     const title = titleRef.current;
     if (!title) return;
@@ -217,6 +254,7 @@ export function NotePane({
     };
   }, []);
   useCompletion("content", (event) => {
+    if (taskLinkMutation.current) return;
     if (
       (event.kind && event.kind !== "content") ||
       (event.target && event.target !== current.current.id)
@@ -252,6 +290,197 @@ export function NotePane({
     timer.current = setTimeout(() => {
       void flushRef.current();
     }, 750);
+  }
+  function applyCanonicalNote(result: Note) {
+    current.current = result;
+    setNote(result);
+    tools.current?.syncDocument(result.document);
+    version.current++;
+    savedVersion.current = version.current;
+    setState("saved");
+    setError("");
+    onSaved(result);
+  }
+  async function recoverTaskLinkConflict(): Promise<
+    "reloaded" | "deleted" | "conflict" | "failed"
+  > {
+    const id = current.current.id;
+    const expectedVersion = version.current;
+    try {
+      const latest = await api<Note>(`notes/${id}`);
+      if (!mounted.current || current.current.id !== id) return "failed";
+      if (
+        version.current !== expectedVersion ||
+        version.current !== savedVersion.current
+      ) {
+        blocked.current = true;
+        setState("conflict");
+        setError(
+          "This note changed elsewhere. Your edits are kept here; save them as a new note or reload the latest version.",
+        );
+        return "conflict";
+      }
+      if (latest.trashedAt) return "deleted";
+      applyCanonicalNote(latest);
+      return "reloaded";
+    } catch {
+      return "failed";
+    }
+  }
+  function beginLinkedTask() {
+    const selection = tools.current?.taskSelection();
+    if (!selection) {
+      setTaskLinkError("Select text, or place the cursor in a checklist item.");
+      return;
+    }
+    setTaskLinkError("");
+    setTaskDraft({
+      selection,
+      title: selection.title,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    requestAnimationFrame(() => taskTitleRef.current?.focus());
+  }
+  async function createLinkedTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const draft = taskDraft;
+    if (!draft || !draft.title.trim() || taskMutationPending) return;
+    setTaskMutationPending(true);
+    taskLinkMutation.current = true;
+    setTaskLinkError("");
+    try {
+      if (!(await flush())) {
+        setTaskLinkError(
+          "Resolve the note save before creating a linked task.",
+        );
+        return;
+      }
+      const result = await api<{ note: Note; task: Task; created: boolean }>(
+        `notes/${current.current.id}/tasks`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            revision: current.current.revision,
+            blockId: draft.selection.blockId,
+            title: draft.title.trim(),
+            ...(draft.selection.selectedText
+              ? { selectedText: draft.selection.selectedText }
+              : {}),
+            idempotencyKey: draft.idempotencyKey,
+          }),
+        },
+      );
+      applyCanonicalNote(result.note);
+      setTaskDraft(null);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        const recovered = await recoverTaskLinkConflict();
+        if (recovered === "deleted") {
+          onDeleted();
+          return;
+        }
+        if (recovered === "reloaded") {
+          setTaskDraft(null);
+          setTaskLinkError(
+            "This note changed elsewhere. The latest version is loaded; choose a block again.",
+          );
+          return;
+        }
+      }
+      setTaskLinkError((error as Error).message);
+    } finally {
+      taskLinkMutation.current = false;
+      setTaskMutationPending(false);
+    }
+  }
+  async function unlinkTask(blockId: string) {
+    if (taskMutationPending) return;
+    setTaskMutationPending(true);
+    taskLinkMutation.current = true;
+    setTaskLinkError("");
+    try {
+      if (!(await flush())) {
+        setTaskLinkError("Resolve the note save before unlinking this task.");
+        return;
+      }
+      const result = await api<{ note: Note }>(
+        `notes/${current.current.id}/tasks/${blockId}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ revision: current.current.revision }),
+        },
+      );
+      applyCanonicalNote(result.note);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        const recovered = await recoverTaskLinkConflict();
+        if (recovered === "deleted") {
+          onDeleted();
+          return;
+        }
+        if (recovered === "reloaded") {
+          setTaskLinkError(
+            "This note changed elsewhere. The latest version is loaded.",
+          );
+          return;
+        }
+      }
+      setTaskLinkError((error as Error).message);
+    } finally {
+      taskLinkMutation.current = false;
+      setTaskMutationPending(false);
+    }
+  }
+  const taskLinkActions: TaskLinkActions = {
+    onOpen: (id, title, completed) => {
+      void onNavigateItem({
+        id,
+        type: "task",
+        title,
+        excerpt: "",
+        updatedAt: 0,
+        completed,
+      });
+    },
+    onUnlink: unlinkTask,
+  };
+  const templateKind =
+    note.journalPeriod || note.dailyDate ? "journal" : "note";
+  async function insertTemplate(template: WritingTemplate) {
+    if (!tools.current) throw new Error("The editor is still loading.");
+    if (template.attachments?.length)
+      throw new Error("Create a new note to copy this template’s attachments.");
+    tools.current.insertDocument(
+      insertableTemplateBlocks(
+        previewTemplateDocument(template.document, current.current.title),
+      ),
+    );
+  }
+  async function createFromTemplate(
+    template: WritingTemplate,
+    idempotencyKey = crypto.randomUUID(),
+  ) {
+    if (!(await flush()))
+      throw new Error("Save the current note before continuing.");
+    const result = await api<{ note: Note; created: boolean }>(
+      `templates/${template.id}/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          revision: template.revision,
+          idempotencyKey,
+          ...(templateKind === "journal"
+            ? {
+                date: note.journalPeriodStart || note.dailyDate || localDate(),
+                period: note.journalPeriod || "daily",
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              }
+            : { title: current.current.title }),
+        }),
+      },
+    );
+    onSaved(result.note);
+    onOpen(result.note);
   }
   async function action(run: () => Promise<void>, requireSave = true) {
     try {
@@ -414,6 +643,20 @@ export function NotePane({
           </div>
         </div>
       )}
+      {taskLinkError && (
+        <div className="writing-inline-error" role="alert">
+          <span>{taskLinkError}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Dismiss linked task message"
+            onClick={() => setTaskLinkError("")}
+          >
+            <X size={15} />
+          </Button>
+        </div>
+      )}
       {note.trashedAt && (
         <div className="trash-banner">
           <span>This note is in trash.</span>
@@ -428,324 +671,490 @@ export function NotePane({
         </div>
       )}
       <div className="note-scroll">
-        <div className="writing-surface" data-width={note.editorWidth}>
-          <FeedbackOutlet />
-          <header className="note-tools">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="mobile-back"
-                aria-label={backLabel}
-                onClick={onBack}
-              >
-                <ArrowLeft size={18} />
-              </Button>
-            </div>
-            <div className="flex items-center gap-1">
-              {!note.trashedAt && (
-                <>
-                  <span className={`save-status ${state}`} role="status">
-                    {state === "saving" ? (
-                      <Loader2 size={12} className="animate-spin" />
-                    ) : state === "saved" ? (
-                      <Check size={12} />
-                    ) : state === "error" || state === "conflict" ? (
-                      <AlertCircle size={12} />
-                    ) : null}
-                    {state === "saved"
-                      ? "Saved"
-                      : state === "saving"
-                        ? "Saving"
-                        : "Unsaved"}
-                  </span>
+        <div
+          className={`writing-layout ${note.journalPeriod && !note.trashedAt ? "is-journal" : ""}`}
+          data-mobile-pane={mobileJournalPane}
+        >
+          <div className="writing-main">
+            <div className="writing-surface" data-width={note.editorWidth}>
+              <FeedbackOutlet />
+              <header className="note-tools">
+                <div className="flex items-center gap-2">
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Share and publish note"
-                    title="Share and publish"
-                    disabled={!!note.trashedAt}
-                    onClick={() => void action(async () => setSharing(true))}
+                    className="mobile-back"
+                    aria-label={backLabel}
+                    onClick={onBack}
                   >
-                    <Share2 size={17} />
+                    <ArrowLeft size={18} />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={
-                      note.favorite
-                        ? "Remove from favorites"
-                        : "Add to favorites"
-                    }
-                    onClick={() => change({ favorite: !note.favorite })}
-                    disabled={!!note.trashedAt}
-                  >
-                    <Star
-                      size={17}
-                      fill={note.favorite ? "currentColor" : "none"}
-                    />
-                  </Button>
-                </>
-              )}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Note actions">
-                    <MoreHorizontal size={19} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  align="end"
-                  onCloseAutoFocus={(event) => {
-                    if (capturePending.current) {
-                      event.preventDefault();
-                      capturePending.current = false;
-                      onCapture();
-                    }
-                  }}
-                >
+                </div>
+                <div className="flex items-center gap-1">
                   {!note.trashedAt && (
                     <>
-                      <DropdownMenuLabel className="note-width-control">
-                        Page width
-                      </DropdownMenuLabel>
-                      <DropdownMenuRadioGroup
-                        className="note-width-control"
-                        value={note.editorWidth}
-                        onValueChange={(value) =>
-                          change({
-                            editorWidth: value === "wide" ? "wide" : "standard",
-                          })
-                        }
-                      >
-                        <DropdownMenuRadioItem value="standard">
-                          <AlignCenter size={15} />
-                          Standard
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="wide">
-                          <MoveHorizontal size={15} />
-                          Wide
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                      <DropdownMenuSeparator className="note-width-control" />
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          scheduleItem(
-                            note.dailyDate ? "journal" : "note",
-                            note.id,
-                            note.title,
-                          )
-                        }
-                      >
-                        <ScheduleIcon size={15} />
-                        Schedule
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void action(async () => setHistory(true))
-                        }
-                      >
-                        <History size={15} />
-                        Version history
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        disabled={!!note.trashedAt}
-                        onSelect={() =>
+                      <span className={`save-status ${state}`} role="status">
+                        {state === "saving" ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : state === "saved" ? (
+                          <Check size={12} />
+                        ) : state === "error" || state === "conflict" ? (
+                          <AlertCircle size={12} />
+                        ) : null}
+                        {state === "saved"
+                          ? "Saved"
+                          : state === "saving"
+                            ? "Saving"
+                            : "Unsaved"}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Share and publish note"
+                        title="Share and publish"
+                        disabled={!!note.trashedAt || taskMutationPending}
+                        onClick={() =>
                           void action(async () => setSharing(true))
                         }
                       >
-                        <Share2 size={15} />
-                        Share & publish
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void action(async () => {
-                            const result = await api<Note>(
-                              `notes/${note.id}/duplicate`,
-                              { method: "POST" },
-                            );
-                            onSaved(result);
-                            onOpen(result);
-                          })
+                        <Share2 size={17} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={
+                          note.favorite
+                            ? "Remove from favorites"
+                            : "Add to favorites"
                         }
+                        onClick={() => change({ favorite: !note.favorite })}
+                        disabled={!!note.trashedAt || taskMutationPending}
                       >
-                        <Copy size={15} />
-                        Duplicate note
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => uploadRef.current?.click()}
-                        disabled={!!note.trashedAt}
-                      >
-                        <Paperclip size={15} />
-                        Attach a file
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          capturePending.current = true;
-                        }}
-                      >
-                        <Zap size={15} />
-                        Quick
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void action(async () => {
-                            if (!tools.current)
-                              throw new Error("The editor is still loading.");
-                            await downloadRequest(
-                              `export/markdown/${note.id}`,
-                              `${note.title || "Untitled"}.zip`,
-                              {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  markdown: tools.current.markdown(),
-                                }),
-                              },
-                            );
-                          })
-                        }
-                      >
-                        <Download size={15} />
-                        Export Markdown package
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
+                        <Star
+                          size={17}
+                          fill={note.favorite ? "currentColor" : "none"}
+                        />
+                      </Button>
                     </>
                   )}
-                  <DropdownMenuItem onSelect={() => void toggleTrash()}>
-                    {note.trashedAt ? (
-                      <>
-                        <RotateCcw size={15} />
-                        Restore note
-                      </>
-                    ) : (
-                      <>
-                        <Trash2 size={15} />
-                        Move to trash
-                      </>
-                    )}
-                  </DropdownMenuItem>
-                  {note.trashedAt && (
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onSelect={() => void permanentDelete()}
-                    >
-                      <Trash2 size={15} />
-                      Delete permanently
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </header>
-          <div className="note-date">
-            {note.dailyDate ? (
-              <span className="note-kind">
-                <CalendarDays size={14} />
-                Journal ·{" "}
-              </span>
-            ) : null}
-            {new Date(note.createdAt).toLocaleDateString(undefined, {
-              month: "long",
-              day: "numeric",
-              year: "numeric",
-            })}
-          </div>
-          <textarea
-            ref={titleRef}
-            rows={1}
-            className="note-title"
-            aria-label="Note title"
-            value={note.title}
-            onChange={(e) =>
-              change({ title: e.target.value.replaceAll("\n", " ") })
-            }
-            placeholder="Untitled"
-            maxLength={300}
-            disabled={!!note.trashedAt}
-          />
-          <div className="note-tags">
-            {note.tags.map((tag) => (
-              <span
-                key={tag.id}
-                className="tag-chip"
-                data-color={
-                  tags.find((item) => item.id === tag.id)?.color || tag.color
-                }
-              >
-                <span
-                  className="tag-dot"
-                  data-color={
-                    tags.find((item) => item.id === tag.id)?.color || tag.color
-                  }
-                />
-                <span className="tag-chip-label">{tag.name}</span>
-                {!note.trashedAt && (
-                  <button
-                    aria-label={`Remove ${tag.name} tag`}
-                    onClick={() =>
-                      change({ tags: note.tags.filter((t) => t.id !== tag.id) })
-                    }
-                  >
-                    <X size={11} />
-                  </button>
-                )}
-              </span>
-            ))}
-            {!note.trashedAt && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="add-tag">
-                    <TagIcon size={13} />
-                    {note.tags.length ? "Add tag" : "Add tags"}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {tags.length ? (
-                    tags.map((tag) => (
-                      <DropdownMenuItem
-                        key={tag.id}
-                        onSelect={(e) => {
-                          e.preventDefault();
-                          change({
-                            tags: note.tags.some((t) => t.id === tag.id)
-                              ? note.tags.filter((t) => t.id !== tag.id)
-                              : [...note.tags, tag],
-                          });
-                        }}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Note actions"
+                        disabled={taskMutationPending}
                       >
-                        <span className="tag-dot" data-color={tag.color} />
-                        <span className="flex-1">{tag.name}</span>
-                        {note.tags.some((t) => t.id === tag.id) && (
-                          <Check size={14} />
+                        <MoreHorizontal size={19} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      onCloseAutoFocus={(event) => {
+                        if (capturePending.current) {
+                          event.preventDefault();
+                          capturePending.current = false;
+                          onCapture();
+                        }
+                      }}
+                    >
+                      {!note.trashedAt && (
+                        <>
+                          <DropdownMenuLabel className="note-width-control">
+                            Page width
+                          </DropdownMenuLabel>
+                          <DropdownMenuRadioGroup
+                            className="note-width-control"
+                            value={note.editorWidth}
+                            onValueChange={(value) =>
+                              change({
+                                editorWidth:
+                                  value === "wide" ? "wide" : "standard",
+                              })
+                            }
+                          >
+                            <DropdownMenuRadioItem value="standard">
+                              <AlignCenter size={15} />
+                              Standard
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="wide">
+                              <MoveHorizontal size={15} />
+                              Wide
+                            </DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                          <DropdownMenuSeparator className="note-width-control" />
+                          <DropdownMenuItem
+                            onSelect={() => setTemplatePickerOpen(true)}
+                          >
+                            <FileText size={15} />
+                            Start from template
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              void action(async () =>
+                                setTemplateEditor({
+                                  source: {
+                                    noteId: current.current.id,
+                                    revision: current.current.revision,
+                                  },
+                                }),
+                              )
+                            }
+                          >
+                            <FileText size={15} />
+                            Save as template
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onSelect={beginLinkedTask}>
+                            <ListTodo size={15} />
+                            Create linked task
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              scheduleItem(
+                                note.journalPeriod || note.dailyDate
+                                  ? "journal"
+                                  : "note",
+                                note.id,
+                                note.title,
+                              )
+                            }
+                          >
+                            <ScheduleIcon size={15} />
+                            Schedule
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              void action(async () => setHistory(true))
+                            }
+                          >
+                            <History size={15} />
+                            Version history
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            disabled={!!note.trashedAt}
+                            onSelect={() =>
+                              void action(async () => setSharing(true))
+                            }
+                          >
+                            <Share2 size={15} />
+                            Share & publish
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              void action(async () => {
+                                const result = await api<Note>(
+                                  `notes/${note.id}/duplicate`,
+                                  { method: "POST" },
+                                );
+                                onSaved(result);
+                                onOpen(result);
+                              })
+                            }
+                          >
+                            <Copy size={15} />
+                            Duplicate note
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => uploadRef.current?.click()}
+                            disabled={!!note.trashedAt}
+                          >
+                            <Paperclip size={15} />
+                            Attach a file
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              capturePending.current = true;
+                            }}
+                          >
+                            <Zap size={15} />
+                            Quick
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              void action(async () => {
+                                if (!tools.current)
+                                  throw new Error(
+                                    "The editor is still loading.",
+                                  );
+                                await downloadRequest(
+                                  `export/markdown/${note.id}`,
+                                  `${note.title || "Untitled"}.zip`,
+                                  {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                    },
+                                    body: JSON.stringify({
+                                      markdown: tools.current.markdown(),
+                                    }),
+                                  },
+                                );
+                              })
+                            }
+                          >
+                            <Download size={15} />
+                            Export Markdown package
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
+                      <DropdownMenuItem onSelect={() => void toggleTrash()}>
+                        {note.trashedAt ? (
+                          <>
+                            <RotateCcw size={15} />
+                            Restore note
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 size={15} />
+                            Move to trash
+                          </>
                         )}
                       </DropdownMenuItem>
-                    ))
-                  ) : (
-                    <div className="menu-hint">
-                      Create a tag in the sidebar first.
-                    </div>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+                      {note.trashedAt && (
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => void permanentDelete()}
+                        >
+                          <Trash2 size={15} />
+                          Delete permanently
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </header>
+              {templateEditor ? (
+                <TemplateEditor
+                  key={
+                    templateEditor.template?.id ||
+                    templateEditor.source?.noteId ||
+                    "new"
+                  }
+                  kind={templateKind}
+                  initial={templateEditor.template}
+                  source={templateEditor.source}
+                  onClose={() => setTemplateEditor(null)}
+                  onSaved={() => {
+                    setTemplateEditor(null);
+                    setTemplatePickerOpen(true);
+                    setTemplateRefresh((value) => value + 1);
+                  }}
+                  onDeleted={() => setTemplateRefresh((value) => value + 1)}
+                />
+              ) : templatePickerOpen ? (
+                <TemplatePicker
+                  key={`${templateKind}-${templateRefresh}`}
+                  kind={templateKind}
+                  onClose={() => setTemplatePickerOpen(false)}
+                  onInsert={insertTemplate}
+                  onCreate={createFromTemplate}
+                  onEdit={(template) => {
+                    setTemplatePickerOpen(false);
+                    setTemplateEditor({ template });
+                  }}
+                  onSaveCurrent={async () => {
+                    if (!(await flush()))
+                      throw new Error("Save the current note first.");
+                    setTemplatePickerOpen(false);
+                    setTemplateEditor({
+                      source: {
+                        noteId: current.current.id,
+                        revision: current.current.revision,
+                      },
+                    });
+                  }}
+                />
+              ) : null}
+              <div className="note-date">
+                {note.journalPeriod || note.dailyDate ? (
+                  <span className="note-kind">
+                    <CalendarDays size={14} />
+                    Journal · {note.journalPeriod || "daily"} ·{" "}
+                  </span>
+                ) : null}
+                {new Date(note.createdAt).toLocaleDateString(undefined, {
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </div>
+              <textarea
+                ref={titleRef}
+                rows={1}
+                className="note-title"
+                aria-label="Note title"
+                value={note.title}
+                onChange={(e) =>
+                  change({ title: e.target.value.replaceAll("\n", " ") })
+                }
+                placeholder="Untitled"
+                maxLength={300}
+                disabled={
+                  !!note.trashedAt || taskMutationPending || !!templateEditor
+                }
+              />
+              <div className="note-tags">
+                {note.tags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="tag-chip"
+                    data-color={
+                      tags.find((item) => item.id === tag.id)?.color ||
+                      tag.color
+                    }
+                  >
+                    <span
+                      className="tag-dot"
+                      data-color={
+                        tags.find((item) => item.id === tag.id)?.color ||
+                        tag.color
+                      }
+                    />
+                    <span className="tag-chip-label">{tag.name}</span>
+                    {!note.trashedAt && (
+                      <button
+                        aria-label={`Remove ${tag.name} tag`}
+                        disabled={taskMutationPending || !!templateEditor}
+                        onClick={() =>
+                          change({
+                            tags: note.tags.filter((t) => t.id !== tag.id),
+                          })
+                        }
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </span>
+                ))}
+                {!note.trashedAt && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        className="add-tag"
+                        disabled={taskMutationPending || !!templateEditor}
+                      >
+                        <TagIcon size={13} />
+                        {note.tags.length ? "Add tag" : "Add tags"}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      {tags.length ? (
+                        tags.map((tag) => (
+                          <DropdownMenuItem
+                            key={tag.id}
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              change({
+                                tags: note.tags.some((t) => t.id === tag.id)
+                                  ? note.tags.filter((t) => t.id !== tag.id)
+                                  : [...note.tags, tag],
+                              });
+                            }}
+                          >
+                            <span className="tag-dot" data-color={tag.color} />
+                            <span className="flex-1">{tag.name}</span>
+                            {note.tags.some((t) => t.id === tag.id) && (
+                              <Check size={14} />
+                            )}
+                          </DropdownMenuItem>
+                        ))
+                      ) : (
+                        <div className="menu-hint">
+                          Create a tag in the sidebar first.
+                        </div>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+              {taskDraft && (
+                <form
+                  className="writing-task-compose"
+                  onSubmit={(event) => void createLinkedTask(event)}
+                >
+                  <div className="writing-task-compose-field">
+                    <Label htmlFor="linked-task-title">Task title</Label>
+                    <Input
+                      ref={taskTitleRef}
+                      id="linked-task-title"
+                      value={taskDraft.title}
+                      onChange={(event) =>
+                        setTaskDraft({
+                          ...taskDraft,
+                          title: event.target.value,
+                          idempotencyKey:
+                            taskDraft.title === event.target.value
+                              ? taskDraft.idempotencyKey
+                              : crypto.randomUUID(),
+                        })
+                      }
+                      maxLength={300}
+                      required
+                      disabled={taskMutationPending}
+                      aria-describedby="linked-task-help"
+                    />
+                    <p id="linked-task-help">
+                      The selected text stays in the note and links to this
+                      task.
+                    </p>
+                  </div>
+                  <div className="writing-task-compose-actions">
+                    <Button
+                      type="submit"
+                      disabled={taskMutationPending || !taskDraft.title.trim()}
+                    >
+                      {taskMutationPending && (
+                        <Loader2 size={14} className="animate-spin" />
+                      )}
+                      Create task
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={taskMutationPending}
+                      onClick={() => setTaskDraft(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              )}
+              <Editor
+                key={editorKey}
+                document={note.document}
+                focusTerms={focusTerms}
+                noteId={note.id}
+                onChange={(document) => change({ document })}
+                onTools={setTools}
+                editable={
+                  !note.trashedAt && !taskMutationPending && !templateEditor
+                }
+                onOpenNote={onNavigateNote}
+                taskLinkActions={taskLinkActions}
+              />
+              {!note.trashedAt && (
+                <NoteConnections
+                  noteId={note.id}
+                  revision={note.revision}
+                  onOpenNote={onNavigateNote}
+                  onOpenItem={onNavigateItem}
+                />
+              )}
+            </div>
           </div>
-          <Editor
-            key={editorKey}
-            document={note.document}
-            focusTerms={focusTerms}
-            noteId={note.id}
-            onChange={(document) => change({ document })}
-            onTools={setTools}
-            editable={!note.trashedAt}
-            onOpenNote={onNavigateNote}
-          />
-          {!note.trashedAt && (
-            <NoteConnections
+          {note.journalPeriod && !note.trashedAt && (
+            <JournalReview
               noteId={note.id}
-              revision={note.revision}
+              date={note.journalPeriodStart || note.dailyDate || localDate()}
+              period={note.journalPeriod}
               onOpenNote={onNavigateNote}
               onOpenItem={onNavigateItem}
+              mobilePane={mobileJournalPane}
+              onMobilePaneChange={setMobileJournalPane}
             />
           )}
         </div>

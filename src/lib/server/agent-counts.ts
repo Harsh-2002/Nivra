@@ -1,5 +1,6 @@
 import { sqlite } from "./db";
 import { HttpError } from "./http";
+import { journalPeriodSql } from "./journal-classification";
 export type CountOptions = {
   state: "active" | "trash";
   tagId?: string;
@@ -21,7 +22,7 @@ export function agentCounts(owner: string, options: CountOptions) {
         "notes",
         "note_tags",
         "note_id",
-        "kind='note' AND daily_date IS NULL",
+        `kind='note' AND ${journalPeriodSql("notes")} IS NULL`,
         true,
       ],
       [
@@ -29,7 +30,7 @@ export function agentCounts(owner: string, options: CountOptions) {
         "notes",
         "note_tags",
         "note_id",
-        "kind='note' AND daily_date IS NOT NULL",
+        `kind='note' AND ${journalPeriodSql("notes")} IS NOT NULL`,
         true,
       ],
       ["tasks", "tasks", "task_tags", "task_id", "1=1", false],

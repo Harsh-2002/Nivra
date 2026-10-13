@@ -5,8 +5,6 @@ import {
   useCreationFocus,
 } from "@/lib/input-behavior";
 import { TaskEditFields } from "./task-edit-fields";
-import { CalendarDays as ScheduleIcon } from "lucide-react";
-import { scheduleItem } from "@/lib/schedule";
 import { ItemTagPicker } from "./item-tag-picker";
 import { LoadingState } from "./loading-state";
 import { useCompletion } from "@/lib/completion-client";
@@ -23,9 +21,11 @@ import {
   CalendarDays,
   Repeat2,
   FileText,
+  Eye,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/client";
 import type { Page, Task } from "@/lib/types";
+import type { TaskRecurrenceRule, TaskSchedule } from "@/lib/task-planning";
 import { sectionCache } from "@/lib/section-cache";
 import { formatDate, localDate, type Recurrence } from "@/lib/dates";
 import { DatePicker } from "./date-picker";
@@ -49,6 +49,8 @@ import {
 } from "./ui/dropdown-menu";
 import { useConfirm } from "./confirm-provider";
 import type { CapturedItem } from "./quick-capture";
+import { TaskDetails } from "./task-details";
+import { validateTaskSchedule } from "./schedule-editor";
 
 type TaskCounts = { open: number; completed: number };
 type TaskList = { items: Task[]; next: string | null };
@@ -112,6 +114,11 @@ export function TasksPanel({
   const [editPlanned, setEditPlanned] = useState<string | null>(null);
   const [editDate, setEditDate] = useState<string | null>(null);
   const [editRepeat, setEditRepeat] = useState<Recurrence | null>(null);
+  const [editRecurrenceRule, setEditRecurrenceRule] =
+    useState<TaskRecurrenceRule | null>(null);
+  const [editSchedule, setEditSchedule] = useState<TaskSchedule | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
+  const [detailDirty, setDetailDirty] = useState(false);
   const [editNote, setEditNote] = useState<{
     id: string | null;
     title: string | null;
@@ -125,12 +132,7 @@ export function TasksPanel({
     const abort = new AbortController();
     void api<Task>(`tasks/${initialTaskId}`, { signal: abort.signal })
       .then((task) => {
-        setEditing(task);
-        setEditTitle(task.title);
-        setEditPlanned(task.plannedDate);
-        setEditDate(task.dueDate);
-        setEditRepeat(task.recurrence);
-        setEditNote({ id: task.noteId, title: task.noteTitle });
+        setDetailTask(task);
       })
       .catch((e) => {
         if (!abort.signal.aborted) setError((e as Error).message);
@@ -170,6 +172,9 @@ export function TasksPanel({
       editDate !== editing.dueDate ||
       editPlanned !== editing.plannedDate ||
       editRepeat !== editing.recurrence ||
+      JSON.stringify(editRecurrenceRule) !==
+        JSON.stringify(editing.recurrenceRule) ||
+      JSON.stringify(editSchedule) !== JSON.stringify(editing.schedule) ||
       editNote.id !== editing.noteId);
   useCreationFocus(
     input,
@@ -212,15 +217,15 @@ export function TasksPanel({
     [filter, query, view, boardId],
   );
   useCompletion(undefined, () => {
-    if (editing) pendingRefresh.current = true;
+    if (editing || detailDirty) pendingRefresh.current = true;
     else void load();
   });
   useEffect(() => {
-    if (!editing && pendingRefresh.current) {
+    if (!editing && !detailDirty && pendingRefresh.current) {
       pendingRefresh.current = false;
       void load();
     }
-  }, [editing, load]);
+  }, [editing, detailDirty, load]);
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(
@@ -260,7 +265,7 @@ export function TasksPanel({
     registerGuard(
       async () =>
         !busy &&
-        (!(title.trim() || editDirty) ||
+        (!(title.trim() || editDirty || detailDirty) ||
           (await confirm({
             title: "Discard unfinished task?",
             description:
@@ -269,10 +274,10 @@ export function TasksPanel({
           }))),
     );
     return () => registerGuard(async () => true);
-  }, [busy, title, editDirty, registerGuard, confirm]);
+  }, [busy, title, editDirty, detailDirty, registerGuard, confirm]);
   useEffect(() => {
     const leaving = (e: BeforeUnloadEvent) => {
-      if (busy || title.trim() || editDirty) {
+      if (busy || title.trim() || editDirty || detailDirty) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -281,7 +286,7 @@ export function TasksPanel({
     return () => {
       window.removeEventListener("beforeunload", leaving);
     };
-  }, [busy, title, editDirty]);
+  }, [busy, title, editDirty, detailDirty]);
   async function mutate(action: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -328,12 +333,16 @@ export function TasksPanel({
       dueDate?: string | null;
       plannedDate?: string | null;
       recurrence?: Recurrence | null;
+      recurrenceRule?: TaskRecurrenceRule | null;
+      schedule?: TaskSchedule | null;
       noteId?: string | null;
     },
   ) {
     await mutate(async () => {
       if (editing?.id === task.id && reminderDirty)
         throw Error("Save your reminder changes before saving the task.");
+      const scheduleError = validateTaskSchedule(change.schedule ?? null);
+      if (change.schedule && scheduleError) throw Error(scheduleError);
       const updated = await api<Task>(`tasks/${task.id}`, {
         method: "PATCH",
         body: JSON.stringify({ revision: task.revision, ...change }),
@@ -513,6 +522,8 @@ export function TasksPanel({
                             dueDate: editDate,
                             plannedDate: editPlanned,
                             recurrence: editRepeat,
+                            recurrenceRule: editRecurrenceRule,
+                            schedule: editSchedule,
                             noteId: editNote.id,
                           });
                       }}
@@ -527,6 +538,10 @@ export function TasksPanel({
                         setPlannedDate={setEditPlanned}
                         recurrence={editRepeat}
                         setRecurrence={setEditRepeat}
+                        recurrenceRule={editRecurrenceRule}
+                        setRecurrenceRule={setEditRecurrenceRule}
+                        schedule={editSchedule}
+                        setSchedule={setEditSchedule}
                         note={editNote}
                         setNote={setEditNote}
                         disabled={busy}
@@ -551,52 +566,97 @@ export function TasksPanel({
                     </form>
                   ) : (
                     <div className="task-copy">
-                      <span className="task-title">{task.title}</span>
-                      <div className="task-metadata">
-                        {task.plannedDate && (
-                          <span className="task-date">
-                            Planned {formatDate(task.plannedDate)}
-                          </span>
-                        )}
-                        {task.dueDate && (
-                          <span
-                            className={
-                              task.completedAt === null && task.dueDate < today
-                                ? "is-overdue"
-                                : ""
-                            }
-                          >
-                            <CalendarDays size={12} />
-                            {task.completedAt === null && task.dueDate < today
-                              ? "Overdue · "
-                              : ""}
-                            {task.dueDate === today
-                              ? "Today"
-                              : formatDate(task.dueDate)}
-                          </span>
-                        )}
-                        {task.recurrence && (
-                          <span>
-                            <Repeat2 size={12} />
-                            {task.recurrence === "daily"
-                              ? "Daily"
-                              : task.recurrence === "weekly"
-                                ? "Weekly"
-                                : "Monthly"}
-                          </span>
-                        )}
-                        {task.noteId && (
-                          <button
-                            className="linked-note-chip"
-                            aria-label={`Open linked note ${task.noteTitle || "Untitled"}`}
-                            disabled={busy}
-                            onClick={() => void onOpenNote(task.noteId!)}
-                          >
-                            <FileText size={12} />
-                            {task.noteTitle || "Untitled"}
-                          </button>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        className="task-row-open"
+                        aria-label={"Open details for " + task.title}
+                        disabled={busy || !!editing}
+                        onClick={() => setDetailTask(task)}
+                      >
+                        <span className="task-title">{task.title}</span>
+                        <span className="task-metadata">
+                          {task.plannedDate && (
+                            <span className="task-date">
+                              Planned {formatDate(task.plannedDate)}
+                            </span>
+                          )}
+                          {task.schedule && (
+                            <span>
+                              {task.schedule.start.slice(11, 16)} ·{" "}
+                              {task.schedule.durationMinutes} min
+                            </span>
+                          )}
+                          {task.scheduleIssue === "needs-scheduling" && (
+                            <span className="planning-inline-status">
+                              Needs a time
+                            </span>
+                          )}
+                          {task.dueDate && (
+                            <span
+                              className={
+                                task.completedAt === null &&
+                                task.dueDate < today
+                                  ? "is-overdue"
+                                  : ""
+                              }
+                            >
+                              <CalendarDays size={12} />
+                              {task.completedAt === null && task.dueDate < today
+                                ? "Overdue · "
+                                : ""}
+                              {task.dueDate === today
+                                ? "Today"
+                                : formatDate(task.dueDate)}
+                            </span>
+                          )}
+                          {task.recurrence && (
+                            <span>
+                              <Repeat2 size={12} />
+                              {task.recurrence === "daily"
+                                ? "Daily"
+                                : task.recurrence === "weekly"
+                                  ? "Weekly"
+                                  : "Monthly"}
+                            </span>
+                          )}
+                          {task.recurrenceRule && (
+                            <span>
+                              <Repeat2 size={12} />
+                              Every {task.recurrenceRule.interval}{" "}
+                              {
+                                {
+                                  daily: "day",
+                                  weekly: "week",
+                                  monthly: "month",
+                                  yearly: "year",
+                                }[task.recurrenceRule.frequency]
+                              }
+                              {task.recurrenceRule.interval === 1 ? "" : "s"}
+                              {task.recurrenceRule.anchor === "completion"
+                                ? " · after completion"
+                                : " · from due date"}
+                            </span>
+                          )}
+                          {task.stepProgress && task.stepProgress.total > 0 && (
+                            <span>
+                              {task.stepProgress.completed}/
+                              {task.stepProgress.total} steps
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                      {task.noteId && (
+                        <button
+                          type="button"
+                          className="linked-note-chip"
+                          aria-label={`Open linked note ${task.noteTitle || "Untitled"}`}
+                          disabled={busy}
+                          onClick={() => void onOpenNote(task.noteId!)}
+                        >
+                          <FileText size={12} />
+                          {task.noteTitle || "Untitled"}
+                        </button>
+                      )}
                     </div>
                   )}
                   <ItemTagPicker
@@ -621,13 +681,9 @@ export function TasksPanel({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          scheduleItem("task", task.id, task.title)
-                        }
-                      >
-                        <ScheduleIcon size={15} />
-                        Schedule
+                      <DropdownMenuItem onSelect={() => setDetailTask(task)}>
+                        <Eye size={15} />
+                        View details
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onSelect={() => {
@@ -636,6 +692,8 @@ export function TasksPanel({
                           setEditDate(task.dueDate);
                           setEditPlanned(task.plannedDate);
                           setEditRepeat(task.recurrence);
+                          setEditRecurrenceRule(task.recurrenceRule ?? null);
+                          setEditSchedule(task.schedule ?? null);
                           setEditNote({
                             id: task.noteId,
                             title: task.noteTitle,
@@ -729,6 +787,24 @@ export function TasksPanel({
           )}
         </div>
       </div>
+      {detailTask && (
+        <TaskDetails
+          key={detailTask.id}
+          task={detailTask}
+          onClose={() => {
+            setDetailTask(null);
+            setDetailDirty(false);
+          }}
+          onDirty={setDetailDirty}
+          onOpenNote={onOpenNote}
+          onSaved={(updated) => {
+            setDetailTask(updated);
+            setTasks((items) => mergeTasks(items, [updated]));
+            invalidate();
+            void refreshCounts();
+          }}
+        />
+      )}
     </section>
   );
 }

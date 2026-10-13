@@ -7,6 +7,7 @@ import {
   addDays,
   eventInput,
   eventPayload,
+  localInstant,
   type CalendarEvent,
   type EventInput,
 } from "@/lib/calendar";
@@ -36,14 +37,23 @@ export function CalendarSelect({
   value,
   onChange,
   options,
+  open,
+  onOpenChange,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: [string, string][];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <Select value={value} onValueChange={onChange}>
+    <Select
+      value={value}
+      onValueChange={onChange}
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <SelectTrigger aria-label={label}>
         <SelectValue />
       </SelectTrigger>
@@ -62,6 +72,7 @@ export function CalendarEventEditor({
   date,
   zone,
   occurrence,
+  move,
   onClose,
   onSaved,
   onDirty,
@@ -70,12 +81,14 @@ export function CalendarEventEditor({
   date: string;
   zone: string;
   occurrence?: string;
+  move?: { startAt: number; endAt: number };
   onClose: () => void;
   onSaved: () => void;
   onDirty: (dirty: boolean) => void;
 }) {
   const confirm = useConfirm();
-  const [editing, setEditing] = useState(!event);
+  const [editing, setEditing] = useState(!event || !!move);
+  const [openSelect, setOpenSelect] = useState<string | null>(null);
   const [revision, setRevision] = useState(event?.revision ?? 1);
   const [linkNames, setLinkNames] = useState<Record<string, string>>(() => {
     const names = Object.fromEntries(
@@ -96,7 +109,15 @@ export function CalendarEventEditor({
   });
   const [draft, setDraft] = useState<EventInput>(() =>
     event
-      ? eventPayload(event)
+      ? move
+        ? {
+            ...eventPayload(event),
+            allDay: false,
+            start: localInstant(move.startAt, event.timezone),
+            end: localInstant(move.endAt, event.timezone),
+            timezone: event.timezone,
+          }
+        : eventPayload(event)
       : {
           title: "",
           description: "",
@@ -125,7 +146,7 @@ export function CalendarEventEditor({
   const [initialOffsets] = useState(draft.reminders.join(", "));
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [scope, setScope] = useState("series"),
+    [scope, setScope] = useState(move && occurrence ? "occurrence" : "series"),
     [query, setQuery] = useState(""),
     [results, setResults] = useState<SearchResult[]>([]),
     [searchState, setSearchState] = useState("idle"),
@@ -161,6 +182,11 @@ export function CalendarEventEditor({
   }, [query]);
   const change = (value: Partial<EventInput>) =>
     setDraft((current) => ({ ...current, ...value }));
+  const selectControl = (id: string) => ({
+    open: openSelect === id,
+    onOpenChange: (open: boolean) =>
+      setOpenSelect((current) => (open ? id : current === id ? null : current)),
+  });
   async function close() {
     if (
       !busy &&
@@ -334,6 +360,10 @@ export function CalendarEventEditor({
         overlayClassName="schedule-editor-overlay"
         onEscapeKeyDown={(e) => {
           e.preventDefault();
+          if (openSelect) {
+            setOpenSelect(null);
+            return;
+          }
           void close();
         }}
         onInteractOutside={(e) => e.preventDefault()}
@@ -372,6 +402,7 @@ export function CalendarEventEditor({
                 <label className="schedule-field">
                   <span>Apply changes to</span>
                   <CalendarSelect
+                    {...selectControl("scope")}
                     label="Apply changes to"
                     value={scope}
                     onChange={chooseScope}
@@ -450,6 +481,7 @@ export function CalendarEventEditor({
                 <label className="schedule-field">
                   <span>Repeat</span>
                   <CalendarSelect
+                    {...selectControl("repeat")}
                     label="Repeat"
                     value={repeat?.frequency ?? "none"}
                     onChange={(value) =>
@@ -514,6 +546,7 @@ export function CalendarEventEditor({
                         <label className="schedule-field">
                           <span>Week</span>
                           <CalendarSelect
+                            {...selectControl("week-of-month")}
                             label="Week of month"
                             value={String(repeat.ordinal ?? "any")}
                             onChange={(v) =>
@@ -609,6 +642,7 @@ export function CalendarEventEditor({
                   <label className="schedule-field">
                     <span>Repeated clock time</span>
                     <CalendarSelect
+                      {...selectControl("clock-disambiguation")}
                       label="Repeated clock time"
                       value={draft.disambiguation}
                       onChange={(v) =>
@@ -693,7 +727,8 @@ export function CalendarEventEditor({
                             links: [
                               ...draft.links,
                               {
-                                type: (item.type === "note" && item.dailyDate
+                                type: (item.type === "note" &&
+                                (item.journalPeriod || item.dailyDate)
                                   ? "journal"
                                   : item.type) as EventInput["links"][number]["type"],
                                 id: item.id,

@@ -27,10 +27,16 @@ export type Task = {
   plannedDate: string | null;
   recurrence: import("./dates").Recurrence | null;
   recurrenceDay: number | null;
+  recurrenceRule: import("./task-planning").TaskRecurrenceRule | null;
+  schedule: import("./task-planning").TaskSchedule | null;
+  scheduleIssue: import("./task-planning").TaskScheduleIssue;
+  steps?: import("./task-planning").TaskStep[];
+  stepProgress: { completed: number; total: number };
   parentTaskId: string | null;
   noteId: string | null;
   noteTitle: string | null;
 };
+export type TaskStep = import("./task-planning").TaskStep;
 export type Note = {
   id: string;
   title: string;
@@ -45,17 +51,28 @@ export type Note = {
   tags: Tag[];
   kind: "note";
   dailyDate: string | null;
+  journalPeriod: JournalPeriod | null;
+  journalPeriodStart: string | null;
 };
 export type NoteSummary = Omit<Note, "document">;
 export type TaggedItem = {
   formId?: string;
   id: string;
   type:
-    "note" | "task" | "bookmark" | "artifact" | "event" | "form" | "response";
+    | "note"
+    | "journal"
+    | "task"
+    | "bookmark"
+    | "artifact"
+    | "event"
+    | "form"
+    | "response";
   title: string;
   excerpt: string;
   updatedAt: number;
   dailyDate: string | null;
+  journalPeriod?: JournalPeriod | null;
+  journalPeriodStart?: string | null;
   favorite: boolean;
   completed: boolean;
   tags: Tag[];
@@ -91,6 +108,10 @@ export type Bookmark = {
   siteName: string;
   collection: string;
   favorite: boolean;
+  readAt: number | null;
+  articleStatus: "pending" | "ready" | "unavailable";
+  articleGeneration: number;
+  articleVersion: number;
   metadataStatus: "pending" | "ready" | "unavailable";
   thumbnail: string | null;
   icon: string | null;
@@ -100,12 +121,38 @@ export type Bookmark = {
   noteId: string | null;
   noteTitle: string | null;
 };
+
+export type JournalPeriod = "daily" | "weekly" | "monthly";
+
+export type WritingTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  kind: "note" | "journal";
+  document: Document;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+  attachments?: { id: string; name: string; mime: string; size: number }[];
+};
+
+export type BookmarkArticle = import("./bookmark-reading").BookmarkArticle;
+export type BookmarkHighlight = import("./bookmark-reading").BookmarkHighlight;
 export type SearchResult = {
   formId?: string;
   dailyDate?: string | null;
+  journalPeriod?: JournalPeriod | null;
+  journalPeriodStart?: string | null;
   id: string;
   type:
-    "note" | "task" | "bookmark" | "artifact" | "event" | "form" | "response";
+    | "note"
+    | "journal"
+    | "task"
+    | "bookmark"
+    | "artifact"
+    | "event"
+    | "form"
+    | "response";
   title: string;
   excerpt: string;
   artifactKind?: "text" | "image" | "file";

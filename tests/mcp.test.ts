@@ -418,6 +418,8 @@ test("MCP shares content while isolating agent credentials and account administr
                 excerpt: "Submitted privately without an incident.",
                 updatedAt: createdAt,
                 dailyDate: null,
+                journalPeriod: null,
+                journalPeriodStart: null,
                 favorite: false,
                 completed: false,
                 formId,
@@ -1821,6 +1823,54 @@ test("MCP shares content while isolating agent credentials and account administr
           deniedPkce.status >= 400 ||
             (deniedPkce.headers.get("location") || "").includes("error="),
           `Public clients must use PKCE (${deniedPkce.status}, ${await deniedPkce.clone().text()})`,
+        );
+        if (deniedPkce.status >= 300 && deniedPkce.status < 400) {
+          const pkceError = new URL(deniedPkce.headers.get("location")!, base);
+          assert.equal(pkceError.pathname, "/callback");
+          assert.equal(pkceError.searchParams.get("error"), "invalid_request");
+          assert.equal(pkceError.searchParams.has("code"), false);
+        }
+        const missingClient = new URLSearchParams(query);
+        missingClient.delete("client_id");
+        const missingClientResponse = await fetch(
+          `${base}/api/auth/oauth2/authorize?${missingClient}`,
+          { headers: { accept: "text/html" }, redirect: "manual" },
+        );
+        assert.equal(missingClientResponse.status, 302);
+        const missingClientLocation = new URL(
+          missingClientResponse.headers.get("location")!,
+          base,
+        );
+        assert.equal(missingClientLocation.origin, base);
+        assert.equal(missingClientLocation.pathname, "/oauth/error");
+        assert.equal(
+          missingClientLocation.searchParams.get("error"),
+          "invalid_request",
+        );
+        assert.equal(
+          missingClientLocation.searchParams.has("client_id"),
+          false,
+        );
+        const unknownClient = new URLSearchParams(query);
+        unknownClient.set("client_id", "unregistered-oauth-error-fixture");
+        const unknownClientResponse = await fetch(
+          `${base}/api/auth/oauth2/authorize?${unknownClient}`,
+          { headers: { accept: "text/html" }, redirect: "manual" },
+        );
+        assert.equal(unknownClientResponse.status, 302);
+        const unknownClientLocation = new URL(
+          unknownClientResponse.headers.get("location")!,
+          base,
+        );
+        assert.equal(unknownClientLocation.origin, base);
+        assert.equal(unknownClientLocation.pathname, "/oauth/error");
+        assert.equal(
+          unknownClientLocation.searchParams.get("error"),
+          "invalid_client",
+        );
+        assert.equal(
+          unknownClientLocation.searchParams.has("client_id"),
+          false,
         );
         const badRedirect = new URLSearchParams(query);
         badRedirect.set("redirect_uri", "https://attacker.example/callback");

@@ -11,6 +11,7 @@ import {
   searchStopwords,
 } from "./policy";
 import { modelVersion } from "./model";
+import { journalPeriodSql } from "../journal-classification";
 type Candidate = { key: string; sourceKey: string; score: number };
 const kinds = [
   "note",
@@ -38,9 +39,14 @@ function permitted(
   const d = sqlite();
   if (type === "note" || type === "journal") {
     const note = d
-      .prepare("SELECT daily_date FROM notes WHERE id=?")
-      .get(source.item_id) as { daily_date: string | null };
-    if (Boolean(note.daily_date) !== (type === "journal")) return;
+      .prepare(
+        `SELECT daily_date,journal_period FROM notes WHERE id=? AND owner_id=?`,
+      )
+      .get(source.item_id, owner) as
+      { daily_date: string | null; journal_period: string | null } | undefined;
+    if (!note) return;
+    const isJournal = Boolean(note.journal_period || note.daily_date);
+    if (isJournal !== (type === "journal")) return;
   }
   if (
     tag &&
@@ -87,9 +93,9 @@ function lexical(owner: string, text: string, type: string, tag: string) {
         filters +=
           " AND i.kind='note'" +
           (type === "journal"
-            ? " AND i.daily_date IS NOT NULL"
+            ? ` AND ${journalPeriodSql("i")} IS NOT NULL`
             : type === "note"
-              ? " AND i.daily_date IS NULL"
+              ? ` AND ${journalPeriodSql("i")} IS NULL`
               : "");
       if (tag) {
         filters += ` AND EXISTS(SELECT 1 FROM ${kind}_tags it JOIN tags t ON t.id=it.tag_id WHERE it.${kind}_id=i.id AND t.name=? COLLATE NOCASE)`;
@@ -157,12 +163,22 @@ function canonical(
     excerpt: excerpt.slice(0, 180),
     updatedAt: root.updated_at,
   };
-  if (root.item_kind === "note")
-    result.dailyDate = (
-      d
-        .prepare("SELECT daily_date FROM notes WHERE id=?")
-        .get(root.item_id) as { daily_date: string | null }
-    ).daily_date;
+  if (root.item_kind === "note") {
+    const note = d
+      .prepare(
+        "SELECT daily_date AS dailyDate,journal_period AS journalPeriod,journal_period_start AS journalPeriodStart FROM notes WHERE id=? AND owner_id=?",
+      )
+      .get(root.item_id, owner) as {
+      dailyDate: string | null;
+      journalPeriod: SearchResult["journalPeriod"];
+      journalPeriodStart: string | null;
+    };
+    result.dailyDate = note.dailyDate;
+    result.journalPeriod =
+      note.journalPeriod ?? (note.dailyDate ? "daily" : null);
+    result.journalPeriodStart = note.journalPeriodStart ?? note.dailyDate;
+    if (result.journalPeriod) result.type = "journal";
+  }
   if (root.item_kind === "artifact")
     result.artifactKind = (
       d.prepare("SELECT kind FROM artifacts WHERE id=?").get(root.item_id) as {

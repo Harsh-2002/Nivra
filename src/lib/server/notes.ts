@@ -4,11 +4,12 @@ import { notes } from "./schema";
 import { eq } from "drizzle-orm";
 import { emptyDocument, type Note, type NoteSummary, type Tag } from "../types";
 import { fuzzyQuery } from "./search";
-import { plainText, ftsQuery } from "./validation";
+import { ftsQuery } from "./validation";
 import { syncNoteLinks } from "./connections";
+import { canonicalizeTaskLinks, writingPlainText } from "../writing";
+import { journalPeriodSql, journalStartSql } from "./journal-classification";
 
-const columns =
-  "n.id,n.title,n.revision,n.favorite,n.editor_width AS editorWidth,n.kind,n.daily_date AS dailyDate,n.trashed_at AS trashedAt,n.created_at AS createdAt,n.updated_at AS updatedAt";
+const columns = `n.id,n.title,n.revision,n.favorite,n.editor_width AS editorWidth,n.kind,n.daily_date AS dailyDate,${journalPeriodSql("n")} AS journalPeriod,${journalStartSql("n")} AS journalPeriodStart,n.trashed_at AS trashedAt,n.created_at AS createdAt,n.updated_at AS updatedAt`;
 export function tagsFor(note: string): Tag[] {
   return sqlite()
     .prepare(
@@ -24,7 +25,14 @@ export function tagsFor(note: string): Tag[] {
 }
 export function getNote(id: string): Note | undefined {
   const row = db().select().from(notes).where(eq(notes.id, id)).get();
-  return row ? { ...row, tags: tagsFor(id) } : undefined;
+  return row
+    ? {
+        ...row,
+        journalPeriod: row.journalPeriod ?? (row.dailyDate ? "daily" : null),
+        journalPeriodStart: row.journalPeriodStart ?? row.dailyDate,
+        tags: tagsFor(id),
+      }
+    : undefined;
 }
 export function listNotes(
   params: URLSearchParams,
@@ -36,11 +44,24 @@ export function listNotes(
     view === "trash" ? "1=1" : "n.kind='note'",
     view === "trash" ? "n.trashed_at IS NOT NULL" : "n.trashed_at IS NULL",
   ];
-  // Journal entries live in their own section, so Notes lists only undated notes.
-  if (view === "journal") where.push("n.daily_date IS NOT NULL");
-  else if (view === "all" && !params.get("tag"))
-    where.push("n.daily_date IS NULL");
   const values: (string | number)[] = [];
+  // Every journal cadence lives in the Journal section, not Notes.
+  if (view === "journal") {
+    where.push("(n.journal_period IS NOT NULL OR n.daily_date IS NOT NULL)");
+    if (params.get("period")) {
+      where.push(`${journalPeriodSql("n")}=?`);
+      values.push(params.get("period")!);
+    }
+    if (params.get("from")) {
+      where.push(`${journalStartSql("n")}>=?`);
+      values.push(params.get("from")!);
+    }
+    if (params.get("to")) {
+      where.push(`${journalStartSql("n")}<=?`);
+      values.push(params.get("to")!);
+    }
+  } else if (view === "all" && !params.get("tag"))
+    where.push(`${journalPeriodSql("n")} IS NULL`);
   const owner =
     ownerId ??
     (
@@ -65,7 +86,7 @@ export function listNotes(
   const order = search
     ? "notes_fts.rank"
     : view === "journal"
-      ? "n.daily_date DESC"
+      ? `${journalStartSql("n")} DESC`
       : params.get("sort") === "title"
         ? "n.title COLLATE NOCASE"
         : params.get("sort") === "created"
@@ -95,7 +116,7 @@ export function listNotes(
           .prepare(
             search
               ? `SELECT n.rowid AS picked FROM notes_fts CROSS JOIN notes n ON notes_fts.rowid=n.rowid WHERE ${where.join(" AND ")} ORDER BY notes_fts.rank LIMIT ? OFFSET ?`
-              : `SELECT n.rowid AS picked FROM notes n${view === "trash" ? "" : ` INDEXED BY ${view === "journal" ? "notes_journal_page_idx" : params.get("sort") === "title" ? "notes_title_page_idx" : params.get("sort") === "created" ? "notes_activity_idx" : "notes_search_order_idx"}`} WHERE ${where.join(" AND ")} ORDER BY ${order},n.id LIMIT ? OFFSET ?`,
+              : `SELECT n.rowid AS picked FROM notes n${view === "trash" || view === "journal" ? "" : ` INDEXED BY ${params.get("sort") === "title" ? "notes_title_page_idx" : params.get("sort") === "created" ? "notes_activity_idx" : "notes_search_order_idx"}`} WHERE ${where.join(" AND ")} ORDER BY ${order},n.id LIMIT ? OFFSET ?`,
           )
           .all(...values, limit, offset) as { picked: number }[];
         if (!selected.length) return [];
@@ -152,18 +173,19 @@ export function createNote(
 ): Note {
   const id = randomUUID();
   const now = Date.now();
+  const canonicalDocument = canonicalizeTaskLinks(document);
   db()
     .insert(notes)
     .values({
       id,
       ownerId: owner,
       title,
-      document,
-      text: plainText(document.blocks),
+      document: canonicalDocument,
+      text: writingPlainText(canonicalDocument),
       createdAt: now,
       updatedAt: now,
     })
     .run();
-  syncNoteLinks(id, document);
+  syncNoteLinks(id, canonicalDocument);
   return getNote(id)!;
 }

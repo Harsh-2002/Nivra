@@ -69,6 +69,7 @@ test("section deep links retain their own state", () => {
     "/tasks?view=board&board=board-id&stage=doing&task=task-id",
     "/notes?note=note-id&tag=tag-id",
     "/journal?note=journal-id",
+    "/journal?period=weekly&date=2026-10-12",
     "/favorites?tag=tag-id",
   ]) {
     const url = cleanWorkspaceUrl(new URL(path, "https://example.com"));
@@ -81,5 +82,29 @@ test("section deep links retain their own state", () => {
       ),
     ).search,
     "?view=board",
+  );
+});
+
+test("journal period dates survive refresh without carrying calendar state", () => {
+  const journal = cleanWorkspaceUrl(
+    new URL(
+      "https://example.com/journal?period=monthly&date=2026-10-01&view=month&mode=planning",
+    ),
+  );
+  assert.equal(journal.search, "?period=monthly&date=2026-10-01");
+  assert.equal(
+    cleanWorkspaceUrl(
+      new URL("https://example.com/journal?period=daily&date=2026-02-30"),
+    ).search,
+    "?period=daily",
+  );
+  const notes = new URL(journal);
+  notes.pathname = "/notes";
+  assert.equal(cleanWorkspaceUrl(notes).search, "");
+  assert.equal(
+    cleanWorkspaceUrl(
+      new URL("https://example.com/journal?period=unknown&date=2026-10-01"),
+    ).search,
+    "",
   );
 });

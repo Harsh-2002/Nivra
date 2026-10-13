@@ -54,6 +54,27 @@ function strings(value: unknown): string[] {
 }
 export function sourceText(source: AiSource) {
   let text = source.text;
+  if (source.source_kind === "bookmark") {
+    const article = sqlite()
+      .prepare(
+        "SELECT a.plain_text AS text FROM bookmark_articles a JOIN bookmarks b ON b.id=a.bookmark_id AND b.article_version=a.version WHERE b.id=? AND b.owner_id=? AND a.owner_id=?",
+      )
+      .get(source.source_id, source.owner_id, source.owner_id) as
+      { text: string } | undefined;
+    const highlights = sqlite()
+      .prepare(
+        "SELECT quote,annotation FROM bookmark_highlights WHERE bookmark_id=? AND owner_id=? ORDER BY created_at,id",
+      )
+      .all(source.source_id, source.owner_id) as {
+      quote: string;
+      annotation: string;
+    }[];
+    text = [
+      text,
+      article?.text ?? "",
+      ...highlights.map((item) => item.quote + "\n" + item.annotation),
+    ].join("\n");
+  }
   if (source.source_kind === "event" || source.source_kind === "form") {
     const row = sqlite()
       .prepare(
