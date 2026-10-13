@@ -237,6 +237,42 @@ function check(condition, label) {
   checks.push(label);
 }
 
+async function waitForSettledBounds(locator, expectedViewport, timeout = 1500) {
+  const deadline = Date.now() + timeout;
+  let bounds = null;
+  let viewport = null;
+  let previous = null;
+  let stableSamples = 0;
+  while (Date.now() < deadline) {
+    bounds = await locator.boundingBox();
+    viewport = await page.evaluate(() => ({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+    if (
+      bounds &&
+      viewport.width === expectedViewport.width &&
+      viewport.height === expectedViewport.height
+    ) {
+      const stable =
+        previous &&
+        bounds.x === previous.x &&
+        bounds.y === previous.y &&
+        bounds.width === previous.width &&
+        bounds.height === previous.height;
+      stableSamples = stable ? stableSamples + 1 : 0;
+      if (stableSamples >= 2)
+        return { bounds, viewport, stable: true, stableSamples };
+      previous = bounds;
+    } else {
+      previous = null;
+      stableSamples = 0;
+    }
+    await page.waitForTimeout(40);
+  }
+  return { bounds, viewport, stable: false, stableSamples };
+}
+
 async function openBookmarks() {
   if (new URL(page.url()).pathname !== "/bookmarks") {
     const tagsResponse = page.waitForResponse(
@@ -287,14 +323,16 @@ async function verifyBookmarkReader(bookmark, fixture, width) {
     exact: true,
   });
   if (width < 768) {
-    const bounds = await reader.boundingBox();
+    const settled = await waitForSettledBounds(reader, { width, height });
+    const bounds = settled.bounds;
     check(
-      !!bounds &&
+      settled.stable &&
+        !!bounds &&
         bounds.x === 0 &&
         bounds.y === 0 &&
         bounds.width === width &&
         bounds.height === height,
-      "Mobile article reader fills the viewport",
+      `Mobile article reader fills the viewport after layout settles (${JSON.stringify(settled)})`,
     );
     const close = await reader
       .getByRole("button", { name: "Close saved article", exact: true })
@@ -556,14 +594,16 @@ async function verifyQuickCapture(width) {
   );
   await input.fill(`${title}\nSaved through the disposable foundation runner.`);
   if (width < 768) {
-    const bounds = await capture.boundingBox();
+    const settled = await waitForSettledBounds(capture, { width, height });
+    const bounds = settled.bounds;
     check(
-      !!bounds &&
+      settled.stable &&
+        !!bounds &&
         bounds.x >= 0 &&
         bounds.y >= 0 &&
         bounds.x + bounds.width <= width &&
         bounds.y + bounds.height <= height,
-      "Mobile Quick capture stays within the viewport",
+      `Mobile Quick capture stays within the viewport after layout settles (${JSON.stringify(settled)})`,
     );
     const buttons = await capture
       .locator("button:visible")

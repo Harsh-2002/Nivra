@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chromium, firefox, webkit, request } from "playwright";
+import { classifyConsoleMessage } from "./browser-diagnostics.mjs";
 
 const base = process.env.NIVRA_BROWSER_TEST_URL ?? "http://localhost:3015";
 const baseUrl = new URL(base);
@@ -100,6 +101,8 @@ taskIds.push(reviewTask.id);
 let browser;
 let checked = 0;
 const errors = [];
+const unsupportedBrowserWarnings = [];
+let unsupportedWarningCountReported = false;
 
 async function openMenuAction(page, label) {
   await page.getByRole("button", { name: "Note actions", exact: true }).click();
@@ -143,7 +146,14 @@ try {
       errors.push(`${width}px: ${error.message}`),
     );
     page.on("console", (message) => {
-      if (message.type() === "error")
+      const classification = classifyConsoleMessage(
+        engineName,
+        message.type(),
+        message.text(),
+      );
+      if (classification === "unsupported-feature-warning")
+        unsupportedBrowserWarnings.push(message.text());
+      else if (classification === "error")
         errors.push(`${width}px console: ${message.text()}`);
     });
 
@@ -446,6 +456,10 @@ try {
   console.log(
     `Writing workflows passed ${checked} checks at ${widths.join(", ")}px in ${engineName}: linked tasks, unchecked template snapshots, normalized weekly journals and review activity. Fixtures were created only on the guarded disposable server.`,
   );
+  console.log(
+    `Unsupported ${engineName} browser warnings: ${unsupportedBrowserWarnings.length}.`,
+  );
+  unsupportedWarningCountReported = true;
 } finally {
   await browser?.close();
   for (const id of noteIds.reverse()) {
@@ -467,4 +481,8 @@ try {
     } catch {}
   }
   await owner.dispose();
+  if (!unsupportedWarningCountReported)
+    console.log(
+      `Unsupported ${engineName} browser warnings before exit: ${unsupportedBrowserWarnings.length}.`,
+    );
 }
