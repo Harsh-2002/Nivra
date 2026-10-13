@@ -1462,14 +1462,19 @@ try {
             exact: true,
           })
           .waitFor();
+        const fixtureSuggestionCard = suggestions
+          .getByRole("button", { name: `Open ${title}`, exact: true })
+          .locator("xpath=ancestor::li[1]");
         const evidence =
           "SQLite database queries and indexes verify encrypted backup restore.";
-        await suggestions.getByText(evidence, { exact: true }).waitFor();
-        await suggestions
-          .locator(".tag-suggestion-card")
+        await fixtureSuggestionCard
+          .getByText(evidence, { exact: true })
+          .waitFor();
+        await fixtureSuggestionCard
+          .locator(".tag-collection-kind")
           .getByText("Note", { exact: true })
           .waitFor();
-        await suggestions
+        await fixtureSuggestionCard
           .locator(".tag-suggestion-chip")
           .getByText(tag.name, { exact: true })
           .waitFor();
@@ -1540,6 +1545,14 @@ try {
           const suggestionGrid = suggestions
             .locator(".tag-suggestion-grid")
             .first();
+          const createProposalButton = proposalCards.createCard.getByRole(
+            "button",
+            {
+              name: `Create ${proposalNames.create} and tag 3 items`,
+              exact: true,
+            },
+          );
+          await createProposalButton.scrollIntoViewIfNeeded();
           const gridTopBeforeCreate = await suggestionGrid.evaluate(
             (element) => element.getBoundingClientRect().top,
           );
@@ -1551,12 +1564,7 @@ try {
                 `/api/v1/ai/tag-proposals/${proposalIds.create}/accept`
             );
           });
-          await proposalCards.createCard
-            .getByRole("button", {
-              name: `Create ${proposalNames.create} and tag 3 items`,
-              exact: true,
-            })
-            .click();
+          await createProposalButton.click();
           const createResponse = await createResponsePromise;
           assert.equal(createResponse.status(), 200);
           await waitForSuggestionsBusy(suggestions, true);
