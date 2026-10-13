@@ -103,6 +103,10 @@ let checked = 0;
 const errors = [];
 const unsupportedBrowserWarnings = [];
 let unsupportedWarningCountReported = false;
+let expectedTemplateConflict = false;
+let expectedConflictNoteId = null;
+let expectedConflictTemplatePostStarted = false;
+let expected409ConsoleWarningCount = 0;
 
 async function openMenuAction(page, label) {
   await page.getByRole("button", { name: "Note actions", exact: true }).click();
@@ -135,14 +139,25 @@ try {
     page.setDefaultTimeout(15000);
     const writeRequests = new WeakMap();
     const writeEvents = [];
+    const trackedNoteIds = new Set([note.id]);
     let writeOrder = 0;
     page.on("request", (request) => {
       const url = new URL(request.url());
       const isSourcePatch =
         request.method() === "PATCH" &&
-        url.pathname === `/api/v1/notes/${note.id}`;
+        [...trackedNoteIds].some(
+          (id) => url.pathname === `/api/v1/notes/${id}`,
+        );
       const isTemplateCreate =
         request.method() === "POST" && url.pathname === "/api/v1/templates";
+      if (
+        isTemplateCreate &&
+        expectedTemplateConflict &&
+        expectedConflictNoteId &&
+        request.postDataJSON()?.sourceNoteId === expectedConflictNoteId
+      ) {
+        expectedConflictTemplatePostStarted = true;
+      }
       if (!isSourcePatch && !isTemplateCreate) return;
       const event = {
         method: request.method(),
@@ -224,9 +239,30 @@ try {
         message.type(),
         message.text(),
       );
+      const locationUrl = message.location().url;
+      let locationPath = "";
+      if (locationUrl) {
+        try {
+          locationPath = new URL(locationUrl).pathname;
+        } catch {}
+      }
       if (classification === "unsupported-feature-warning")
         unsupportedBrowserWarnings.push(message.text());
-      else if (classification === "error")
+      else if (
+        expectedTemplateConflict &&
+        expectedConflictTemplatePostStarted &&
+        expected409ConsoleWarningCount === 0 &&
+        expectedConflictNoteId &&
+        new URL(page.url()).searchParams.get("note") ===
+          expectedConflictNoteId &&
+        (!locationUrl || locationPath === "/api/v1/templates") &&
+        /^Failed to load resource: the server responded with a status of 409 \(Conflict\)$/i.test(
+          message.text(),
+        )
+      ) {
+        expected409ConsoleWarningCount += 1;
+        expectedTemplateConflict = false;
+      } else if (classification === "error")
         errors.push(`${width}px console: ${message.text()}`);
     });
 
@@ -513,6 +549,40 @@ try {
         .locator(".writing-template-row")
         .filter({ hasText: templateName })
         .click();
+
+      await page.getByRole("button", { name: "Close templates" }).click();
+      await page.getByRole("textbox", { name: "Note title" }).waitFor();
+      await settle(page);
+      await page.locator(".save-status").filter({ hasText: "Saved" }).waitFor();
+      const postLeaseTitle = `Saved after template ${stamp} ${width}`;
+      const postLeaseSave = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return (
+          response.request().method() === "PATCH" &&
+          url.pathname === `/api/v1/notes/${note.id}` &&
+          response.request().postDataJSON()?.title === postLeaseTitle
+        );
+      });
+      await page
+        .getByRole("textbox", { name: "Note title" })
+        .fill(postLeaseTitle);
+      assert.ok(
+        (await postLeaseSave).ok(),
+        "Ordinary note saves should resume in the same note pane after the template source lease releases",
+      );
+      await page.locator(".save-status").filter({ hasText: "Saved" }).waitFor();
+      assert.equal(
+        (await api(`notes/${note.id}`)).title,
+        postLeaseTitle,
+        "The post-template title should persist normally",
+      );
+      checked += 1;
+
+      await openMenuAction(page, "Start from template");
+      await page
+        .locator(".writing-template-row")
+        .filter({ hasText: templateName })
+        .click();
       await page
         .getByRole("button", { name: "Create new note", exact: true })
         .click();
@@ -538,32 +608,6 @@ try {
       );
       checked += 1;
 
-      await page.goto(`${base}/notes?note=${note.id}`);
-      await page.getByRole("textbox", { name: "Note title" }).waitFor();
-      await settle(page);
-      const postLeaseTitle = `Saved after template ${stamp} ${width}`;
-      const postLeaseSave = page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return (
-          response.request().method() === "PATCH" &&
-          url.pathname === `/api/v1/notes/${note.id}` &&
-          response.request().postDataJSON()?.title === postLeaseTitle
-        );
-      });
-      await page
-        .getByRole("textbox", { name: "Note title" })
-        .fill(postLeaseTitle);
-      assert.ok(
-        (await postLeaseSave).ok(),
-        "Ordinary note saves should resume after the template source lease releases",
-      );
-      assert.equal(
-        (await api(`notes/${note.id}`)).title,
-        postLeaseTitle,
-        "The post-template title should persist normally",
-      );
-      checked += 1;
-
       if (width === widths[0]) {
         const conflictNote = await api("notes", "POST", {
           title: `Conflict source ${stamp}`,
@@ -579,6 +623,7 @@ try {
           },
         });
         noteIds.push(conflictNote.id);
+        trackedNoteIds.add(conflictNote.id);
         await page.route("**/api/v1/completions", (route) =>
           route.fulfill({
             status: 200,
@@ -593,44 +638,141 @@ try {
           .locator(".save-status")
           .filter({ hasText: "Saved" })
           .waitFor();
+        const conflictWarmupName = `Conflict warmup ${stamp}`;
         await openMenuAction(page, "Save as template");
-        const conflictTemplateName = `Keep draft ${stamp}`;
-        await page
-          .getByLabel("Name", { exact: true })
-          .fill(conflictTemplateName);
-        const latestConflictNote = await api(`notes/${conflictNote.id}`);
-        const staleRevision = latestConflictNote.revision;
-        await api(`notes/${conflictNote.id}`, "PATCH", {
-          revision: staleRevision,
-          title: `Remote edit ${stamp}`,
-        });
-        const conflictResponse = page.waitForResponse((response) => {
+        await page.getByLabel("Name", { exact: true }).fill(conflictWarmupName);
+        const warmupResponse = page.waitForResponse((response) => {
           const url = new URL(response.url());
           return (
-            response.status() === 409 &&
-            ((response.request().method() === "POST" &&
-              url.pathname === "/api/v1/templates") ||
-              (response.request().method() === "PATCH" &&
-                url.pathname === `/api/v1/notes/${conflictNote.id}`))
+            response.request().method() === "POST" &&
+            url.pathname === "/api/v1/templates"
           );
         });
         await page
           .getByRole("button", { name: "Save template", exact: true })
           .click();
+        assert.equal(
+          (await warmupResponse).status(),
+          201,
+          "A clean warmup template save drains initial editor normalization",
+        );
+        const warmupTemplate = (
+          await api("templates?kind=note&limit=100")
+        ).items.find((item) => item.name === conflictWarmupName);
+        assert.ok(warmupTemplate, "The warmup template should be persisted");
+        templateIds.push(warmupTemplate.id);
+        await page.getByRole("button", { name: "Close templates" }).click();
+        await page.getByRole("textbox", { name: "Note title" }).waitFor();
+        await settle(page);
+        await page
+          .locator(".save-status")
+          .filter({ hasText: "Saved" })
+          .waitFor();
+
+        const conflictCleanTitle = `Clean local source ${stamp}`;
+        const cleanSourceSave = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            response.request().method() === "PATCH" &&
+            url.pathname === `/api/v1/notes/${conflictNote.id}` &&
+            response.request().postDataJSON()?.title === conflictCleanTitle
+          );
+        });
+        await page
+          .getByRole("textbox", { name: "Note title" })
+          .fill(conflictCleanTitle);
+        assert.ok(
+          (await cleanSourceSave).ok(),
+          "The conflict fixture must have a saved local source before the remote mutation",
+        );
+        await page
+          .locator(".save-status")
+          .filter({ hasText: "Saved" })
+          .waitFor();
+        assert.equal(
+          (await api(`notes/${conflictNote.id}`)).title,
+          conflictCleanTitle,
+          "The clean local source must be persisted before introducing a remote revision",
+        );
+
+        const conflictTemplateName = `Keep draft ${stamp}`;
+        await openMenuAction(page, "Save as template");
+        await page
+          .getByLabel("Name", { exact: true })
+          .fill(conflictTemplateName);
+        const latestConflictNote = await api(`notes/${conflictNote.id}`);
+        const writeCountBeforeRemoteMutation = writeEvents.length;
+        const remoteConflictNote = await api(
+          `notes/${conflictNote.id}`,
+          "PATCH",
+          {
+            revision: latestConflictNote.revision,
+            title: `Remote edit ${stamp}`,
+          },
+        );
+        const conflictResponse = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return (
+            response.request().method() === "POST" &&
+            url.pathname === "/api/v1/templates"
+          );
+        });
+        expectedConflictNoteId = conflictNote.id;
+        expectedTemplateConflict = true;
+        await page
+          .getByRole("button", { name: "Save template", exact: true })
+          .click();
         const staleWriteResponse = await conflictResponse;
         assert.equal(staleWriteResponse.status(), 409);
+        assert.ok(
+          expectedConflictTemplatePostStarted,
+          "The expected source-backed template POST should be the request that conflicts",
+        );
         assert.equal(
           new URL(staleWriteResponse.url()).pathname,
           "/api/v1/templates",
           "A real remote source edit must still be rejected by the revision guard",
         );
-        await page.getByRole("alert").waitFor();
+        const attemptedTemplate = staleWriteResponse.request().postDataJSON();
+        assert.equal(
+          attemptedTemplate.sourceRevision,
+          latestConflictNote.revision,
+          "The template request should carry the last clean local source revision",
+        );
+        assert.ok(
+          remoteConflictNote.revision > attemptedTemplate.sourceRevision,
+          "The remote edit should create a newer source revision than the submitted template snapshot",
+        );
+        assert.equal(
+          writeEvents
+            .slice(writeCountBeforeRemoteMutation)
+            .filter(
+              (event) =>
+                event.method === "PATCH" &&
+                event.path === `/api/v1/notes/${conflictNote.id}`,
+            ).length,
+          0,
+          "A clean source save should not race with the remote edit during template creation",
+        );
+        const templateConflict = page.locator(
+          ".writing-inline-error[role=alert]",
+        );
+        await templateConflict.waitFor();
+        assert.match(
+          await templateConflict.innerText(),
+          /This note changed\. Reload it before saving the template\./,
+          "A genuine remote edit should produce the actionable template conflict message",
+        );
+        expectedTemplateConflict = false;
         assert.equal(
           await page.getByLabel("Name", { exact: true }).inputValue(),
           conflictTemplateName,
           "A source conflict must preserve the user's template draft",
         );
-        checked += 2;
+        expectedTemplateConflict = false;
+        expectedConflictNoteId = null;
+        expectedConflictTemplatePostStarted = false;
+        checked += 3;
       }
 
       await page.goto(`${base}/journal`);
@@ -723,6 +865,9 @@ try {
   );
   console.log(
     `Unsupported ${engineName} browser warnings: ${unsupportedBrowserWarnings.length}.`,
+  );
+  console.log(
+    `Expected template-conflict 409 browser warnings: ${expected409ConsoleWarningCount}.`,
   );
   unsupportedWarningCountReported = true;
 } finally {
