@@ -181,16 +181,20 @@ export default async function verifyPlanning(page) {
       "Task time block and planned date save together without creating an event",
     );
 
+    const scheduledDate = scheduled.schedule.start.slice(0, 10);
     await page.goto(
       new URL(
-        "/calendar?date=" +
-          scheduled.schedule.start.slice(0, 10) +
-          "&view=week&mode=planning",
+        "/calendar?date=" + scheduledDate + "&view=week&mode=planning",
         base,
       ).href,
     );
     await page.locator(".schedule-panel").waitFor();
     await page.locator(".schedule-time-grid").waitFor();
+    assert.equal(
+      new URL(page.url()).searchParams.get("date"),
+      scheduledDate,
+      "Calendar keeps the selected date in the URL on initial navigation",
+    );
     const timezone = await page.evaluate(
       () => Intl.DateTimeFormat().resolvedOptions().timeZone,
     );
@@ -216,6 +220,12 @@ export default async function verifyPlanning(page) {
       reminders: [],
     });
     await page.reload();
+    await page.locator(".schedule-time-grid").waitFor();
+    assert.equal(
+      new URL(page.url()).searchParams.get("date"),
+      scheduledDate,
+      "Calendar keeps the selected date in the URL after reload",
+    );
     const recurringBlock = page
       .locator(".schedule-time-entry-open")
       .filter({ hasText: "Recurring move scope " + stamp })

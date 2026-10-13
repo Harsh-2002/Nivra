@@ -734,7 +734,7 @@ export function Workspace({
       url.searchParams.set("date", journalDate);
     } else {
       url.searchParams.delete("period");
-      url.searchParams.delete("date");
+      if (view !== "calendar") url.searchParams.delete("date");
     }
     if (active) url.searchParams.set("note", active.id);
     else url.searchParams.delete("note");
