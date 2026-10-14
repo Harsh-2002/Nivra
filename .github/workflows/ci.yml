@@ -30,6 +30,7 @@ jobs:
       - name: Verify connected workflows, tag actions and live Overview
         run: |
           npx playwright install --with-deps chromium firefox webkit
+          node scripts/browser-webkit-runtime.mjs
           foundations_dir="$(mktemp -d /tmp/nivra-foundations.XXXXXX)"
           chmod 700 "$foundations_dir"
           export NIVRA_DATA_DIR="$foundations_dir/data"
