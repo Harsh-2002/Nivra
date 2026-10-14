@@ -21,11 +21,23 @@ test("tag suggestions have a clean internal workspace route", () => {
   assert.equal(url.search, "");
 });
 
+test("templates have a direct workspace route and no section parameters", () => {
+  assert.equal(workspaceRoutes.templates, "/templates");
+  assert.equal(workspacePath("templates"), "/templates");
+  assert.equal(workspaceView("/templates"), "templates");
+  const url = cleanWorkspaceUrl(
+    new URL("https://example.com/templates?note=stale&tag=stale&period=weekly"),
+  );
+  assert.equal(url.pathname, "/templates");
+  assert.equal(url.search, "");
+});
+
 test("calendar parameters are removed from unrelated sections", () => {
   for (const path of [
     "overview",
     "notes",
     "journal",
+    "templates",
     "favorites",
     "bookmarks",
     "artifacts",

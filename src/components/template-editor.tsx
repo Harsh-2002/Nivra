@@ -2,33 +2,70 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { Eye, Loader2, Save, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  ChevronsUpDown,
+  Eye,
+  Loader2,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { api } from "@/lib/client";
 import { canonicalizeTaskLinks } from "@/lib/writing";
 import {
   emptyDocument,
   type Document,
+  type JournalPeriod,
+  type NoteSummary,
   type WritingTemplate,
 } from "@/lib/types";
 import { useConfirm } from "./confirm-provider";
 import { NoteContent } from "./note-content";
+import { SectionHeading } from "./section-heading";
 import { Button } from "./ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "./ui/command";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldSet,
+  FieldTitle,
+} from "./ui/field";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 import { Textarea } from "./ui/textarea";
 import type { EditorTools } from "./editor";
 
 const Editor = dynamic(() => import("./editor"), {
   ssr: false,
   loading: () => (
-    <div className="writing-template-editor-loading" role="status">
+    <div
+      className="flex min-h-56 items-center justify-center text-sm text-muted-foreground"
+      role="status"
+    >
       Loading template…
     </div>
   ),
 });
 
 type Kind = WritingTemplate["kind"];
-type TemplateSource = { noteId: string; revision: number };
+type Source = Pick<NoteSummary, "id" | "title" | "revision">;
 
 function templateSafeDocument(document: Document): Document {
   const visit = (blocks: unknown[]): unknown[] =>
@@ -91,105 +128,254 @@ export function previewTemplateDocument(
   return templateSafeDocument(replace(document) as Document);
 }
 
-export function insertableTemplateBlocks(
-  document: Document,
-): Document["blocks"] {
-  const stripIds = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(stripIds);
-    if (!value || typeof value !== "object") return value;
-    const block = value as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(block)
-        .filter(([key]) => key !== "id")
-        .map(([key, child]) => [key, stripIds(child)]),
-    );
-  };
-  return stripIds(templateSafeDocument(document).blocks) as Document["blocks"];
+const periods: JournalPeriod[] = ["daily", "weekly", "monthly"];
+
+async function searchSources(kind: Kind, query: string): Promise<Source[]> {
+  const params = new URLSearchParams({ q: query, limit: "15" });
+  if (kind === "note") {
+    params.set("view", "all");
+    params.set("sort", "updated");
+    const page = await api<{ items: Source[] }>(`notes?${params}`);
+    return page.items;
+  }
+  const pages = await Promise.all(
+    periods.map((period) =>
+      api<{ items: (Source & { updatedAt: number })[] }>(
+        `journals?${new URLSearchParams({ q: query, limit: "15", period })}`,
+      ),
+    ),
+  );
+  return pages
+    .flatMap((page) => page.items)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, 15);
+}
+
+function SourcePicker({
+  kind,
+  value,
+  disabled,
+  onChange,
+}: {
+  kind: Kind;
+  value: Source | null;
+  disabled: boolean;
+  onChange: (source: Source) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Source[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      searchSources(kind, query.trim())
+        .then((items) => {
+          if (!active) return;
+          setResults(items);
+          setError("");
+        })
+        .catch((cause) => {
+          if (active) setError((cause as Error).message);
+        });
+    }, 180);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [kind, open, query]);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="h-11 w-full justify-between font-normal"
+        >
+          <span className="truncate">
+            {value
+              ? value.title || "Untitled"
+              : kind === "journal"
+                ? "Choose a journal entry"
+                : "Choose a note"}
+          </span>
+          <ChevronsUpDown className="opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-(--radix-popover-trigger-width) min-w-64 p-0"
+      >
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder={
+              kind === "journal" ? "Search entries…" : "Search notes…"
+            }
+            value={query}
+            onValueChange={setQuery}
+          />
+          <CommandList>
+            {error ? (
+              <p className="p-3 text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            ) : results === null ? (
+              <p className="p-3 text-sm text-muted-foreground" role="status">
+                Searching…
+              </p>
+            ) : (
+              <>
+                <CommandEmpty>No matches.</CommandEmpty>
+                <CommandGroup>
+                  {results.map((item) => (
+                    <CommandItem
+                      key={item.id}
+                      value={item.id}
+                      onSelect={() => {
+                        onChange(item);
+                        setOpen(false);
+                      }}
+                    >
+                      <span className="truncate">
+                        {item.title || "Untitled"}
+                      </span>
+                      {value?.id === item.id && <Check className="ml-auto" />}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function TemplateEditor({
-  kind,
+  kind: initialKind,
   initial,
-  source,
-  withPreparedSource,
+  registerGuard,
+  onNavigation,
   onClose,
   onSaved,
   onDeleted,
 }: {
   kind: Kind;
   initial?: WritingTemplate;
-  source?: TemplateSource;
-  withPreparedSource?: <T>(
-    submit: (source: TemplateSource) => Promise<T>,
-  ) => Promise<T>;
+  registerGuard: (guard: () => Promise<boolean>) => void;
+  onNavigation: () => void;
   onClose: () => void;
   onSaved: (template: WritingTemplate) => void;
-  onDeleted?: (id: string) => void;
+  onDeleted: (id: string) => void;
 }) {
   const confirm = useConfirm();
+  const [kind, setKind] = useState<Kind>(initialKind);
   const [name, setName] = useState(initial?.name || "");
   const [description, setDescription] = useState(initial?.description || "");
   const [document, setDocument] = useState<Document>(
     initial?.document || emptyDocument,
   );
+  const [origin, setOrigin] = useState<"blank" | "item">("blank");
+  const [source, setSource] = useState<Source | null>(null);
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const nameRef = useRef<HTMLInputElement>(null);
-  const isSource = !!source && !initial;
+  const [finished, setFinished] = useState(false);
+  const [baseline] = useState(() =>
+    JSON.stringify(templateSafeDocument(initial?.document || emptyDocument)),
+  );
+  const fromItem = !initial && origin === "item";
+  const dirty =
+    !finished &&
+    (name !== (initial?.name || "") ||
+      description !== (initial?.description || "") ||
+      !!source ||
+      JSON.stringify(templateSafeDocument(document)) !== baseline);
 
   useEffect(() => {
-    nameRef.current?.focus({ preventScroll: true });
+    if (window.matchMedia("(pointer: fine)").matches)
+      nameRef.current?.focus({ preventScroll: true });
   }, []);
+  useEffect(() => {
+    registerGuard(
+      async () =>
+        !busy &&
+        (!dirty ||
+          (await confirm({
+            title: "Discard unsaved template?",
+            description:
+              "Your changes have not been saved. Stay here to finish, or discard them before leaving.",
+            action: "Discard",
+          }))),
+    );
+    return () => registerGuard(async () => true);
+  }, [busy, dirty, confirm, registerGuard]);
+
+  async function close() {
+    if (busy) return;
+    if (
+      dirty &&
+      !(await confirm({
+        title: "Discard unsaved template?",
+        description:
+          "Your changes have not been saved. Stay here to finish, or discard them.",
+        action: "Discard",
+      }))
+    )
+      return;
+    setFinished(true);
+    onClose();
+  }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!name.trim() || busy) return;
+    if (fromItem && !source) {
+      setError(
+        kind === "journal"
+          ? "Choose the journal entry to copy."
+          : "Choose the note to copy.",
+      );
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      let saved: WritingTemplate;
-      if (initial) {
-        saved = await api<WritingTemplate>(`templates/${initial.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({
-            revision: initial.revision,
-            name: name.trim(),
-            description: description.trim(),
-            document: canonicalizeTaskLinks(templateSafeDocument(document)),
-          }),
-        });
-      } else if (source) {
-        if (!withPreparedSource)
-          throw new Error("Save the note before creating a template.");
-        saved = await withPreparedSource((currentSource) => {
-          if (currentSource.noteId !== source.noteId)
-            throw new Error(
-              "The source note changed. Reopen the template editor.",
-            );
-          return api<WritingTemplate>("templates", {
+      const body = {
+        name: name.trim(),
+        description: description.trim(),
+      };
+      const result = initial
+        ? await api<WritingTemplate>(`templates/${initial.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              revision: initial.revision,
+              ...body,
+              document: canonicalizeTaskLinks(templateSafeDocument(document)),
+            }),
+          })
+        : await api<WritingTemplate>("templates", {
             method: "POST",
             body: JSON.stringify({
-              name: name.trim(),
-              description: description.trim(),
+              ...body,
               kind,
-              sourceNoteId: currentSource.noteId,
-              sourceRevision: currentSource.revision,
+              ...(fromItem && source
+                ? { sourceNoteId: source.id, sourceRevision: source.revision }
+                : {
+                    document: canonicalizeTaskLinks(
+                      templateSafeDocument(document),
+                    ),
+                  }),
             }),
           });
-        });
-      } else {
-        saved = await api<WritingTemplate>("templates", {
-          method: "POST",
-          body: JSON.stringify({
-            name: name.trim(),
-            description: description.trim(),
-            kind,
-            document: canonicalizeTaskLinks(templateSafeDocument(document)),
-          }),
-        });
-      }
-      onSaved(saved);
+      setFinished(true);
+      onSaved(result);
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -213,8 +399,8 @@ export function TemplateEditor({
         method: "DELETE",
         body: JSON.stringify({ revision: initial.revision }),
       });
-      onDeleted?.(initial.id);
-      onClose();
+      setFinished(true);
+      onDeleted(initial.id);
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -223,158 +409,226 @@ export function TemplateEditor({
   }
 
   const noTools: (tools: EditorTools) => void = () => {};
+  const title = initial ? "Edit template" : "New template";
 
   return (
-    <section
-      className="writing-template-editor"
-      aria-labelledby="template-editor-title"
-    >
-      <header className="writing-template-header">
-        <div>
-          <h2 id="template-editor-title">
-            {initial
-              ? "Edit template"
-              : isSource
-                ? "Save as template"
-                : "New template"}
-          </h2>
-          <p>
-            {kind === "journal"
-              ? "A starting point for journal entries."
-              : "A reusable starting point for notes."}
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Close template editor"
-          onClick={onClose}
-          disabled={busy}
-        >
-          <X size={17} />
-        </Button>
-      </header>
-      <form
-        className="writing-template-form"
-        onSubmit={(event) => void save(event)}
+    <section className="tasks-panel">
+      <div
+        className="tasks-scroll"
+        tabIndex={0}
+        role="region"
+        aria-label={title}
       >
-        <div className="writing-template-fields">
-          <div className="writing-template-field">
-            <Label htmlFor="template-name">Name</Label>
-            <Input
-              ref={nameRef}
-              id="template-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={80}
-              required
-              disabled={busy}
-            />
-          </div>
-          <div className="writing-template-field">
-            <Label htmlFor="template-description">
-              Description{" "}
-              <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Textarea
-              id="template-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              maxLength={500}
-              disabled={busy}
-            />
-          </div>
-        </div>
-        {isSource ? (
-          <p className="writing-template-note">
-            The current note and its attachments will be copied into this
-            template.
-          </p>
-        ) : (
-          <div className="writing-template-content">
-            <div className="writing-template-content-heading">
-              <h3 id="template-content-heading">Template content</h3>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                aria-pressed={preview}
-                aria-controls="template-editor-content"
-                onClick={() => setPreview((value) => !value)}
-              >
-                <Eye size={14} />
-                {preview ? "Edit content" : "Preview"}
-              </Button>
-            </div>
-            <div
-              id="template-editor-content"
-              role="region"
-              aria-labelledby="template-content-heading"
-            >
-              {preview ? (
-                <div className="writing-template-preview">
-                  <NoteContent
-                    blocks={
-                      previewTemplateDocument(document, "Untitled").blocks
-                    }
-                  />
-                </div>
-              ) : (
-                <Editor
-                  document={document}
-                  onChange={setDocument}
-                  onTools={noTools}
-                  editable={!busy}
-                  noteId={initial?.id || ""}
-                  allowUpload={false}
-                  contentLabel="Template content"
-                />
-              )}
-            </div>
-            <p className="writing-template-note">
-              Use &#123;&#123;date&#125;&#125;, &#123;&#123;time&#125;&#125; and
-              &#123;&#123;title&#125;&#125; to fill in the current values.
-              Linked tasks become unchecked checklist items.
-            </p>
-          </div>
-        )}
-        {error && (
-          <p className="writing-inline-error" role="alert">
-            {error}
-          </p>
-        )}
-        <footer className="writing-template-actions">
-          {initial && (
-            <Button
-              type="button"
-              variant="ghost"
-              className="mr-auto"
-              onClick={() => void remove()}
-              disabled={busy}
-            >
-              <Trash2 size={14} />
-              Delete
-            </Button>
-          )}
+        <div className="section-content template-editor-page">
           <Button
             type="button"
             variant="ghost"
-            onClick={onClose}
+            className="-ml-3 mb-2 h-11 self-start md:h-9"
+            aria-label="Back to templates"
             disabled={busy}
+            onClick={() => void close()}
           >
-            Cancel
+            <ArrowLeft />
+            Templates
           </Button>
-          <Button type="submit" disabled={busy || !name.trim()}>
-            {busy ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Save size={14} />
-            )}
-            {initial ? "Save changes" : "Save template"}
-          </Button>
-        </footer>
-      </form>
+          <SectionHeading
+            title={title}
+            description={
+              initial
+                ? "Changes apply to notes you create from this template later."
+                : "A reusable starting point you can create notes or journal entries from."
+            }
+            onNavigation={onNavigation}
+          />
+          <form
+            className="template-editor-form"
+            onSubmit={(event) => void save(event)}
+          >
+            <FieldGroup>
+              <div className="grid gap-5 md:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="template-name">Name</FieldLabel>
+                  <Input
+                    ref={nameRef}
+                    id="template-name"
+                    className="h-11"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    maxLength={80}
+                    required
+                    disabled={busy}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="template-kind">Type</FieldLabel>
+                  <Select
+                    value={kind}
+                    onValueChange={(value) => {
+                      setKind(value as Kind);
+                      setSource(null);
+                    }}
+                    disabled={busy || !!initial}
+                  >
+                    <SelectTrigger
+                      id="template-kind"
+                      className="w-full data-[size=default]:h-11"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="note">Note template</SelectItem>
+                      <SelectItem value="journal">Journal template</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <Field>
+                <FieldLabel htmlFor="template-description">
+                  Description
+                  <span className="font-normal text-muted-foreground">
+                    (optional)
+                  </span>
+                </FieldLabel>
+                <Textarea
+                  id="template-description"
+                  className="min-h-20"
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={500}
+                  disabled={busy}
+                />
+              </Field>
+              {!initial && (
+                <Field>
+                  <FieldLabel htmlFor="template-origin">Start from</FieldLabel>
+                  <Select
+                    value={origin}
+                    onValueChange={(value) => {
+                      setOrigin(value as "blank" | "item");
+                      setSource(null);
+                    }}
+                    disabled={busy}
+                  >
+                    <SelectTrigger
+                      id="template-origin"
+                      className="w-full data-[size=default]:h-11"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="blank">A blank page</SelectItem>
+                      <SelectItem value="item">
+                        {kind === "journal"
+                          ? "An existing journal entry"
+                          : "An existing note"}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {fromItem && (
+                    <>
+                      <SourcePicker
+                        kind={kind}
+                        value={source}
+                        disabled={busy}
+                        onChange={setSource}
+                      />
+                      <FieldDescription>
+                        The content and its attachments are copied into the
+                        template. Later edits to the original do not change it.
+                      </FieldDescription>
+                    </>
+                  )}
+                </Field>
+              )}
+              {!fromItem && (
+                <FieldSet>
+                  <div className="flex items-center justify-between gap-3">
+                    <FieldTitle id="template-content-label">
+                      Template content
+                    </FieldTitle>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-11 md:h-8"
+                      aria-controls="template-editor-content"
+                      onClick={() => setPreview((value) => !value)}
+                    >
+                      <Eye />
+                      {preview ? "Edit content" : "Preview"}
+                    </Button>
+                  </div>
+                  <div
+                    id="template-editor-content"
+                    role="region"
+                    aria-labelledby="template-content-label"
+                    className="template-editor-content writing-surface"
+                  >
+                    {preview ? (
+                      <NoteContent
+                        blocks={
+                          previewTemplateDocument(document, "Untitled").blocks
+                        }
+                      />
+                    ) : (
+                      <Editor
+                        document={document}
+                        onChange={setDocument}
+                        onTools={noTools}
+                        editable={!busy}
+                        noteId={initial?.id || ""}
+                        allowUpload={false}
+                        contentLabel="Template content"
+                      />
+                    )}
+                  </div>
+                  <FieldDescription>
+                    Use {"{{date}}"}, {"{{time}}"} and {"{{title}}"} to fill in
+                    the current values. Linked tasks become unchecked checklist
+                    items.
+                  </FieldDescription>
+                </FieldSet>
+              )}
+              {error && (
+                <p className="text-sm text-destructive" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="template-editor-actions">
+                {initial && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="mr-auto h-11 md:h-9"
+                    onClick={() => void remove()}
+                    disabled={busy}
+                  >
+                    <Trash2 />
+                    Delete
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 md:h-9"
+                  onClick={() => void close()}
+                  disabled={busy}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  className="h-11 md:h-9"
+                  disabled={busy || !name.trim()}
+                >
+                  {busy ? <Loader2 className="animate-spin" /> : <Save />}
+                  {initial ? "Save changes" : "Save template"}
+                </Button>
+              </div>
+            </FieldGroup>
+          </form>
+        </div>
+      </div>
     </section>
   );
 }

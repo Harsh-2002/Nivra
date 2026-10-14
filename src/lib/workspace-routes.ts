@@ -5,6 +5,7 @@ export const workspaceRoutes = {
   all: "/notes",
   favorites: "/favorites",
   journal: "/journal",
+  templates: "/templates",
   tasks: "/tasks",
   calendar: "/calendar",
   bookmarks: "/bookmarks",

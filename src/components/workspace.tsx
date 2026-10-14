@@ -28,8 +28,8 @@ import {
   Trash,
   Zap,
   ClipboardList,
+  LayoutTemplate,
   Tags,
-  BookCopy,
 } from "lucide-react";
 import { notify } from "@/lib/feedback";
 import { Mark } from "./auth-screen";
@@ -59,7 +59,6 @@ import type {
   Tag,
   SearchResult,
   JournalPeriod,
-  WritingTemplate,
 } from "@/lib/types";
 import { localDate, validDate } from "@/lib/dates";
 import { GlobalSearch, type SearchHandle } from "./global-search";
@@ -69,8 +68,7 @@ import {
   type CapturedItem,
 } from "./quick-capture";
 import { NotePane } from "./note-pane";
-import { TemplatePicker } from "./template-picker";
-import { TemplateEditor } from "./template-editor";
+import { TemplatesPanel, type TemplateSource } from "./templates-panel";
 import { useConfirm } from "./confirm-provider";
 import { TagColorPicker } from "./tag-color-picker";
 import type { TagColor } from "@/lib/tags";
@@ -174,12 +172,6 @@ export function Workspace({
   });
   const journalPeriodRef = useRef(journalPeriod);
   const journalDateRef = useRef(journalDate);
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [templateEditor, setTemplateEditor] = useState<{
-    kind: WritingTemplate["kind"];
-    template?: WritingTemplate;
-  } | null>(null);
-  const [templateRefresh, setTemplateRefresh] = useState(0);
   const acceptedUrl = useRef(
     typeof window === "undefined"
       ? ""
@@ -853,7 +845,6 @@ export function Workspace({
         }),
       });
       adopt(note);
-      setTemplatePickerOpen(false);
       setDrawer(false);
       return true;
     } catch (e) {
@@ -874,17 +865,16 @@ export function Workspace({
     setActive(null);
     guard.current = async () => true;
     updateJournalContext(period, date);
-    setTemplatePickerOpen(false);
   }
   async function createFromTemplate(
-    template: WritingTemplate,
+    template: TemplateSource,
     idempotencyKey: string,
+    period?: JournalPeriod,
   ) {
-    const kind = template.kind;
-    if (kind === "journal") {
+    if (template.kind === "journal") {
       const created = await writeJournal(
-        journalDateRef.current,
-        journalPeriodRef.current,
+        localDate(),
+        period ?? "daily",
         template.id,
         template.revision,
       );
@@ -907,7 +897,6 @@ export function Workspace({
     setTag("");
     setActive(result.note);
     setGeneration((value) => value + 1);
-    setTemplatePickerOpen(false);
   }
   async function selectResult(result: SearchResult) {
     if (result.type === "form" || result.type === "response") {
@@ -1088,6 +1077,7 @@ export function Workspace({
               { id: "favorites", label: "Favorites", Icon: Heart },
               { id: "all", label: "Notes", Icon: StickyNote },
               { id: "journal", label: "Journal", Icon: NotebookPen },
+              { id: "templates", label: "Templates", Icon: LayoutTemplate },
               { id: "tasks", label: "Tasks", Icon: SquareCheckBig },
               { id: "calendar", label: "Calendar", Icon: CalendarDays },
               { id: "bookmarks", label: "Bookmarks", Icon: LibraryBig },
@@ -1470,6 +1460,14 @@ export function Workspace({
             window.innerWidth < 1024 ? setDrawer(true) : setSidebar(true)
           }
         />
+      ) : view === "templates" ? (
+        <TemplatesPanel
+          registerGuard={registerGuard}
+          onCreate={createFromTemplate}
+          onNavigation={() =>
+            window.innerWidth < 1024 ? setDrawer(true) : setSidebar(true)
+          }
+        />
       ) : view === "tasks" ? (
         <TasksWorkspace
           key={generation}
@@ -1533,335 +1531,279 @@ export function Workspace({
       ) : (
         <>
           {!tag && view !== "favorites" && (
-            <section
-              className={`notes-list ${templatePickerOpen || templateEditor ? "is-template-mode" : ""}`}
-            >
-              {templateEditor ? (
-                <TemplateEditor
-                  key={`${templateEditor.kind}-${templateEditor.template?.id || "new"}`}
-                  kind={templateEditor.kind}
-                  initial={templateEditor.template}
-                  onClose={() => setTemplateEditor(null)}
-                  onSaved={() => {
-                    setTemplateEditor(null);
-                    setTemplatePickerOpen(true);
-                    setTemplateRefresh((value) => value + 1);
-                  }}
-                  onDeleted={() => setTemplateRefresh((value) => value + 1)}
-                />
-              ) : templatePickerOpen ? (
-                <TemplatePicker
-                  key={`${view}-${templateRefresh}`}
-                  kind={view === "journal" ? "journal" : "note"}
-                  allowInsert={false}
-                  createLabel={
-                    view === "journal" ? "Write entry" : "Create note"
-                  }
-                  onClose={() => setTemplatePickerOpen(false)}
-                  onInsert={async () => {}}
-                  onCreate={createFromTemplate}
-                  onEdit={(template) =>
-                    setTemplateEditor({
-                      kind: view === "journal" ? "journal" : "note",
-                      template,
-                    })
-                  }
-                />
-              ) : (
-                <>
-                  <FeedbackOutlet />
-                  <header className="list-header">
-                    <div className="list-header-top">
-                      <div className="list-header-title">
-                        <h1>{title}</h1>
-                        <span
-                          className={`note-count ${shownNotes ? "" : "is-pending"}`}
-                        >
-                          {rows.length}
-                          {shownHasMore ? "+" : ""}
-                        </span>
-                      </div>
+            <section className="notes-list">
+              <FeedbackOutlet />
+              <header className="list-header">
+                <div className="list-header-top">
+                  <div className="list-header-title">
+                    <h1>{title}</h1>
+                    <span
+                      className={`note-count ${shownNotes ? "" : "is-pending"}`}
+                    >
+                      {rows.length}
+                      {shownHasMore ? "+" : ""}
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="menu-toggle"
+                    aria-label="Open navigation"
+                    onClick={() =>
+                      window.innerWidth < 1024
+                        ? setDrawer(true)
+                        : setSidebar(true)
+                    }
+                  >
+                    <NavigationIcon />
+                  </Button>
+                </div>
+                <div className="list-header-actions">
+                  {view === "journal" && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Write a journal entry"
+                      title="Write a journal entry"
+                      onClick={() =>
+                        void writeJournal(journalDate, journalPeriod)
+                      }
+                    >
+                      <Plus size={16} />
+                    </Button>
+                  )}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="menu-toggle"
-                        aria-label="Open navigation"
-                        onClick={() =>
-                          window.innerWidth < 1024
-                            ? setDrawer(true)
-                            : setSidebar(true)
-                        }
+                        aria-label="Sort notes"
                       >
-                        <NavigationIcon />
+                        <ArrowUpDown size={15} />
                       </Button>
-                    </div>
-                    <div className="list-header-actions">
-                      {view === "journal" && (
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {[
+                        { value: "updated", label: "Last edited" },
+                        { value: "created", label: "Date created" },
+                        { value: "title", label: "Title" },
+                      ].map((item) => (
+                        <DropdownMenuItem
+                          key={item.value}
+                          onSelect={() => setSort(item.value)}
+                        >
+                          {item.label}
+                          {sort === item.value && (
+                            <span className="ml-auto">✓</span>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </header>
+              <p className="list-description">
+                {view === "journal"
+                  ? `One entry for each ${journalPeriod === "daily" ? "day" : journalPeriod === "weekly" ? "week" : "month"} you write.`
+                  : "Write and organize your ideas."}
+              </p>
+              {view === "journal" && (
+                <div className="journal-period-controls">
+                  <Label className="sr-only" htmlFor="journal-period">
+                    Journal period
+                  </Label>
+                  <Select
+                    value={journalPeriod}
+                    onValueChange={(value) =>
+                      void changeJournalContext(
+                        value as JournalPeriod,
+                        journalDate,
+                      )
+                    }
+                  >
+                    <SelectTrigger
+                      id="journal-period"
+                      aria-label="Journal period"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Day</SelectItem>
+                      <SelectItem value="weekly">Week</SelectItem>
+                      <SelectItem value="monthly">Month</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <DatePicker
+                    label="Journal date"
+                    allowClear={false}
+                    value={journalDate}
+                    onChange={(date) => {
+                      if (date) void changeJournalContext(journalPeriod, date);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      void changeJournalContext(journalPeriod, localDate())
+                    }
+                  >
+                    Today
+                  </Button>
+                </div>
+              )}
+              <div className="search-field">
+                <Search size={15} />
+                <Input
+                  ref={searchRef}
+                  aria-label={
+                    view === "journal"
+                      ? "Search journal entries"
+                      : "Search notes"
+                  }
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={
+                    view === "journal"
+                      ? "Search journal entries…"
+                      : "Search your notes…"
+                  }
+                />
+              </div>
+              <div
+                className="note-list-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label={
+                  view === "journal" ? "Journal entries" : "Note list"
+                }
+              >
+                {error ? (
+                  <div className="list-empty">
+                    <p role="alert">{error}</p>
+                    <Button variant="outline" size="sm" onClick={load}>
+                      <RefreshCw size={14} />
+                      Try again
+                    </Button>
+                  </div>
+                ) : shownNotes === undefined ? (
+                  <LoadingState
+                    kind="notes"
+                    label={`Loading ${view === "journal" ? "journal entries" : "notes"}`}
+                  />
+                ) : !rows.length ? (
+                  <div className="list-empty">
+                    {view === "journal" ? (
+                      <NotebookPen size={25} />
+                    ) : (
+                      <FileText size={25} />
+                    )}
+                    <h2>
+                      {query
+                        ? view === "journal"
+                          ? "No matching journal entries"
+                          : "No matching notes"
+                        : view === "journal"
+                          ? "Your journal is empty"
+                          : "A fresh page awaits"}
+                    </h2>
+                    <p>
+                      {query
+                        ? "Try a different word."
+                        : view === "journal"
+                          ? `One entry for each ${journalPeriod === "daily" ? "day" : journalPeriod === "weekly" ? "week" : "month"} you write.`
+                          : "Start with a thought. The rest will follow."}
+                    </p>
+                    {view === "all" && !query && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void create()}
+                      >
+                        <Plus size={14} />
+                        Create a note
+                      </Button>
+                    )}
+                    {view === "journal" && !query && (
+                      <div className="journal-empty-actions">
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Write a journal entry"
-                          title="Write a journal entry"
+                          variant="outline"
+                          size="sm"
                           onClick={() =>
                             void writeJournal(journalDate, journalPeriod)
                           }
                         >
-                          <Plus size={16} />
+                          <Plus size={14} />
+                          Write entry
                         </Button>
-                      )}
-                      {(view === "journal" || view === "all") && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Browse templates"
-                          title="Browse templates"
-                          onClick={() => setTemplatePickerOpen(true)}
-                        >
-                          <BookCopy size={15} />
-                        </Button>
-                      )}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Sort notes"
-                          >
-                            <ArrowUpDown size={15} />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {[
-                            { value: "updated", label: "Last edited" },
-                            { value: "created", label: "Date created" },
-                            { value: "title", label: "Title" },
-                          ].map((item) => (
-                            <DropdownMenuItem
-                              key={item.value}
-                              onSelect={() => setSort(item.value)}
-                            >
-                              {item.label}
-                              {sort === item.value && (
-                                <span className="ml-auto">✓</span>
-                              )}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </header>
-                  <p className="list-description">
-                    {view === "journal"
-                      ? `One entry for each ${journalPeriod === "daily" ? "day" : journalPeriod === "weekly" ? "week" : "month"} you write.`
-                      : "Write and organize your ideas."}
-                  </p>
-                  {view === "journal" && (
-                    <div className="journal-period-controls">
-                      <Label className="sr-only" htmlFor="journal-period">
-                        Journal period
-                      </Label>
-                      <Select
-                        value={journalPeriod}
-                        onValueChange={(value) =>
-                          void changeJournalContext(
-                            value as JournalPeriod,
-                            journalDate,
-                          )
-                        }
-                      >
-                        <SelectTrigger
-                          id="journal-period"
-                          aria-label="Journal period"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="daily">Day</SelectItem>
-                          <SelectItem value="weekly">Week</SelectItem>
-                          <SelectItem value="monthly">Month</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <DatePicker
-                        label="Journal date"
-                        allowClear={false}
-                        value={journalDate}
-                        onChange={(date) => {
-                          if (date)
-                            void changeJournalContext(journalPeriod, date);
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          void changeJournalContext(journalPeriod, localDate())
-                        }
-                      >
-                        Today
-                      </Button>
-                    </div>
-                  )}
-                  <div className="search-field">
-                    <Search size={15} />
-                    <Input
-                      ref={searchRef}
-                      aria-label={
-                        view === "journal"
-                          ? "Search journal entries"
-                          : "Search notes"
-                      }
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder={
-                        view === "journal"
-                          ? "Search journal entries…"
-                          : "Search your notes…"
-                      }
-                    />
-                  </div>
-                  <div
-                    className="note-list-scroll"
-                    tabIndex={0}
-                    role="region"
-                    aria-label={
-                      view === "journal" ? "Journal entries" : "Note list"
-                    }
-                  >
-                    {error ? (
-                      <div className="list-empty">
-                        <p role="alert">{error}</p>
-                        <Button variant="outline" size="sm" onClick={load}>
-                          <RefreshCw size={14} />
-                          Try again
-                        </Button>
-                      </div>
-                    ) : shownNotes === undefined ? (
-                      <LoadingState
-                        kind="notes"
-                        label={`Loading ${view === "journal" ? "journal entries" : "notes"}`}
-                      />
-                    ) : !rows.length ? (
-                      <div className="list-empty">
-                        {view === "journal" ? (
-                          <NotebookPen size={25} />
-                        ) : (
-                          <FileText size={25} />
-                        )}
-                        <h2>
-                          {query
-                            ? view === "journal"
-                              ? "No matching journal entries"
-                              : "No matching notes"
-                            : view === "journal"
-                              ? "Your journal is empty"
-                              : "A fresh page awaits"}
-                        </h2>
-                        <p>
-                          {query
-                            ? "Try a different word."
-                            : view === "journal"
-                              ? `One entry for each ${journalPeriod === "daily" ? "day" : journalPeriod === "weekly" ? "week" : "month"} you write.`
-                              : "Start with a thought. The rest will follow."}
-                        </p>
-                        {view === "all" && !query && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void create()}
-                          >
-                            <Plus size={14} />
-                            Create a note
-                          </Button>
-                        )}
-                        {view === "journal" && !query && (
-                          <div className="journal-empty-actions">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                void writeJournal(journalDate, journalPeriod)
-                              }
-                            >
-                              <Plus size={14} />
-                              Write entry
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                void writeJournal(
-                                  journalDate,
-                                  journalPeriod,
-                                  null,
-                                )
-                              }
-                            >
-                              Start blank
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      rows.map((note) => (
-                        <button
-                          className={`note-list-item ${active?.id === note.id ? "selected" : ""}`}
-                          key={note.id}
-                          onClick={() => void open(note)}
-                        >
-                          <div>
-                            <strong>{note.title || "Untitled"}</strong>
-                            {note.favorite && (
-                              <Star size={12} fill="currentColor" />
-                            )}
-                          </div>
-                          <p>
-                            {note.text.replace(/\s+/g, " ").slice(0, 110) ||
-                              "An idea waiting to happen…"}
-                          </p>
-                          <footer>
-                            <time>
-                              {new Date(note.updatedAt).toLocaleDateString(
-                                undefined,
-                                {
-                                  month: "short",
-                                  day: "numeric",
-                                },
-                              )}
-                            </time>
-                            {note.tags.slice(0, 2).map((tag) => (
-                              <span key={tag.id}>
-                                <span
-                                  className="tag-dot"
-                                  data-color={tag.color}
-                                />
-                                <span className="tag-name">{tag.name}</span>
-                              </span>
-                            ))}
-                          </footer>
-                        </button>
-                      ))
-                    )}
-                    {!error && shownHasMore && (
-                      <div className="note-list-more">
-                        {moreError && <p role="alert">{moreError}</p>}
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={loading || loadingMore}
-                          onClick={() => void loadMore()}
+                          onClick={() =>
+                            void writeJournal(journalDate, journalPeriod, null)
+                          }
                         >
-                          {loadingMore
-                            ? "Loading…"
-                            : moreError
-                              ? "Try again"
-                              : "Load more"}
+                          Start blank
                         </Button>
                       </div>
                     )}
                   </div>
-                </>
-              )}
+                ) : (
+                  rows.map((note) => (
+                    <button
+                      className={`note-list-item ${active?.id === note.id ? "selected" : ""}`}
+                      key={note.id}
+                      onClick={() => void open(note)}
+                    >
+                      <div>
+                        <strong>{note.title || "Untitled"}</strong>
+                        {note.favorite && (
+                          <Star size={12} fill="currentColor" />
+                        )}
+                      </div>
+                      <p>
+                        {note.text.replace(/\s+/g, " ").slice(0, 110) ||
+                          "An idea waiting to happen…"}
+                      </p>
+                      <footer>
+                        <time>
+                          {new Date(note.updatedAt).toLocaleDateString(
+                            undefined,
+                            {
+                              month: "short",
+                              day: "numeric",
+                            },
+                          )}
+                        </time>
+                        {note.tags.slice(0, 2).map((tag) => (
+                          <span key={tag.id}>
+                            <span className="tag-dot" data-color={tag.color} />
+                            <span className="tag-name">{tag.name}</span>
+                          </span>
+                        ))}
+                      </footer>
+                    </button>
+                  ))
+                )}
+                {!error && shownHasMore && (
+                  <div className="note-list-more">
+                    {moreError && <p role="alert">{moreError}</p>}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={loading || loadingMore}
+                      onClick={() => void loadMore()}
+                    >
+                      {loadingMore
+                        ? "Loading…"
+                        : moreError
+                          ? "Try again"
+                          : "Load more"}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </section>
           )}
           {active ? (

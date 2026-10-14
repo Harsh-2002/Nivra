@@ -27,7 +27,6 @@ import {
   AlertCircle,
   Share2,
   History,
-  FileText,
   AlignCenter,
   MoveHorizontal,
   CalendarDays,
@@ -49,13 +48,7 @@ import {
 } from "./ui/dropdown-menu";
 import { remapDocument } from "@/lib/document";
 import { api, ApiError, downloadRequest } from "@/lib/client";
-import type {
-  Note,
-  Tag,
-  SearchResult,
-  Task,
-  WritingTemplate,
-} from "@/lib/types";
+import type { Note, Tag, SearchResult, Task } from "@/lib/types";
 import { localDate } from "@/lib/dates";
 import { HistoryDialog } from "./history-dialog";
 import { NoteConnections } from "./note-connections";
@@ -65,12 +58,6 @@ import { useConfirm } from "./confirm-provider";
 import { PublishDialog } from "./publish-dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { TemplatePicker } from "./template-picker";
-import {
-  TemplateEditor,
-  insertableTemplateBlocks,
-  previewTemplateDocument,
-} from "./template-editor";
 import { JournalReview } from "./journal-review";
 
 const Editor = dynamic(() => import("./editor"), {
@@ -121,8 +108,6 @@ export function NotePane({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mounted = useRef(true);
   const blocked = useRef(false);
-  const sourcePreparation = useRef(false);
-  const sourceSaveLease = useRef(false);
   const tools = useRef<EditorTools | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -135,12 +120,6 @@ export function NotePane({
   const [taskLinkError, setTaskLinkError] = useState("");
   const taskTitleRef = useRef<HTMLInputElement>(null);
   const taskLinkMutation = useRef(false);
-  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [templateEditor, setTemplateEditor] = useState<{
-    template?: WritingTemplate;
-    source?: { noteId: string; revision: number };
-  } | null>(null);
-  const [templateRefresh, setTemplateRefresh] = useState(0);
   const [mobileJournalPane, setMobileJournalPane] = useState<
     "writing" | "activity"
   >("writing");
@@ -171,77 +150,67 @@ export function NotePane({
       observer.disconnect();
     };
   }, [note.title]);
-  const flushRef = useRef<(allowPreparation?: boolean) => Promise<boolean>>(
-    async () => true,
-  );
+  const flushRef = useRef<() => Promise<boolean>>(async () => true);
   const setTools = useCallback((value: EditorTools) => {
     tools.current = value;
   }, []);
-  const flush = useCallback(
-    async (allowPreparation = false): Promise<boolean> => {
-      if (
-        sourceSaveLease.current ||
-        (sourcePreparation.current && !allowPreparation)
-      )
-        return false;
-      if (timer.current !== null) clearTimeout(timer.current);
-      timer.current = null;
-      if (saving.current) {
-        await saving.current;
-        if (blocked.current) return false;
-        return flushRef.current(allowPreparation);
-      }
-      if (savedVersion.current === version.current) return true;
+  const flush = useCallback(async (): Promise<boolean> => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = null;
+    if (saving.current) {
+      await saving.current;
       if (blocked.current) return false;
-      const snapshot = current.current;
-      const checkpoint = version.current;
-      setState("saving");
-      const promise = (async () => {
-        try {
-          const result = await api<Note>(`notes/${snapshot.id}`, {
-            method: "PATCH",
-            body: JSON.stringify({
-              revision: snapshot.revision,
-              title: snapshot.title,
-              document: snapshot.document,
-              favorite: snapshot.favorite,
-              editorWidth: snapshot.editorWidth,
-              tags: snapshot.tags.map((t) => t.id),
-            }),
-          });
-          savedVersion.current = checkpoint;
-          current.current = {
-            ...current.current,
-            revision: result.revision,
-            updatedAt: result.updatedAt,
-          };
-          if (mounted.current) {
-            setNote(current.current);
-            setState(checkpoint === version.current ? "saved" : "dirty");
-            setError("");
-          }
-          onSaved(result);
-          return true;
-        } catch (e) {
-          if (mounted.current) {
-            const conflict = e instanceof ApiError && e.status === 409;
-            setState(conflict ? "conflict" : "error");
-            setError((e as Error).message);
-            blocked.current = conflict;
-          }
-          return false;
-        } finally {
-          saving.current = null;
+      return flushRef.current();
+    }
+    if (savedVersion.current === version.current) return true;
+    if (blocked.current) return false;
+    const snapshot = current.current;
+    const checkpoint = version.current;
+    setState("saving");
+    const promise = (async () => {
+      try {
+        const result = await api<Note>(`notes/${snapshot.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            revision: snapshot.revision,
+            title: snapshot.title,
+            document: snapshot.document,
+            favorite: snapshot.favorite,
+            editorWidth: snapshot.editorWidth,
+            tags: snapshot.tags.map((t) => t.id),
+          }),
+        });
+        savedVersion.current = checkpoint;
+        current.current = {
+          ...current.current,
+          revision: result.revision,
+          updatedAt: result.updatedAt,
+        };
+        if (mounted.current) {
+          setNote(current.current);
+          setState(checkpoint === version.current ? "saved" : "dirty");
+          setError("");
         }
-      })();
-      saving.current = promise;
-      const success = await promise;
-      if (success && savedVersion.current !== version.current)
-        return flushRef.current(allowPreparation);
-      return success;
-    },
-    [onSaved],
-  );
+        onSaved(result);
+        return true;
+      } catch (e) {
+        if (mounted.current) {
+          const conflict = e instanceof ApiError && e.status === 409;
+          setState(conflict ? "conflict" : "error");
+          setError((e as Error).message);
+          blocked.current = conflict;
+        }
+        return false;
+      } finally {
+        saving.current = null;
+      }
+    })();
+    saving.current = promise;
+    const success = await promise;
+    if (success && savedVersion.current !== version.current)
+      return flushRef.current();
+    return success;
+  }, [onSaved]);
   useEffect(() => {
     flushRef.current = flush;
     registerGuard(flush);
@@ -284,14 +253,6 @@ export function NotePane({
           latest.revision <= current.current.revision
         )
           return;
-        if (templateEditor?.source?.noteId === id) {
-          blocked.current = true;
-          setState("conflict");
-          setError(
-            "This note changed elsewhere. Keep this template form open, then reload the note after closing it.",
-          );
-          return;
-        }
         if (version.current !== savedVersion.current) {
           blocked.current = true;
           setState("conflict");
@@ -315,81 +276,9 @@ export function NotePane({
     setState(blocked.current ? "conflict" : "dirty");
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = null;
-    if (sourceSaveLease.current) return;
     timer.current = setTimeout(() => {
       void flushRef.current();
     }, 750);
-  }
-  async function withPreparedSource<T>(
-    submit: (source: { noteId: string; revision: number }) => Promise<T>,
-  ): Promise<T> {
-    if (sourcePreparation.current || sourceSaveLease.current)
-      throw new Error("A template save is already in progress.");
-    sourcePreparation.current = true;
-    try {
-      const sourceNoteId = templateEditor?.source?.noteId;
-      if (!sourceNoteId || current.current.id !== sourceNoteId)
-        throw new Error("The source note is no longer open.");
-      if (blocked.current)
-        throw new Error(
-          error || "Resolve the note conflict before saving this template.",
-        );
-
-      for (let attempt = 0; attempt < 4; attempt++) {
-        const editor = tools.current;
-        if (!editor) throw new Error("The editor is still loading.");
-        if (!editor.matchesDocument(current.current.document))
-          change({ document: editor.getDocument() });
-        if (!(await flush(true)))
-          throw new Error(
-            error || "Resolve the note save before saving this template.",
-          );
-        if (!mounted.current || current.current.id !== sourceNoteId)
-          throw new Error(
-            "The source note changed. Keep the template open and retry.",
-          );
-        if (blocked.current)
-          throw new Error(
-            error || "Resolve the note conflict before saving this template.",
-          );
-
-        if (!editor.matchesDocument(current.current.document)) {
-          change({ document: editor.getDocument() });
-          continue;
-        }
-        if (
-          timer.current ||
-          saving.current ||
-          savedVersion.current !== version.current
-        )
-          continue;
-
-        sourceSaveLease.current = true;
-        try {
-          return await submit({
-            noteId: current.current.id,
-            revision: current.current.revision,
-          });
-        } finally {
-          sourceSaveLease.current = false;
-        }
-      }
-      throw new Error(
-        "The note is still updating. Try saving the template again.",
-      );
-    } finally {
-      sourcePreparation.current = false;
-      if (
-        mounted.current &&
-        savedVersion.current !== version.current &&
-        !blocked.current
-      ) {
-        if (timer.current !== null) clearTimeout(timer.current);
-        timer.current = setTimeout(() => {
-          void flushRef.current();
-        }, 0);
-      }
-    }
   }
   function applyCanonicalNote(result: Note) {
     current.current = result;
@@ -544,44 +433,6 @@ export function NotePane({
     },
     onUnlink: unlinkTask,
   };
-  const templateKind =
-    note.journalPeriod || note.dailyDate ? "journal" : "note";
-  async function insertTemplate(template: WritingTemplate) {
-    if (!tools.current) throw new Error("The editor is still loading.");
-    if (template.attachments?.length)
-      throw new Error("Create a new note to copy this template’s attachments.");
-    tools.current.insertDocument(
-      insertableTemplateBlocks(
-        previewTemplateDocument(template.document, current.current.title),
-      ),
-    );
-  }
-  async function createFromTemplate(
-    template: WritingTemplate,
-    idempotencyKey = crypto.randomUUID(),
-  ) {
-    if (!(await flush()))
-      throw new Error("Save the current note before continuing.");
-    const result = await api<{ note: Note; created: boolean }>(
-      `templates/${template.id}/apply`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          revision: template.revision,
-          idempotencyKey,
-          ...(templateKind === "journal"
-            ? {
-                date: note.journalPeriodStart || note.dailyDate || localDate(),
-                period: note.journalPeriod || "daily",
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              }
-            : { title: current.current.title }),
-        }),
-      },
-    );
-    onSaved(result.note);
-    onOpen(result.note);
-  }
   async function action(run: () => Promise<void>, requireSave = true) {
     try {
       if (requireSave && !(await flush())) return;
@@ -883,27 +734,6 @@ export function NotePane({
                             </DropdownMenuRadioItem>
                           </DropdownMenuRadioGroup>
                           <DropdownMenuSeparator className="note-width-control" />
-                          <DropdownMenuItem
-                            onSelect={() => setTemplatePickerOpen(true)}
-                          >
-                            <FileText size={15} />
-                            Start from template
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              void action(async () =>
-                                setTemplateEditor({
-                                  source: {
-                                    noteId: current.current.id,
-                                    revision: current.current.revision,
-                                  },
-                                }),
-                              )
-                            }
-                          >
-                            <FileText size={15} />
-                            Save as template
-                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onSelect={beginLinkedTask}>
                             <ListTodo size={15} />
@@ -1027,51 +857,6 @@ export function NotePane({
                   </DropdownMenu>
                 </div>
               </header>
-              {templateEditor ? (
-                <TemplateEditor
-                  key={
-                    templateEditor.template?.id ||
-                    templateEditor.source?.noteId ||
-                    "new"
-                  }
-                  kind={templateKind}
-                  initial={templateEditor.template}
-                  source={templateEditor.source}
-                  withPreparedSource={
-                    templateEditor.source ? withPreparedSource : undefined
-                  }
-                  onClose={() => setTemplateEditor(null)}
-                  onSaved={() => {
-                    setTemplateEditor(null);
-                    setTemplatePickerOpen(true);
-                    setTemplateRefresh((value) => value + 1);
-                  }}
-                  onDeleted={() => setTemplateRefresh((value) => value + 1)}
-                />
-              ) : templatePickerOpen ? (
-                <TemplatePicker
-                  key={`${templateKind}-${templateRefresh}`}
-                  kind={templateKind}
-                  onClose={() => setTemplatePickerOpen(false)}
-                  onInsert={insertTemplate}
-                  onCreate={createFromTemplate}
-                  onEdit={(template) => {
-                    setTemplatePickerOpen(false);
-                    setTemplateEditor({ template });
-                  }}
-                  onSaveCurrent={async () => {
-                    if (!(await flush()))
-                      throw new Error("Save the current note first.");
-                    setTemplatePickerOpen(false);
-                    setTemplateEditor({
-                      source: {
-                        noteId: current.current.id,
-                        revision: current.current.revision,
-                      },
-                    });
-                  }}
-                />
-              ) : null}
               <div className="note-date">
                 {note.journalPeriod || note.dailyDate ? (
                   <span className="note-kind">
@@ -1096,9 +881,7 @@ export function NotePane({
                 }
                 placeholder="Untitled"
                 maxLength={300}
-                disabled={
-                  !!note.trashedAt || taskMutationPending || !!templateEditor
-                }
+                disabled={!!note.trashedAt || taskMutationPending}
               />
               <div className="note-tags">
                 {note.tags.map((tag) => (
@@ -1121,7 +904,7 @@ export function NotePane({
                     {!note.trashedAt && (
                       <button
                         aria-label={`Remove ${tag.name} tag`}
-                        disabled={taskMutationPending || !!templateEditor}
+                        disabled={taskMutationPending}
                         onClick={() =>
                           change({
                             tags: note.tags.filter((t) => t.id !== tag.id),
@@ -1138,7 +921,7 @@ export function NotePane({
                     <DropdownMenuTrigger asChild>
                       <button
                         className="add-tag"
-                        disabled={taskMutationPending || !!templateEditor}
+                        disabled={taskMutationPending}
                       >
                         <TagIcon size={13} />
                         {note.tags.length ? "Add tag" : "Add tags"}
@@ -1233,9 +1016,7 @@ export function NotePane({
                 noteId={note.id}
                 onChange={(document) => change({ document })}
                 onTools={setTools}
-                editable={
-                  !note.trashedAt && !taskMutationPending && !templateEditor
-                }
+                editable={!note.trashedAt && !taskMutationPending}
                 onOpenNote={onNavigateNote}
                 taskLinkActions={taskLinkActions}
               />
