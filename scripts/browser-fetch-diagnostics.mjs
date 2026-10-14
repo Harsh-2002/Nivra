@@ -26,6 +26,7 @@ const notesPreviewKeys = new Set([
 const journalListKeys = new Set(["period", "limit", "q", "after"]);
 const maxRecords = 128;
 const navigationWindowMs = 2000;
+const nativeControlAttempts = 20;
 
 /** @param {string} value @param {string} origin */
 function sameOriginUrl(value, origin) {
@@ -623,6 +624,27 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
         "WebKit control did not reproduce a native fetch pageerror",
       );
 
+    // WebKit emits the cancellation pageerror only for some in-flight fetches, so a
+    // single navigation is not a reliable positive control; bound the retries instead.
+    const reproduceNativeCancellation = async (path, label) => {
+      for (let attempt = 1; attempt <= nativeControlAttempts; attempt += 1) {
+        const before = diagnostics.result().deferredCount;
+        await page.goto(`${origin}/source`);
+        await page.evaluate((target) => window.startFetches(target), path);
+        await page.waitForTimeout(20);
+        await page.goto(`${origin}/target`);
+        await diagnostics.flush();
+        const result = diagnostics.result();
+        if (result.errors.length || fatalPageErrors.length)
+          throw new Error(
+            `${label} cancellation control produced fatal diagnostics: ${[...result.errors, ...fatalPageErrors].join("; ")}`,
+          );
+        if (result.deferredCount > before) return attempt;
+      }
+      throw new Error(
+        `WebKit control did not reproduce a native ${label} fetch pageerror in ${nativeControlAttempts} attempts`,
+      );
+    };
     const notesPreview = new URLSearchParams({
       view: "all",
       sort: "updated",
@@ -630,47 +652,18 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
       limit: "61",
       preview: "1",
     }).toString();
-    const beforeNotesPreview = diagnostics.result().deferredCount;
-    await page.goto(`${origin}/source`);
-    await page.evaluate(
-      (path) => window.startFetches(path),
+    const notesPreviewAttempts = await reproduceNativeCancellation(
       `/api/v1/notes?${notesPreview}`,
+      "notes preview",
     );
-    await page.waitForTimeout(20);
-    await page.goto(`${origin}/target`);
-    await diagnostics.flush();
-    const notesPreviewResult = diagnostics.result();
-    if (notesPreviewResult.errors.length || fatalPageErrors.length)
-      throw new Error(
-        `Notes preview cancellation control produced fatal diagnostics: ${[...notesPreviewResult.errors, ...fatalPageErrors].join("; ")}`,
-      );
-    if (notesPreviewResult.deferredCount <= beforeNotesPreview)
-      throw new Error(
-        "WebKit control did not reproduce a native notes preview fetch pageerror",
-      );
-
     const journalList = new URLSearchParams({
       period: "daily",
       limit: "60",
     }).toString();
-    const beforeJournals = diagnostics.result().deferredCount;
-    await page.goto(`${origin}/source`);
-    await page.evaluate(
-      (path) => window.startFetches(path),
+    const journalAttempts = await reproduceNativeCancellation(
       `/api/v1/journals?${journalList}`,
+      "journal list",
     );
-    await page.waitForTimeout(20);
-    await page.goto(`${origin}/target`);
-    await diagnostics.flush();
-    const journalResult = diagnostics.result();
-    if (journalResult.errors.length || fatalPageErrors.length)
-      throw new Error(
-        `Journal list cancellation control produced fatal diagnostics: ${[...journalResult.errors, ...fatalPageErrors].join("; ")}`,
-      );
-    if (journalResult.deferredCount <= beforeJournals)
-      throw new Error(
-        "WebKit control did not reproduce a native journal list fetch pageerror",
-      );
 
     let uncaughtCount = 0;
     let consoleCount = 0;
@@ -717,6 +710,8 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
     consoleCount += 1;
     return {
       deferredCount: positiveResult.deferredCount,
+      notesPreviewAttempts,
+      journalAttempts,
       uncaughtControls: uncaughtCount,
       strictConsoleControls: consoleCount,
     };
