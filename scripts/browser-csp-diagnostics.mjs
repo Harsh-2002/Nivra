@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 
 /** @typedef {"chromium" | "firefox" | "webkit"} BrowserEngine */
 /** @typedef {{ engine: BrowserEngine, origin: string, now?: () => number, quietWindowMs?: number, maxFlushMs?: number, recordLimit?: number }} CspDiagnosticOptions */
-/** @typedef {{ token?: unknown, documentId?: unknown, eventId?: unknown, observedAt?: unknown, pathname?: unknown, trusted?: unknown, effectiveDirective?: unknown, blockedURI?: unknown, targetTag?: unknown, appOwnedClass?: unknown, ariaHidden?: unknown, tabIndex?: unknown, hasStyleAttribute?: unknown }} CspViolationReport */
+/** @typedef {{ token?: unknown, documentId?: unknown, eventId?: unknown, observedAt?: unknown, pathname?: unknown, trusted?: unknown, effectiveDirective?: unknown, blockedURI?: unknown, targetNodeType?: unknown, targetTag?: unknown, appOwnedClass?: unknown, ariaHidden?: unknown, tabIndex?: unknown, hasStyleAttribute?: unknown, sourceFile?: unknown, lineNumber?: unknown, columnNumber?: unknown }} CspViolationReport */
 /** @typedef {{ type?: string, text?: string, locationUrl?: string, observedAt?: number }} ConsoleDiagnostic */
-/** @typedef {{ sourceValid?: boolean, tokenValid?: boolean }} EvidenceContext */
+/** @typedef {{ sourceValid?: boolean, tokenValid?: boolean, nativeSelectConstructorValid?: boolean }} EvidenceContext */
 /** @typedef {{ pathname: string, observedAt: number }} MatchedEvidence */
 
 export const webkitNativeSelectCspConsoleMessage =
@@ -12,6 +12,11 @@ export const webkitNativeSelectCspConsoleMessage =
 
 const maxRecords = 64;
 const maxPairSkewMs = 2000;
+const maxSourceBytes = 2 * 1024 * 1024;
+const maxCachedSourceBytes = 6 * 1024 * 1024;
+const maxCachedSources = 3;
+const sourceFetchTimeoutMs = 2500;
+const maxConcurrentSourceFetches = 4;
 
 /** @param {string | undefined} value @param {string} origin */
 function documentPath(value, origin) {
@@ -32,6 +37,156 @@ function isPathname(value) {
     !value.includes("?") &&
     !value.includes("#")
   );
+}
+
+/** @param {string} source @param {number} lineNumber @param {number} columnNumber */
+export function isNativeSelectConstructorAt(source, lineNumber, columnNumber) {
+  if (
+    !Number.isSafeInteger(lineNumber) ||
+    lineNumber < 1 ||
+    !Number.isSafeInteger(columnNumber) ||
+    columnNumber < 1
+  )
+    return false;
+
+  let currentLine = 1;
+  let lineStart = 0;
+  while (currentLine < lineNumber) {
+    const newline = source.indexOf("\n", lineStart);
+    if (newline < 0) return false;
+    lineStart = newline + 1;
+    currentLine += 1;
+  }
+  const lineEnd = source.indexOf("\n", lineStart);
+  const line = source.slice(lineStart, lineEnd < 0 ? source.length : lineEnd);
+  const reportedIndex = columnNumber - 1;
+  if (reportedIndex >= line.length) return false;
+
+  const nativeSelectCall =
+    /(?<![\w$])(?:[$\w]+\.)+createElement\(\s*(["'])select\1\s*(?:,\s*\{\s*is\s*:\s*[^{}]*\})?\s*\)/g;
+  for (const match of line.matchAll(nativeSelectCall)) {
+    const callIndex = match.index + match[0].indexOf("(");
+    if (callIndex === reportedIndex) return true;
+  }
+  return false;
+}
+
+/**
+ * @param {{ origin: string, request: import("playwright").APIRequestContext }} options
+ */
+export function createNativeSelectSourceVerifier({ origin, request }) {
+  const expectedOrigin = new URL(origin).origin;
+  /** @type {Map<string, { source: string, bytes: number }>} */
+  const sources = new Map();
+  /** @type {Map<string, Promise<{ source: string, bytes: number } | null>>} */
+  const pendingSources = new Map();
+  let cachedBytes = 0;
+
+  async function loadSource(pathname) {
+    const cached = sources.get(pathname);
+    if (cached) {
+      sources.delete(pathname);
+      sources.set(pathname, cached);
+      return cached.source;
+    }
+
+    let pending = pendingSources.get(pathname);
+    if (!pending) {
+      if (pendingSources.size >= maxConcurrentSourceFetches) return null;
+      pending = (async () => {
+        let response;
+        try {
+          response = await request.get(new URL(pathname, expectedOrigin).href, {
+            timeout: sourceFetchTimeoutMs,
+            maxRedirects: 0,
+            headers: { "accept-encoding": "identity" },
+          });
+          if (response.status() !== 200) return null;
+          const headers = response.headers();
+          const contentType = headers["content-type"]?.split(";")[0].trim();
+          if (
+            contentType !== "application/javascript" &&
+            contentType !== "text/javascript"
+          )
+            return null;
+          const contentLength = Number(headers["content-length"]);
+          if (
+            !Number.isSafeInteger(contentLength) ||
+            contentLength < 1 ||
+            contentLength > maxSourceBytes
+          )
+            return null;
+          const body = await response.body();
+          if (
+            body.byteLength !== contentLength ||
+            body.byteLength > maxSourceBytes
+          )
+            return null;
+          const source = new TextDecoder("utf-8", { fatal: true }).decode(body);
+          if (
+            cachedBytes + body.byteLength > maxCachedSourceBytes ||
+            sources.size >= maxCachedSources
+          )
+            return null;
+          const result = { source, bytes: body.byteLength };
+          sources.set(pathname, result);
+          cachedBytes += body.byteLength;
+          return result;
+        } catch {
+          return null;
+        } finally {
+          await response?.dispose().catch(() => {});
+        }
+      })();
+      pendingSources.set(pathname, pending);
+    }
+
+    try {
+      const result = await pending;
+      return result?.source ?? null;
+    } finally {
+      if (pendingSources.get(pathname) === pending)
+        pendingSources.delete(pathname);
+    }
+  }
+
+  /** @param {CspViolationReport} report */
+  return async function verifyNativeSelectConstructor(report) {
+    if (
+      report.targetNodeType !== 9 ||
+      report.targetTag !== null ||
+      typeof report.sourceFile !== "string" ||
+      !Number.isSafeInteger(report.lineNumber) ||
+      !Number.isSafeInteger(report.columnNumber)
+    )
+      return false;
+
+    let url;
+    try {
+      url = new URL(report.sourceFile, expectedOrigin);
+    } catch {
+      return false;
+    }
+    if (
+      url.origin !== expectedOrigin ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !/^\/_next\/static\/chunks\/[^/]+\.js$/.test(url.pathname)
+    )
+      return false;
+
+    const source = await loadSource(url.pathname);
+    return (
+      source !== null &&
+      isNativeSelectConstructorAt(
+        source,
+        report.lineNumber,
+        report.columnNumber,
+      )
+    );
+  };
 }
 
 /**
@@ -126,7 +281,11 @@ export function createBrowserCspDiagnostics({
    */
   function observeViolation(
     report,
-    { sourceValid = false, tokenValid = false } = {},
+    {
+      sourceValid = false,
+      tokenValid = false,
+      nativeSelectConstructorValid = false,
+    } = {},
   ) {
     activity();
     evidenceCount += 1;
@@ -181,15 +340,24 @@ export function createBrowserCspDiagnostics({
       fault("Unexpected stylesheet or non-inline CSP violation");
       return;
     }
-    if (
-      report.targetTag !== "SELECT" ||
-      report.appOwnedClass !== true ||
-      report.ariaHidden !== "true" ||
-      report.tabIndex !== -1 ||
-      report.hasStyleAttribute !== false
-    ) {
+    const hiddenSelect =
+      report.targetNodeType === 1 &&
+      report.targetTag === "SELECT" &&
+      report.appOwnedClass === true &&
+      report.ariaHidden === "true" &&
+      report.tabIndex === -1 &&
+      report.hasStyleAttribute === false;
+    const verifiedWebKitSelectCreation =
+      report.targetNodeType === 9 &&
+      report.targetTag === null &&
+      report.appOwnedClass === false &&
+      report.ariaHidden === null &&
+      report.tabIndex === null &&
+      report.hasStyleAttribute === false &&
+      nativeSelectConstructorValid === true;
+    if (!hiddenSelect && !verifiedWebKitSelectCreation) {
       fault(
-        "CSP style violation did not target the hidden Nivra select bubble",
+        "CSP style violation did not target the hidden Nivra select bubble or its verified WebKit constructor",
       );
       return;
     }
@@ -249,6 +417,12 @@ export function createBrowserCspDiagnostics({
  */
 export async function installBrowserCspDiagnostics(page, { engine, origin }) {
   const diagnostics = createBrowserCspDiagnostics({ engine, origin });
+  const verifyNativeSelectConstructor = createNativeSelectSourceVerifier({
+    origin,
+    request: page.request,
+  });
+  /** @type {Set<Promise<void>>} */
+  const pendingViolations = new Set();
   const bindingName = `__nivraCspReport${randomUUID().replaceAll("-", "")}`;
   const token = randomUUID();
   const expectedOrigin = new URL(origin).origin;
@@ -257,7 +431,7 @@ export async function installBrowserCspDiagnostics(page, { engine, origin }) {
    * @param {{ page: import("playwright").Page, frame: import("playwright").Frame }} source
    * @param {CspViolationReport | null | undefined} report
    */
-  function receiveViolation(source, report) {
+  async function receiveViolation(source, report) {
     let sourceValid = false;
     try {
       const frameUrl = new URL(source.frame.url());
@@ -266,12 +440,25 @@ export async function installBrowserCspDiagnostics(page, { engine, origin }) {
         source.frame === page.mainFrame() &&
         frameUrl.origin === expectedOrigin;
     } catch {}
+    const tokenValid = report?.token === token;
+    const documentTarget =
+      report?.targetNodeType === 9 && report?.targetTag === null;
+    let nativeSelectConstructorValid = false;
+    if (sourceValid && tokenValid && documentTarget)
+      nativeSelectConstructorValid =
+        await verifyNativeSelectConstructor(report);
     diagnostics.observeViolation(report, {
       sourceValid,
-      tokenValid: report?.token === token,
+      tokenValid,
+      nativeSelectConstructorValid,
     });
   }
-  await page.exposeBinding(bindingName, receiveViolation);
+  await page.exposeBinding(bindingName, (source, report) => {
+    const pending = receiveViolation(source, report);
+    pendingViolations.add(pending);
+    void pending.finally(() => pendingViolations.delete(pending));
+    return pending;
+  });
 
   /** @param {{ bridgeName: string, secret: string }} args */
   function captureSecurityPolicyViolations({ bridgeName, secret }) {
@@ -300,11 +487,15 @@ export async function installBrowserCspDiagnostics(page, { engine, origin }) {
           effectiveDirective: event.effectiveDirective,
           blockedURI: event.blockedURI,
           targetTag: target?.tagName ?? null,
+          targetNodeType: target?.nodeType ?? event.target?.nodeType ?? null,
           appOwnedClass:
             target?.classList?.contains("nivra-select-bubble") === true,
           ariaHidden: target?.getAttribute("aria-hidden") ?? null,
           tabIndex: target?.tabIndex ?? null,
           hasStyleAttribute: target?.hasAttribute("style") === true,
+          sourceFile: event.sourceFile,
+          lineNumber: event.lineNumber,
+          columnNumber: event.columnNumber,
         };
         void bridge(report).catch(() => {});
       },
@@ -317,5 +508,18 @@ export async function installBrowserCspDiagnostics(page, { engine, origin }) {
     secret: token,
   });
 
-  return diagnostics;
+  return {
+    ...diagnostics,
+    async flush() {
+      const deadline = Date.now() + sourceFetchTimeoutMs + 500;
+      while (pendingViolations.size && Date.now() < deadline)
+        await Promise.allSettled([...pendingViolations]);
+      if (pendingViolations.size)
+        diagnostics.observeViolation(null, {
+          sourceValid: false,
+          tokenValid: false,
+        });
+      await diagnostics.flush();
+    },
+  };
 }

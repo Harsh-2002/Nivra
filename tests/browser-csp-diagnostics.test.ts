@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import test from "node:test";
+import { request } from "playwright";
 import {
   createBrowserCspDiagnostics,
+  createNativeSelectSourceVerifier,
+  isNativeSelectConstructorAt,
   webkitNativeSelectCspConsoleMessage,
 } from "../scripts/browser-csp-diagnostics.mjs";
 
@@ -16,11 +20,15 @@ type Evidence = {
   trusted: unknown;
   effectiveDirective: string;
   blockedURI: string;
-  targetTag: string;
+  targetNodeType: number;
+  targetTag: string | null;
   appOwnedClass: boolean;
   ariaHidden: string | null;
-  tabIndex: number;
+  tabIndex: number | null;
   hasStyleAttribute: boolean;
+  sourceFile?: string;
+  lineNumber?: number;
+  columnNumber?: number;
 };
 
 function validEvidence(overrides: Partial<Evidence> = {}): Evidence {
@@ -32,6 +40,7 @@ function validEvidence(overrides: Partial<Evidence> = {}): Evidence {
     trusted: true,
     effectiveDirective: "style-src-attr",
     blockedURI: "inline",
+    targetNodeType: 1,
     targetTag: "SELECT",
     appOwnedClass: true,
     ariaHidden: "true",
@@ -78,6 +87,241 @@ test("pairs one exact WebKit CSP warning with trusted hidden-select evidence", a
   assert.equal(observeWarning(diagnostics), true);
   await diagnostics.flush();
   assert.deepEqual(diagnostics.result(), { matchedCount: 1, errors: [] });
+});
+
+test("pairs document-target evidence only at the exact native select constructor", async () => {
+  const diagnostics = makeDiagnostics();
+  diagnostics.observeViolation(
+    validEvidence({
+      targetNodeType: 9,
+      targetTag: null,
+      appOwnedClass: false,
+      ariaHidden: null,
+      tabIndex: null,
+    }),
+    {
+      sourceValid: true,
+      tokenValid: true,
+      nativeSelectConstructorValid: true,
+    },
+  );
+  observeWarning(diagnostics);
+  await diagnostics.flush();
+  assert.deepEqual(diagnostics.result(), { matchedCount: 1, errors: [] });
+
+  const unverified = makeDiagnostics();
+  unverified.observeViolation(
+    validEvidence({
+      targetNodeType: 9,
+      targetTag: null,
+      appOwnedClass: false,
+      ariaHidden: null,
+      tabIndex: null,
+    }),
+    { sourceValid: true, tokenValid: true },
+  );
+  observeWarning(unverified);
+  await unverified.flush();
+  assert.equal(unverified.result().matchedCount, 0);
+  assert.match(
+    unverified.result().errors.join(" "),
+    /verified WebKit constructor/,
+  );
+});
+
+test("checks native select constructor locations exactly", () => {
+  const source =
+    'case"select":a=o.createElement("select",{is:r.is}):o.createElement("select"),r.multiple=a.multiple=!0';
+  const firstOpen =
+    source.indexOf('createElement("select"') + "createElement".length;
+  const secondOpen =
+    source.indexOf('createElement("select")', firstOpen) +
+    "createElement".length;
+  assert.equal(isNativeSelectConstructorAt(source, 1, firstOpen + 1), true);
+  assert.equal(isNativeSelectConstructorAt(source, 1, secondOpen + 1), true);
+  assert.equal(isNativeSelectConstructorAt(source, 1, firstOpen + 2), false);
+  assert.equal(isNativeSelectConstructorAt(source, 1, 1), false);
+  assert.equal(
+    isNativeSelectConstructorAt('x.createElement("span")', 1, 16),
+    false,
+  );
+  assert.equal(
+    isNativeSelectConstructorAt('mycreateElement("select")', 1, 17),
+    false,
+  );
+  assert.equal(
+    isNativeSelectConstructorAt('someObject.badcreateElement("select")', 1, 28),
+    false,
+  );
+  assert.equal(
+    isNativeSelectConstructorAt('createElement("select")', 1, 14),
+    false,
+  );
+  assert.equal(
+    isNativeSelectConstructorAt('x.createElement("select")', 2, 16),
+    false,
+  );
+  assert.equal(
+    isNativeSelectConstructorAt('x.createElement("select")', 1, 0),
+    false,
+  );
+});
+
+test("fetches same-origin React-like source and rejects nearby author-style sources", async (t) => {
+  const snippets = new Map<string, string>([
+    [
+      "/_next/static/chunks/react.js",
+      'case"select":a=o.createElement("select"),r.multiple=a.multiple=!0',
+    ],
+    [
+      "/_next/static/chunks/author.js",
+      'e.style.width="2px";o.createElement("span")',
+    ],
+    [
+      "/_next/static/chunks/wrong-select.js",
+      'o.createElement("div");o.createElement("select")',
+    ],
+  ]);
+  const server = createServer((incoming, outgoing) => {
+    const body = snippets.get(incoming.url ?? "");
+    if (body === undefined) {
+      outgoing.writeHead(404).end();
+      return;
+    }
+    outgoing.writeHead(200, {
+      "content-type": "application/javascript; charset=utf-8",
+      "content-length": Buffer.byteLength(body),
+    });
+    outgoing.end(body);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  });
+
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const testOrigin = `http://127.0.0.1:${address.port}`;
+  const api = await request.newContext();
+  t.after(() => api.dispose());
+  const verify = createNativeSelectSourceVerifier({
+    origin: testOrigin,
+    request: api,
+  });
+  function report(
+    sourceFile: string,
+    source: string,
+    targetNodeType = 9,
+    marker = 'createElement("select")',
+  ) {
+    const markerStart = source.indexOf(marker);
+    const openParen = marker.indexOf("(");
+    return validEvidence({
+      targetNodeType,
+      targetTag: null,
+      appOwnedClass: false,
+      ariaHidden: null,
+      tabIndex: null,
+      sourceFile,
+      lineNumber: 1,
+      columnNumber:
+        markerStart < 0
+          ? -1
+          : markerStart + (openParen < 0 ? 1 : openParen + 1),
+    });
+  }
+
+  const validSource = snippets.get("/_next/static/chunks/react.js");
+  assert.ok(validSource);
+  assert.equal(
+    await verify(report("/_next/static/chunks/react.js", validSource)),
+    true,
+  );
+  const authorSource = snippets.get("/_next/static/chunks/author.js");
+  assert.ok(authorSource);
+  assert.equal(
+    await verify(
+      report(
+        "/_next/static/chunks/author.js",
+        authorSource,
+        9,
+        "e.style.width",
+      ),
+    ),
+    false,
+  );
+  const wrongSelectSource = snippets.get(
+    "/_next/static/chunks/wrong-select.js",
+  );
+  assert.ok(wrongSelectSource);
+  assert.equal(
+    await verify(
+      report(
+        "/_next/static/chunks/wrong-select.js",
+        wrongSelectSource,
+        9,
+        'createElement("div")',
+      ),
+    ),
+    false,
+  );
+  assert.equal(
+    await verify(
+      report(
+        "https://attacker.invalid/_next/static/chunks/react.js",
+        validSource,
+      ),
+    ),
+    false,
+  );
+  assert.equal(
+    await verify(report("/_next/static/chunks/../evil.js", validSource)),
+    false,
+  );
+  assert.equal(
+    await verify(report("/_next/static/chunks/react.js?next=1", validSource)),
+    false,
+  );
+  assert.equal(
+    await verify(report("/_next/static/chunks/react.js", validSource, 1)),
+    false,
+  );
+});
+
+test("does not accept document evidence with inconsistent target metadata", async (t) => {
+  const base = validEvidence({
+    targetNodeType: 9,
+    targetTag: null,
+    appOwnedClass: false,
+    ariaHidden: null,
+    tabIndex: null,
+  });
+  const cases: Array<readonly [string, Partial<Evidence>]> = [
+    ["document with style attribute", { hasStyleAttribute: true }],
+    ["document with element tag", { targetTag: "SELECT" }],
+    ["non-document target", { targetNodeType: 1 }],
+    ["document with select class", { appOwnedClass: true }],
+  ];
+
+  for (const [name, overrides] of cases) {
+    await t.test(name, async () => {
+      const diagnostics = makeDiagnostics();
+      diagnostics.observeViolation(
+        { ...base, ...overrides },
+        {
+          sourceValid: true,
+          tokenValid: true,
+          nativeSelectConstructorValid: true,
+        },
+      );
+      observeWarning(diagnostics);
+      await diagnostics.flush();
+      assert.equal(diagnostics.result().matchedCount, 0);
+      assert.ok(diagnostics.result().errors.length > 0);
+    });
+  }
 });
 
 test("keeps exact warnings fatal when evidence is absent or document context is missing", async () => {

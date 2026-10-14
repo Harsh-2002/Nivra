@@ -14,6 +14,7 @@ const cspPatchHash = createHash("sha256")
 const config: NextConfig = {
   devIndicators: false,
   poweredByHeader: false,
+  turbopack: {},
   experimental: {
     webpackMemoryOptimizations: true,
     turbopackMemoryEviction: "auto",

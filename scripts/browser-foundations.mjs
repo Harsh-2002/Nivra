@@ -254,18 +254,24 @@ async function waitForSettledBounds(locator, expectedViewport, timeout = 1500) {
 
 async function openBookmarks() {
   if (new URL(page.url()).pathname !== "/bookmarks") {
-    const tagsResponse = page.waitForResponse(
-      (response) => new URL(response.url()).pathname === "/api/v1/tags",
-      { timeout: 30_000 },
-    );
-    await page.goto(`${base}/bookmarks`);
-    const response = await tagsResponse;
-    assert.ok(
-      response.ok(),
-      `Bookmark workspace tags failed: ${response.status()}`,
-    );
+    await navigateSection("bookmarks", "Bookmarks");
   }
   await page.locator(".bookmark-toolbar").waitFor();
+}
+
+async function navigateSection(section, label) {
+  if (new URL(page.url()).pathname === `/${section}`) return;
+  await page.keyboard.press("Escape");
+  const navigation = page.getByRole("button", {
+    name: "Open navigation",
+    exact: true,
+  });
+  if (await navigation.isVisible()) await navigation.click();
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("button", { name: label, exact: true })
+    .click();
+  await page.waitForURL((url) => url.pathname === `/${section}`);
 }
 
 async function verifyBookmarkOpenAndReadState(bookmark, width) {
@@ -395,7 +401,8 @@ async function verifyQuickCapture(width) {
   const height = width === 390 ? 844 : 900;
   const title = `Foundation capture ${width} ${stamp}`;
   await page.setViewportSize({ width, height });
-  await page.goto(base);
+  await navigateSection("overview", "Overview");
+  await page.locator(".overview-grid").waitFor();
   await page.getByRole("button", { name: "Add task", exact: true }).waitFor();
   await page.keyboard.press("Control+Shift+Enter");
   const capture = page.getByRole("dialog", { name: "Quick", exact: true });

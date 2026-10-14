@@ -121,7 +121,8 @@ export default async function verifyPlanning(page) {
 
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(new URL("/tasks", base).href);
+    if (new URL(page.url()).pathname !== "/tasks")
+      await page.goto(new URL("/tasks", base).href);
     await page.locator(".tasks-panel").waitFor();
     await button("Actions for " + firstTitle).click();
     await page.getByRole("menuitem", { name: "View details" }).click();
