@@ -27,19 +27,6 @@ async function api(path, data, method = data === undefined ? "GET" : "POST") {
   return value;
 }
 const stamp = Date.now().toString(36);
-const checklistTask = await api("tasks", {
-  title: `Audit checklist ${stamp}`,
-});
-const firstStepText = `Audit first step ${stamp}`;
-const secondStepText = `Audit second step ${stamp}`;
-const firstStep = await api(`tasks/${checklistTask.id}/steps`, {
-  revision: checklistTask.revision,
-  text: firstStepText,
-});
-const secondStep = await api(`tasks/${checklistTask.id}/steps`, {
-  revision: firstStep.task.revision,
-  text: secondStepText,
-});
 const undatedTask = await api("tasks", {
   title: `Audit unscheduled ${stamp}`,
 });
@@ -89,6 +76,19 @@ try {
   )
     .split(",")
     .map(Number)) {
+    const checklistTask = await api("tasks", {
+      title: `Audit checklist ${stamp} ${width}`,
+    });
+    const firstStepText = `Audit first step ${stamp} ${width}`;
+    const secondStepText = `Audit second step ${stamp} ${width}`;
+    const firstStep = await api(`tasks/${checklistTask.id}/steps`, {
+      revision: checklistTask.revision,
+      text: firstStepText,
+    });
+    const secondStep = await api(`tasks/${checklistTask.id}/steps`, {
+      revision: firstStep.task.revision,
+      text: secondStepText,
+    });
     const context = await browser.newContext({
       storageState: process.env.NIVRA_BROWSER_SESSION,
       viewport: { width, height: width === 320 ? 568 : 900 },
@@ -113,7 +113,21 @@ try {
       await page.locator(".overview-widget ul[role=region]").count(),
       0,
     );
-    assert.equal(await page.locator(".overview-widget h2").count(), 3);
+    const widgetHeadings = await page
+      .locator(".overview-widget h2")
+      .allTextContents();
+    for (const title of [
+      "Open tasks",
+      "Recent notes and files",
+      "Recent bookmarks",
+    ])
+      assert.ok(widgetHeadings.includes(title), `Overview includes ${title}`);
+    assert.equal(widgetHeadings.length, new Set(widgetHeadings).size);
+    assert.equal(
+      widgetHeadings.length,
+      await page.locator(".overview-widget").count(),
+      "Every dynamic Overview card has its own heading",
+    );
     if (width < 1024) {
       const navigation = page
         .getByRole("button", { name: "Open navigation", exact: true })
@@ -398,30 +412,38 @@ try {
       );
     }
     await page.goto(`${base}/journal?note=${fixtures.journal.id}`);
+    await page.locator(".bn-editor").waitFor();
     const journalView = page.getByRole("group", { name: "Journal view" });
-    await journalView.waitFor();
-    const activity = journalView.getByRole("button", {
-      name: "Activity",
-      exact: true,
-    });
-    await activity.focus();
-    await page.keyboard.press("Enter");
-    await page.waitForFunction(
-      () =>
-        document.querySelector(
-          '[aria-label="Journal view"] button[aria-pressed="true"]',
-        )?.textContent === "Activity",
-    );
-    await journalView
-      .getByRole("button", { name: "Writing", exact: true })
-      .focus();
-    await page.keyboard.press("Enter");
-    await page.waitForFunction(
-      () =>
-        document.querySelector(
-          '[aria-label="Journal view"] button[aria-pressed="true"]',
-        )?.textContent === "Writing",
-    );
+    if (width < 1024) {
+      await journalView.waitFor();
+      const activity = journalView.getByRole("button", {
+        name: "Activity",
+        exact: true,
+      });
+      await activity.focus();
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(
+            '[aria-label="Journal view"] button[aria-pressed="true"]',
+          )?.textContent === "Activity",
+      );
+      await page.locator(".journal-review").waitFor();
+      await journalView
+        .getByRole("button", { name: "Writing", exact: true })
+        .focus();
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(
+        () =>
+          document.querySelector(
+            '[aria-label="Journal view"] button[aria-pressed="true"]',
+          )?.textContent === "Writing",
+      );
+      await page.locator(".bn-editor").waitFor();
+    } else {
+      assert.equal(await journalView.count(), 0);
+      await page.locator(".journal-review").waitFor();
+    }
 
     await page.goto(`${base}/journal`);
     const browseTemplates = page.getByRole("button", {
@@ -473,14 +495,30 @@ try {
     await captureType.focus();
     await page.keyboard.press("Enter");
     await page.getByRole("option", { name: "Note", exact: true }).waitFor();
+    await page.waitForFunction(
+      () =>
+        document.activeElement?.getAttribute("role") === "option" &&
+        document.activeElement.textContent === "Bookmark",
+    );
     await page.keyboard.press("ArrowDown");
+    await page.waitForFunction(
+      () => document.activeElement?.textContent === "Note",
+    );
     await page.keyboard.press("Enter");
     await page.getByLabel("Text", { exact: true }).waitFor();
     assert.equal(await page.locator("#capture-url").count(), 0);
     await captureType.focus();
     await page.keyboard.press("Enter");
     await page.getByRole("option", { name: "Task", exact: true }).waitFor();
+    await page.waitForFunction(
+      () =>
+        document.activeElement?.getAttribute("role") === "option" &&
+        document.activeElement.textContent === "Note",
+    );
     await page.keyboard.press("ArrowDown");
+    await page.waitForFunction(
+      () => document.activeElement?.textContent === "Task",
+    );
     await page.keyboard.press("Enter");
     await page.getByLabel("Task", { exact: true }).waitFor();
     assert.equal(await page.locator("#capture-text").count(), 0);
