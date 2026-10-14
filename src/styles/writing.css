@@ -527,6 +527,41 @@
   }
 }
 
+/* Compact read-only template preview inside dialogs. */
+.template-preview section > h2,
+.template-preview section > h3 {
+  margin: 16px 0 4px;
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.template-preview section:first-child > h2,
+.template-preview section:first-child > h3 {
+  margin-top: 0;
+}
+
+/* Edge shadows that appear only while a region can scroll further. */
+.scroll-shadow-y {
+  background:
+    linear-gradient(var(--background) 30%, transparent) top / 100% 28px
+      no-repeat local,
+    linear-gradient(transparent, var(--background) 70%) bottom / 100% 28px
+      no-repeat local,
+    linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--foreground) 14%, transparent),
+        transparent
+      )
+      top / 100% 10px no-repeat scroll,
+    linear-gradient(
+        to top,
+        color-mix(in oklab, var(--foreground) 14%, transparent),
+        transparent
+      )
+      bottom / 100% 10px no-repeat scroll;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .writing-task-link,
   .journal-review-row {

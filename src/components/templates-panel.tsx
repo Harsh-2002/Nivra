@@ -531,7 +531,7 @@ export function TemplatesPanel({
           )}
           {items !== null && starters.length > 0 && (
             <div className="mt-10">
-              <h2 className="text-sm font-medium">Starter templates</h2>
+              <h2 className="text-base font-medium">Starter templates</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Add one to your templates, then edit it to suit you.
               </p>
@@ -554,9 +554,9 @@ export function TemplatesPanel({
                         {starter.description}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 [&>button:first-child]:flex-1 md:[&>button:first-child]:flex-none">
+                    <div className="grid grid-cols-2 gap-2 md:flex md:items-center">
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         className="h-11 md:h-9"
                         disabled={busy}
                         aria-label={`Preview ${starter.name}`}
@@ -601,23 +601,27 @@ export function TemplatesPanel({
             </DialogDescription>
           </DialogHeader>
           <div
-            className="min-h-0 overflow-y-auto rounded-lg border p-4"
+            className="template-preview scroll-shadow-y min-h-0 overflow-y-auto rounded-lg border p-4"
             tabIndex={0}
             role="region"
             aria-label={`${shown?.name ?? "Template"} preview`}
           >
             {shown && (
               <NoteContent
-                blocks={
-                  previewTemplateDocument(shown.document, "Untitled").blocks
-                }
+                blocks={previewTemplateDocument(
+                  shown.document,
+                  "Untitled",
+                ).blocks.filter(
+                  (block) =>
+                    block.type !== "paragraph" ||
+                    (Array.isArray(block.content) && block.content.length > 0),
+                )}
               />
             )}
           </div>
           <DialogFooter>
             {starterPreview ? (
               <Button
-                variant="outline"
                 disabled={busy}
                 onClick={() => void addStarter(starterPreview)}
               >

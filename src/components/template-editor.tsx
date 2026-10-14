@@ -453,7 +453,12 @@ export function TemplateEditor({
             <FieldGroup>
               <div className="grid gap-5 md:grid-cols-2">
                 <Field>
-                  <FieldLabel htmlFor="template-name">Name</FieldLabel>
+                  <FieldLabel htmlFor="template-name">
+                    Name
+                    <span className="font-normal text-muted-foreground">
+                      (required)
+                    </span>
+                  </FieldLabel>
                   <Input
                     ref={nameRef}
                     id="template-name"
@@ -556,7 +561,7 @@ export function TemplateEditor({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className="h-11 md:h-8"
+                      className="-mr-3 h-11 md:h-8"
                       aria-controls="template-editor-content"
                       onClick={() => setPreview((value) => !value)}
                     >
