@@ -98,7 +98,27 @@ try {
     });
     const page = await context.newPage();
     const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
+    const diagnostics = [];
+    const record = (entry) => {
+      diagnostics.push({ at: Date.now(), ...entry });
+      if (diagnostics.length > 100) diagnostics.shift();
+    };
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame())
+        record({ event: "navigation", path: new URL(frame.url()).pathname });
+    });
+    page.on("requestfailed", (request) =>
+      record({
+        event: "requestfailed",
+        method: request.method(),
+        path: new URL(request.url()).pathname,
+        failure: request.failure()?.errorText,
+      }),
+    );
+    page.on("pageerror", (error) => {
+      errors.push(error.stack ?? error.message);
+      record({ event: "pageerror", path: new URL(page.url()).pathname });
+    });
     await page.goto(`${base}/overview`);
     await page.locator(".overview-widget").first().waitFor();
     await page.keyboard.press("Tab");
@@ -643,6 +663,7 @@ try {
         .evaluate((element) => element.scrollWidth > innerWidth + 1),
       false,
     );
+    if (errors.length) console.error(JSON.stringify(diagnostics, null, 2));
     assert.deepEqual(errors, [], `${name} ${width}: browser errors`);
     await context.close();
     checked++;
