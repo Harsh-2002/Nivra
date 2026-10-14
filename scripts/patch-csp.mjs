@@ -13,6 +13,7 @@ for (const [name, version] of [
   ["d3-selection", "3.0.0"],
   ["prosemirror-model", "1.25.12"],
   ["@blocknote/react", "0.55.0"],
+  ["@radix-ui/react-select", "2.3.7"],
 ]) {
   const pkg = JSON.parse(
     await readFile(`node_modules/${name}/package.json`, "utf8"),
@@ -58,3 +59,14 @@ await patch(
   "]), !b || !n) return !1;",
   ']), !b || !n || C === "close") return !1;',
 );
+
+for (const [file, prefix] of [
+  ["index.mjs", ""],
+  ["index.js", "import_react_visually_hidden."],
+]) {
+  await patch(
+    `node_modules/@radix-ui/react-select/dist/${file}`,
+    `style: { ...${prefix}VISUALLY_HIDDEN_STYLES, ...props.style },`,
+    'className: [props.className, "nivra-select-bubble"].filter(Boolean).join(" "),\n        style: props.style,',
+  );
+}
