@@ -9,6 +9,14 @@ import {
 
 const origin = "http://127.0.0.1:3015";
 const message = `${origin}/api/v1/tags${webkitNativeFetchCancellationSuffix}`;
+const notesPreviewUrl = new URLSearchParams({
+  view: "all",
+  sort: "updated",
+  q: "",
+  limit: "61",
+  preview: "1",
+}).toString();
+const notesPreviewMessage = `${origin}/api/v1/notes?${notesPreviewUrl}${webkitNativeFetchCancellationSuffix}`;
 const nativeError = Object.assign(new Error(message), {
   name: webkitNativeFetchCancellationName,
 });
@@ -64,6 +72,13 @@ test("defers only the exact native read cancellation during document navigation"
   assert.equal(
     parseNativeFetchCancellation(overviewError, origin)?.pathname,
     "/api/v1/overview",
+  );
+  const notesPreviewError = Object.assign(new Error(notesPreviewMessage), {
+    name: webkitNativeFetchCancellationName,
+  });
+  assert.equal(
+    parseNativeFetchCancellation(notesPreviewError, origin)?.pathname,
+    "/api/v1/notes",
   );
   const diagnostics = makeDiagnostics();
   ready(diagnostics);
@@ -224,6 +239,134 @@ test("only listed read paths and exact native error signatures qualify", () => {
   assert.equal(makeDiagnostics("chromium").deferPageError(nativeError), false);
 });
 
+test("notes cancellation requires the bounded workspace preview-list query", () => {
+  const validSorts = ["updated", "created", "title"];
+  for (const sort of validSorts) {
+    const url = new URL(`${origin}/api/v1/notes`);
+    url.search = new URLSearchParams({
+      view: "all",
+      sort,
+      q: "wireless battery",
+      limit: "61",
+      preview: "1",
+      offset: "60",
+    }).toString();
+    assert.equal(
+      parseNativeFetchCancellation(
+        Object.assign(
+          new Error(`${url.href}${webkitNativeFetchCancellationSuffix}`),
+          { name: webkitNativeFetchCancellationName },
+        ),
+        origin,
+      )?.pathname,
+      "/api/v1/notes",
+    );
+  }
+
+  const invalidQueries = [
+    "",
+    "view=all&sort=updated&limit=61&preview=1",
+    `view=all&sort=updated&q=${"x".repeat(301)}&limit=61&preview=1`,
+    "view=all&sort=updated&q=&limit=100&preview=1",
+    "view=all&sort=updated&q=&limit=61&preview=0",
+    "view=all&sort=other&q=&limit=61&preview=1",
+    "view=favorites&sort=updated&q=&limit=61&preview=1",
+    "view=all&sort=updated&q=&limit=61&preview=1&tag=123",
+    "view=all&sort=updated&q=&limit=61&preview=1&offset=1000001",
+    "view=all&view=all&sort=updated&q=&limit=61&preview=1",
+  ];
+  for (const query of invalidQueries) {
+    const target = `${origin}/api/v1/notes${query ? `?${query}` : ""}`;
+    const error = Object.assign(
+      new Error(`${target}${webkitNativeFetchCancellationSuffix}`),
+      { name: webkitNativeFetchCancellationName },
+    );
+    assert.equal(parseNativeFetchCancellation(error, origin), null, target);
+  }
+
+  const bareNotes = makeDiagnostics();
+  assert.equal(
+    bareNotes.observeApiRequest({
+      url: `${origin}/api/v1/notes`,
+      method: "POST",
+    }),
+    undefined,
+  );
+  assert.equal(
+    parseNativeFetchCancellation(
+      Object.assign(
+        new Error(
+          `${origin}/api/v1/notes${webkitNativeFetchCancellationSuffix}`,
+        ),
+        { name: webkitNativeFetchCancellationName },
+      ),
+      origin,
+    ),
+    null,
+  );
+});
+
+test("journal cancellation requires the bounded workspace journal-list query", () => {
+  const validQueries = [
+    "period=daily&limit=60",
+    "period=weekly&limit=60&q=field+notes",
+    `period=monthly&limit=60&q=&after=${encodeURIComponent("opaque.cursor.v1")}`,
+  ];
+  for (const query of validQueries) {
+    const error = Object.assign(
+      new Error(
+        `${origin}/api/v1/journals?${query}${webkitNativeFetchCancellationSuffix}`,
+      ),
+      { name: webkitNativeFetchCancellationName },
+    );
+    assert.equal(
+      parseNativeFetchCancellation(error, origin)?.pathname,
+      "/api/v1/journals",
+    );
+  }
+
+  const invalidQueries = [
+    "",
+    "period=yearly&limit=60",
+    "period=daily&limit=61",
+    `period=daily&limit=60&q=${"x".repeat(301)}`,
+    `period=daily&limit=60&after=${"c".repeat(513)}`,
+    "period=daily&limit=60&from=2026-01-01",
+    "period=daily&limit=60&to=2026-01-31",
+    "period=daily&period=weekly&limit=60",
+    "period=daily&limit=60&after=cursor&after=other",
+  ];
+  for (const query of invalidQueries) {
+    const target = `${origin}/api/v1/journals${query ? `?${query}` : ""}`;
+    const error = Object.assign(
+      new Error(`${target}${webkitNativeFetchCancellationSuffix}`),
+      { name: webkitNativeFetchCancellationName },
+    );
+    assert.equal(parseNativeFetchCancellation(error, origin), null, target);
+  }
+
+  const createJournal = makeDiagnostics();
+  assert.equal(
+    createJournal.observeApiRequest({
+      url: `${origin}/api/v1/journals`,
+      method: "POST",
+    }),
+    undefined,
+  );
+  assert.equal(
+    parseNativeFetchCancellation(
+      Object.assign(
+        new Error(
+          `${origin}/api/v1/journals${webkitNativeFetchCancellationSuffix}`,
+        ),
+        { name: webkitNativeFetchCancellationName },
+      ),
+      origin,
+    ),
+    null,
+  );
+});
+
 test("a matching mutation request and real uncaught events remain fatal", () => {
   const mutation = makeDiagnostics();
   ready(mutation);
@@ -253,6 +396,58 @@ test("a matching mutation request and real uncaught events remain fatal", () => 
   recentlyCompletedMutation.finishApiRequest("recently-completed");
   navigation(recentlyCompletedMutation);
   assert.equal(recentlyCompletedMutation.deferPageError(nativeError), false);
+
+  const notesMutation = makeDiagnostics();
+  ready(notesMutation);
+  notesMutation.observeApiRequest({
+    url: `${origin}/api/v1/notes?${notesPreviewUrl}`,
+    method: "POST",
+  });
+  navigation(notesMutation);
+  assert.equal(
+    notesMutation.deferPageError(
+      Object.assign(new Error(notesPreviewMessage), {
+        name: webkitNativeFetchCancellationName,
+      }),
+    ),
+    false,
+  );
+
+  const lateNotesMutation = makeDiagnostics();
+  ready(lateNotesMutation);
+  navigation(lateNotesMutation);
+  const notesPreviewError = Object.assign(new Error(notesPreviewMessage), {
+    name: webkitNativeFetchCancellationName,
+  });
+  assert.equal(lateNotesMutation.deferPageError(notesPreviewError), true);
+  lateNotesMutation.observeApiRequest({
+    url: `${origin}/api/v1/notes?${notesPreviewUrl}`,
+    method: "POST",
+  });
+  assert.ok(
+    lateNotesMutation
+      .result()
+      .errors.some((entry) => /mutation request/.test(entry)),
+  );
+
+  const journalMutation = makeDiagnostics();
+  ready(journalMutation);
+  journalMutation.observeApiRequest({
+    url: `${origin}/api/v1/journals?period=daily&limit=60`,
+    method: "POST",
+  });
+  navigation(journalMutation);
+  assert.equal(
+    journalMutation.deferPageError(
+      Object.assign(
+        new Error(
+          `${origin}/api/v1/journals?period=daily&limit=60${webkitNativeFetchCancellationSuffix}`,
+        ),
+        { name: webkitNativeFetchCancellationName },
+      ),
+    ),
+    false,
+  );
 
   const delayedMutationEvidence = makeDiagnostics();
   ready(delayedMutationEvidence);

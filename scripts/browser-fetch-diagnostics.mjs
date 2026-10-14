@@ -15,6 +15,15 @@ const backgroundReadPaths = new Set([
   "/api/v1/overview",
   "/api/v1/completions",
 ]);
+const notesPreviewKeys = new Set([
+  "view",
+  "sort",
+  "q",
+  "limit",
+  "preview",
+  "offset",
+]);
+const journalListKeys = new Set(["period", "limit", "q", "after"]);
 const maxRecords = 128;
 const navigationWindowMs = 2000;
 
@@ -27,6 +36,53 @@ function sameOriginUrl(value, origin) {
   } catch {
     return null;
   }
+}
+
+/** @param {URL} url */
+function isEligibleReadUrl(url) {
+  if (backgroundReadPaths.has(url.pathname)) return url.search.length <= 512;
+  if (url.pathname === "/api/v1/journals") {
+    if (url.search.length > 6144) return false;
+    const params = url.searchParams;
+    const keys = [...params.keys()];
+    const query = params.getAll("q");
+    const after = params.getAll("after");
+    return (
+      keys.every((key) => journalListKeys.has(key)) &&
+      params.getAll("period").length === 1 &&
+      ["daily", "weekly", "monthly"].includes(params.get("period") ?? "") &&
+      params.getAll("limit").length === 1 &&
+      params.get("limit") === "60" &&
+      query.length <= 1 &&
+      (query.length === 0 || query[0].length <= 300) &&
+      after.length <= 1 &&
+      (after.length === 0 || after[0].length <= 512)
+    );
+  }
+  if (url.pathname !== "/api/v1/notes" || url.search.length > 4096)
+    return false;
+  const params = url.searchParams;
+  const keys = [...params.keys()];
+  if (keys.some((key) => !notesPreviewKeys.has(key))) return false;
+  if (
+    ["view", "sort", "q", "limit", "preview"].some(
+      (key) => params.getAll(key).length !== 1,
+    )
+  )
+    return false;
+  const query = params.get("q");
+  const offset = params.getAll("offset");
+  return (
+    params.get("view") === "all" &&
+    ["updated", "created", "title"].includes(params.get("sort") ?? "") &&
+    query !== null &&
+    query.length <= 300 &&
+    params.get("limit") === "61" &&
+    params.get("preview") === "1" &&
+    offset.length <= 1 &&
+    (offset.length === 0 ||
+      (/^(0|[1-9]\d*)$/.test(offset[0]) && Number(offset[0]) <= 1_000_000))
+  );
 }
 
 /** @param {unknown} error @param {string} origin */
@@ -48,13 +104,7 @@ export function parseNativeFetchCancellation(error, origin) {
     requested = `http://${requested.slice(1)}`;
   else if (!/^https?:\/\//i.test(requested)) return null;
   const url = sameOriginUrl(requested, origin);
-  if (
-    !url ||
-    url.search.length > 512 ||
-    url.hash ||
-    !backgroundReadPaths.has(url.pathname)
-  )
-    return null;
+  if (!url || url.hash || !isEligibleReadUrl(url)) return null;
   return { origin: url.origin, pathname: url.pathname };
 }
 
@@ -204,7 +254,7 @@ export function createBrowserFetchDiagnostics({
     requestId,
   }) {
     const url = sameOriginUrl(value, expectedOrigin);
-    if (!url || !backgroundReadPaths.has(url.pathname)) return;
+    if (!url || !isEligibleReadUrl(url)) return;
     const normalizedMethod = method.toUpperCase();
     if (normalizedMethod === "GET") return null;
     activity();
@@ -418,10 +468,7 @@ export async function installBrowserFetchDiagnostics(page, options) {
     try {
       const value = request.url();
       const url = new URL(value);
-      if (
-        url.origin === expectedOrigin &&
-        backgroundReadPaths.has(url.pathname)
-      ) {
+      if (url.origin === expectedOrigin && isEligibleReadUrl(url)) {
         const requestId = diagnostics.observeApiRequest({
           url: value,
           method: request.method(),
@@ -487,7 +534,11 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
   });
   server.on("request", async (request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (url.pathname === "/api/v1/tags") {
+    if (
+      url.pathname === "/api/v1/tags" ||
+      url.pathname === "/api/v1/notes" ||
+      url.pathname === "/api/v1/journals"
+    ) {
       pendingResponses.add(response);
       response.on("close", () => pendingResponses.delete(response));
       return;
@@ -520,9 +571,9 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
           if (kind === "reject-string") Promise.reject(error.message);
         }, 0);
       };
-      window.startFetches = () => {
+      window.startFetches = (path = "/api/v1/tags") => {
         window.started = true;
-        const poll = () => { fetch("/api/v1/tags").catch(() => {}); setTimeout(poll, 2); };
+        const poll = () => { fetch(path).catch(() => {}); setTimeout(poll, 2); };
         poll();
       };
     </script>`);
@@ -570,6 +621,55 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
     if (positiveResult.deferredCount < 1)
       throw new Error(
         "WebKit control did not reproduce a native fetch pageerror",
+      );
+
+    const notesPreview = new URLSearchParams({
+      view: "all",
+      sort: "updated",
+      q: "",
+      limit: "61",
+      preview: "1",
+    }).toString();
+    const beforeNotesPreview = diagnostics.result().deferredCount;
+    await page.goto(`${origin}/source`);
+    await page.evaluate(
+      (path) => window.startFetches(path),
+      `/api/v1/notes?${notesPreview}`,
+    );
+    await page.waitForTimeout(20);
+    await page.goto(`${origin}/target`);
+    await diagnostics.flush();
+    const notesPreviewResult = diagnostics.result();
+    if (notesPreviewResult.errors.length || fatalPageErrors.length)
+      throw new Error(
+        `Notes preview cancellation control produced fatal diagnostics: ${[...notesPreviewResult.errors, ...fatalPageErrors].join("; ")}`,
+      );
+    if (notesPreviewResult.deferredCount <= beforeNotesPreview)
+      throw new Error(
+        "WebKit control did not reproduce a native notes preview fetch pageerror",
+      );
+
+    const journalList = new URLSearchParams({
+      period: "daily",
+      limit: "60",
+    }).toString();
+    const beforeJournals = diagnostics.result().deferredCount;
+    await page.goto(`${origin}/source`);
+    await page.evaluate(
+      (path) => window.startFetches(path),
+      `/api/v1/journals?${journalList}`,
+    );
+    await page.waitForTimeout(20);
+    await page.goto(`${origin}/target`);
+    await diagnostics.flush();
+    const journalResult = diagnostics.result();
+    if (journalResult.errors.length || fatalPageErrors.length)
+      throw new Error(
+        `Journal list cancellation control produced fatal diagnostics: ${[...journalResult.errors, ...fatalPageErrors].join("; ")}`,
+      );
+    if (journalResult.deferredCount <= beforeJournals)
+      throw new Error(
+        "WebKit control did not reproduce a native journal list fetch pageerror",
       );
 
     let uncaughtCount = 0;
