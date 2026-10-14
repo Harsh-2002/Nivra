@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 import { chromium, firefox, request, webkit } from "playwright";
 import { classifyConsoleMessage } from "./browser-diagnostics.mjs";
 import { installBrowserCspDiagnostics } from "./browser-csp-diagnostics.mjs";
+import {
+  installBrowserFetchDiagnostics,
+  verifyWebKitFetchDiagnosticControls,
+} from "./browser-fetch-diagnostics.mjs";
 import verifyPlanning from "./browser-planning.mjs";
 
 const base = process.env.NIVRA_BROWSER_TEST_URL ?? "http://localhost:3015";
@@ -123,6 +127,19 @@ assert.equal(
 
 const browser = await engines[engineName].launch();
 const errors = [];
+let fetchControl = {
+  deferredCount: 0,
+  uncaughtControls: 0,
+  strictConsoleControls: 0,
+};
+if (engineName === "webkit") {
+  try {
+    fetchControl = await verifyWebKitFetchDiagnosticControls(browser);
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
+}
 const context = await browser.newContext({
   storageState: sessionPath,
   serviceWorkers: "block",
@@ -134,12 +151,20 @@ const cspDiagnostics = await installBrowserCspDiagnostics(page, {
   engine: engineName,
   origin: baseUrl.origin,
 });
+const fetchDiagnostics = await installBrowserFetchDiagnostics(page, {
+  engine: engineName,
+  origin: baseUrl.origin,
+});
 const unsupportedBrowserWarnings = [];
 const pendingConsoleDetails = new Set();
 let expectedNativeSelectCspWarningCount = 0;
+let expectedNativeFetchCancellationCount = 0;
 let cspDiagnosticsFinalized = false;
-page.on("pageerror", (error) =>
-  errors.push(`pageerror at ${page.url()}: ${error.stack ?? error.message}`),
+page.on(
+  "pageerror",
+  (error) =>
+    fetchDiagnostics.deferPageError(error) ||
+    errors.push(`pageerror at ${page.url()}: ${error.stack ?? error.message}`),
 );
 page.on("console", (message) => {
   if (
@@ -208,11 +233,16 @@ function check(condition, label) {
 
 async function finalizeCspDiagnostics() {
   await cspDiagnostics.flush();
+  await fetchDiagnostics.flush();
   await context.close().catch(() => {});
   if (cspDiagnosticsFinalized) return;
   const result = cspDiagnostics.result();
+  const fetchResult = fetchDiagnostics.result();
   errors.push(...result.errors);
+  errors.push(...fetchResult.errors);
   expectedNativeSelectCspWarningCount += result.matchedCount;
+  if (fetchResult.deferredCount > 0)
+    expectedNativeFetchCancellationCount += fetchResult.deferredCount;
   cspDiagnosticsFinalized = true;
 }
 
@@ -936,6 +966,10 @@ try {
   console.log(
     `Matched trusted WebKit native-select CSP diagnostics: ${expectedNativeSelectCspWarningCount}.`,
   );
+  if (engineName === "webkit")
+    console.log(
+      `WebKit fetch diagnostics: ${expectedNativeFetchCancellationCount} narrowly matched app pageerrors; control ${fetchControl.deferredCount} native cancellations, ${fetchControl.uncaughtControls} uncaught-event cases, ${fetchControl.strictConsoleControls} strict console cases.`,
+    );
 } finally {
   await finalizeCspDiagnostics().catch((error) =>
     errors.push(

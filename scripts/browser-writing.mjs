@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { chromium, firefox, webkit, request } from "playwright";
 import { classifyConsoleMessage } from "./browser-diagnostics.mjs";
 import { installBrowserCspDiagnostics } from "./browser-csp-diagnostics.mjs";
+import { installBrowserFetchDiagnostics } from "./browser-fetch-diagnostics.mjs";
 
 const base = process.env.NIVRA_BROWSER_TEST_URL ?? "http://localhost:3015";
 const baseUrl = new URL(base);
@@ -103,6 +104,7 @@ let browser;
 let checked = 0;
 const errors = [];
 let expectedNativeSelectCspWarningCount = 0;
+let expectedNativeFetchCancellationCount = 0;
 const unsupportedBrowserWarnings = [];
 let unsupportedWarningCountReported = false;
 let expectedTemplateConflict = false;
@@ -140,6 +142,10 @@ try {
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
     const cspDiagnostics = await installBrowserCspDiagnostics(page, {
+      engine: engineName,
+      origin: baseUrl.origin,
+    });
+    const fetchDiagnostics = await installBrowserFetchDiagnostics(page, {
       engine: engineName,
       origin: baseUrl.origin,
     });
@@ -236,8 +242,11 @@ try {
         taskCreateRequests.push(request.url());
       }
     });
-    page.on("pageerror", (error) =>
-      errors.push(`${width}px: ${error.message}`),
+    page.on(
+      "pageerror",
+      (error) =>
+        fetchDiagnostics.deferPageError(error) ||
+        errors.push(`${width}px: ${error.message}`),
     );
     page.on("console", (message) => {
       if (
@@ -875,10 +884,14 @@ try {
       checked += 1;
     } finally {
       await cspDiagnostics.flush();
+      await fetchDiagnostics.flush();
       await context.close();
       const result = cspDiagnostics.result();
+      const fetchResult = fetchDiagnostics.result();
       errors.push(...result.errors);
+      errors.push(...fetchResult.errors);
       expectedNativeSelectCspWarningCount += result.matchedCount;
+      expectedNativeFetchCancellationCount += fetchResult.deferredCount;
     }
   }
 
@@ -899,6 +912,10 @@ try {
   console.log(
     `Matched trusted WebKit native-select CSP diagnostics: ${expectedNativeSelectCspWarningCount}.`,
   );
+  if (engineName === "webkit")
+    console.log(
+      `Matched trusted WebKit native fetch-cancellation pageerrors: ${expectedNativeFetchCancellationCount}.`,
+    );
   unsupportedWarningCountReported = true;
 } finally {
   await browser?.close();
