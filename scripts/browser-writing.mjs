@@ -370,7 +370,7 @@ try {
       const sourceTitle = (await api(`notes/${note.id}`)).title;
       await page.goto(`${base}/templates`);
       await settle(page);
-      await page.getByRole("button", { name: "New template" }).click();
+      await page.getByRole("button", { name: "New template" }).first().click();
       await page.getByLabel("Name", { exact: true }).fill(templateName);
       await page.getByRole("combobox", { name: "Start from" }).click();
       await page
@@ -451,7 +451,10 @@ try {
         noteIds.push(conflictNote.id);
         await page.goto(`${base}/templates`);
         await settle(page);
-        await page.getByRole("button", { name: "New template" }).click();
+        await page
+          .getByRole("button", { name: "New template" })
+          .first()
+          .click();
         const conflictTemplateName = `Keep draft ${stamp}`;
         await page
           .getByLabel("Name", { exact: true })
