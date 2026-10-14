@@ -532,3 +532,35 @@ test("untrusted or malformed document events fail closed", () => {
   );
   assert.match(diagnostics.result().errors.join(" "), /trusted main-document/);
 });
+
+test("defers only validated calendar range read cancellations", () => {
+  const range = (query: string) =>
+    Object.assign(
+      new Error(
+        `${origin}/api/v1/calendar/range?${query}${webkitNativeFetchCancellationSuffix}`,
+      ),
+      { name: webkitNativeFetchCancellationName },
+    );
+  const week =
+    "from=2027-03-21&to=2027-03-28&timezone=UTC&mode=planning&limit=500&preview=50&includeCompleted=0";
+  const day =
+    "from=2027-03-27&to=2027-03-28&timezone=Europe%2FLondon&mode=activity&limit=50&includeCompleted=1&offset=50";
+  assert.equal(
+    parseNativeFetchCancellation(range(week), origin)?.pathname,
+    "/api/v1/calendar/range",
+  );
+  assert.equal(
+    parseNativeFetchCancellation(range(day), origin)?.pathname,
+    "/api/v1/calendar/range",
+  );
+  for (const bad of [
+    `${week}&unexpected=1`,
+    week.replace("from=2027-03-21", "from=tomorrow"),
+    week.replace("mode=planning", "mode=admin"),
+    `${week}&from=2027-03-22`,
+    week.replace("includeCompleted=0", "includeCompleted=2"),
+    week.replace("timezone=UTC", "timezone=../../etc"),
+    week.replace("limit=500&", ""),
+  ])
+    assert.equal(parseNativeFetchCancellation(range(bad), origin), null, bad);
+});

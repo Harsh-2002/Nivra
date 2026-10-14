@@ -24,6 +24,16 @@ const notesPreviewKeys = new Set([
   "offset",
 ]);
 const journalListKeys = new Set(["period", "limit", "q", "after"]);
+const calendarRangeKeys = new Set([
+  "from",
+  "to",
+  "timezone",
+  "mode",
+  "limit",
+  "preview",
+  "includeCompleted",
+  "offset",
+]);
 const maxRecords = 128;
 const navigationWindowMs = 2000;
 const nativeControlAttempts = 20;
@@ -37,6 +47,35 @@ function sameOriginUrl(value, origin) {
   } catch {
     return null;
   }
+}
+
+/** @param {URL} url */
+function isEligibleCalendarRange(url) {
+  if (url.search.length > 1024) return false;
+  const params = url.searchParams;
+  const once = (key) => params.getAll(key).length === 1;
+  if ([...params.keys()].some((key) => !calendarRangeKeys.has(key)))
+    return false;
+  if (
+    !["from", "to", "timezone", "mode", "limit", "includeCompleted"].every(once)
+  )
+    return false;
+  const date = /^\d{4}-\d{2}-\d{2}$/;
+  const count = /^(0|[1-9]\d{0,3})$/;
+  const preview = params.getAll("preview");
+  const offset = params.getAll("offset");
+  return (
+    date.test(params.get("from") ?? "") &&
+    date.test(params.get("to") ?? "") &&
+    /^[A-Za-z0-9_+/-]{1,64}$/.test(params.get("timezone") ?? "") &&
+    ["planning", "activity"].includes(params.get("mode") ?? "") &&
+    count.test(params.get("limit") ?? "") &&
+    ["0", "1"].includes(params.get("includeCompleted") ?? "") &&
+    preview.length <= 1 &&
+    (preview.length === 0 || count.test(preview[0])) &&
+    offset.length <= 1 &&
+    (offset.length === 0 || /^(0|[1-9]\d{0,6})$/.test(offset[0]))
+  );
 }
 
 /** @param {URL} url */
@@ -60,6 +99,8 @@ function isEligibleReadUrl(url) {
       (after.length === 0 || after[0].length <= 512)
     );
   }
+  if (url.pathname === "/api/v1/calendar/range")
+    return isEligibleCalendarRange(url);
   if (url.pathname !== "/api/v1/notes" || url.search.length > 4096)
     return false;
   const params = url.searchParams;
@@ -538,7 +579,8 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
     if (
       url.pathname === "/api/v1/tags" ||
       url.pathname === "/api/v1/notes" ||
-      url.pathname === "/api/v1/journals"
+      url.pathname === "/api/v1/journals" ||
+      url.pathname === "/api/v1/calendar/range"
     ) {
       pendingResponses.add(response);
       response.on("close", () => pendingResponses.delete(response));
@@ -664,6 +706,19 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
       `/api/v1/journals?${journalList}`,
       "journal list",
     );
+    const calendarRange = new URLSearchParams({
+      from: "2027-03-21",
+      to: "2027-03-28",
+      timezone: "UTC",
+      mode: "planning",
+      limit: "500",
+      preview: "50",
+      includeCompleted: "0",
+    }).toString();
+    const calendarAttempts = await reproduceNativeCancellation(
+      `/api/v1/calendar/range?${calendarRange}`,
+      "calendar range",
+    );
 
     let uncaughtCount = 0;
     let consoleCount = 0;
@@ -712,6 +767,7 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
       deferredCount: positiveResult.deferredCount,
       notesPreviewAttempts,
       journalAttempts,
+      calendarAttempts,
       uncaughtControls: uncaughtCount,
       strictConsoleControls: consoleCount,
     };

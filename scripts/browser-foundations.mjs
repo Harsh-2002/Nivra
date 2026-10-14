@@ -131,6 +131,7 @@ let fetchControl = {
   deferredCount: 0,
   notesPreviewAttempts: 0,
   journalAttempts: 0,
+  calendarAttempts: 0,
   uncaughtControls: 0,
   strictConsoleControls: 0,
 };
@@ -970,7 +971,7 @@ try {
   );
   if (engineName === "webkit")
     console.log(
-      `WebKit fetch diagnostics: ${expectedNativeFetchCancellationCount} narrowly matched app pageerrors; control ${fetchControl.deferredCount} native cancellations (notes preview after ${fetchControl.notesPreviewAttempts} attempt(s), journal list after ${fetchControl.journalAttempts}), ${fetchControl.uncaughtControls} uncaught-event cases, ${fetchControl.strictConsoleControls} strict console cases.`,
+      `WebKit fetch diagnostics: ${expectedNativeFetchCancellationCount} narrowly matched app pageerrors; control ${fetchControl.deferredCount} native cancellations (notes preview after ${fetchControl.notesPreviewAttempts} attempt(s), journal list after ${fetchControl.journalAttempts}, calendar range after ${fetchControl.calendarAttempts}), ${fetchControl.uncaughtControls} uncaught-event cases, ${fetchControl.strictConsoleControls} strict console cases.`,
     );
 } finally {
   await finalizeCspDiagnostics().catch((error) =>
