@@ -483,7 +483,7 @@ try {
     await page.getByRole("menuitem", { name: "Edit", exact: true }).waitFor();
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
-    await page.getByLabel("Name", { exact: true }).waitFor();
+    await page.getByLabel(/^Name\b/).waitFor();
     if (await page.evaluate(() => matchMedia("(pointer: fine)").matches))
       assert.equal(
         await page.evaluate(() => document.activeElement?.id),

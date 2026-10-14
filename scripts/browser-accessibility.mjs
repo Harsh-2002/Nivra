@@ -748,7 +748,7 @@ try {
           await page
             .getByRole("menuitem", { name: "Edit", exact: true })
             .click();
-          await page.getByLabel("Name", { exact: true }).waitFor();
+          await page.getByLabel(/^Name\b/).waitFor();
           await page.locator(".bn-editor").waitFor();
           await inspect(page, "template-editor", width, theme, engineName);
           await page
@@ -948,7 +948,7 @@ try {
               await page
                 .getByRole("button", { name: "New key", exact: true })
                 .click();
-              await page.getByLabel("Name", { exact: true }).waitFor();
+              await page.getByLabel(/^Name\b/).waitFor();
               await inspect(page, "mcp-key-form", width, theme, engineName);
             }
           }

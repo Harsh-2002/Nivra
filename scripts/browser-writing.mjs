@@ -371,7 +371,7 @@ try {
       await page.goto(`${base}/templates`);
       await settle(page);
       await page.getByRole("button", { name: "New template" }).first().click();
-      await page.getByLabel("Name", { exact: true }).fill(templateName);
+      await page.getByLabel(/^Name\b/).fill(templateName);
       await page.getByRole("combobox", { name: "Start from" }).click();
       await page
         .getByRole("option", { name: "An existing note", exact: true })
@@ -456,9 +456,7 @@ try {
           .first()
           .click();
         const conflictTemplateName = `Keep draft ${stamp}`;
-        await page
-          .getByLabel("Name", { exact: true })
-          .fill(conflictTemplateName);
+        await page.getByLabel(/^Name\b/).fill(conflictTemplateName);
         await page.getByRole("combobox", { name: "Start from" }).click();
         await page
           .getByRole("option", { name: "An existing note", exact: true })
@@ -514,7 +512,7 @@ try {
           "A genuine remote edit should produce the actionable template conflict message",
         );
         assert.equal(
-          await page.getByLabel("Name", { exact: true }).inputValue(),
+          await page.getByLabel(/^Name\b/).inputValue(),
           conflictTemplateName,
           "A source conflict must preserve the user's template draft",
         );
