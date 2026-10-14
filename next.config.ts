@@ -8,6 +8,9 @@ const offlineStyle = readFileSync("public/offline.html", "utf8").match(
 const offlineStyleHash = createHash("sha256")
   .update(offlineStyle)
   .digest("base64");
+const cspPatchHash = createHash("sha256")
+  .update(readFileSync("scripts/patch-csp.mjs"))
+  .digest("hex");
 const config: NextConfig = {
   devIndicators: false,
   poweredByHeader: false,
@@ -19,6 +22,12 @@ const config: NextConfig = {
     ? [new URL(environment().NIVRA_PUBLIC_URL!).hostname]
     : [],
   output: "standalone",
+  webpack(config) {
+    if (config.cache && config.cache.type === "filesystem") {
+      config.cache.version = `${config.cache.version ?? ""}:${cspPatchHash}`;
+    }
+    return config;
+  },
   agentRules: false,
   serverExternalPackages: [
     "better-auth",

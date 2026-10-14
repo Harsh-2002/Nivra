@@ -22,6 +22,8 @@ test("Radix's hidden form select remains available without a CSP-blocked inline 
     assert.equal(control.getAttribute("aria-hidden"), "true");
     assert.equal(control.tabIndex, -1);
     assert.equal(control.required, true);
+    assert.equal(dom.window.document.querySelectorAll("[style]").length, 0);
+    assert.ok(dom.window.document.querySelector(".nivra-select-value"));
   } finally {
     dom.window.close();
   }

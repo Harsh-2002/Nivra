@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chromium, firefox, webkit, request } from "playwright";
 import { classifyConsoleMessage } from "./browser-diagnostics.mjs";
+import { installBrowserCspDiagnostics } from "./browser-csp-diagnostics.mjs";
 
 const base = process.env.NIVRA_BROWSER_TEST_URL ?? "http://localhost:3015";
 const baseUrl = new URL(base);
@@ -101,6 +102,7 @@ taskIds.push(reviewTask.id);
 let browser;
 let checked = 0;
 const errors = [];
+let expectedNativeSelectCspWarningCount = 0;
 const unsupportedBrowserWarnings = [];
 let unsupportedWarningCountReported = false;
 let expectedTemplateConflict = false;
@@ -137,6 +139,10 @@ try {
     });
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
+    const cspDiagnostics = await installBrowserCspDiagnostics(page, {
+      engine: engineName,
+      origin: baseUrl.origin,
+    });
     const writeRequests = new WeakMap();
     const writeEvents = [];
     const trackedNoteIds = new Set([note.id]);
@@ -234,6 +240,14 @@ try {
       errors.push(`${width}px: ${error.message}`),
     );
     page.on("console", (message) => {
+      if (
+        cspDiagnostics.deferConsole({
+          type: message.type(),
+          text: message.text(),
+          locationUrl: message.location().url,
+        })
+      )
+        return;
       const classification = classifyConsoleMessage(
         engineName,
         message.type(),
@@ -860,7 +874,11 @@ try {
       );
       checked += 1;
     } finally {
+      await cspDiagnostics.flush();
       await context.close();
+      const result = cspDiagnostics.result();
+      errors.push(...result.errors);
+      expectedNativeSelectCspWarningCount += result.matchedCount;
     }
   }
 
@@ -877,6 +895,9 @@ try {
   );
   console.log(
     `Expected template-conflict 409 browser warnings: ${expected409ConsoleWarningCount}.`,
+  );
+  console.log(
+    `Matched trusted WebKit native-select CSP diagnostics: ${expectedNativeSelectCspWarningCount}.`,
   );
   unsupportedWarningCountReported = true;
 } finally {

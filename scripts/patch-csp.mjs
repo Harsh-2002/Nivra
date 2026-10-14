@@ -69,4 +69,9 @@ for (const [file, prefix] of [
     `style: { ...${prefix}VISUALLY_HIDDEN_STYLES, ...props.style },`,
     'className: [props.className, "nivra-select-bubble"].filter(Boolean).join(" "),\n        style: props.style,',
   );
+  await patch(
+    `node_modules/@radix-ui/react-select/dist/${file}`,
+    'style: { pointerEvents: "none" },',
+    'className: "nivra-select-value",',
+  );
 }

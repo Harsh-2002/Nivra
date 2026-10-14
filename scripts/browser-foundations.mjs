@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, request, webkit } from "playwright";
 import { classifyConsoleMessage } from "./browser-diagnostics.mjs";
+import { installBrowserCspDiagnostics } from "./browser-csp-diagnostics.mjs";
 import verifyPlanning from "./browser-planning.mjs";
 
 const base = process.env.NIVRA_BROWSER_TEST_URL ?? "http://localhost:3015";
@@ -129,12 +130,26 @@ const context = await browser.newContext({
 });
 const page = await context.newPage();
 page.setDefaultTimeout(15_000);
+const cspDiagnostics = await installBrowserCspDiagnostics(page, {
+  engine: engineName,
+  origin: baseUrl.origin,
+});
 const unsupportedBrowserWarnings = [];
 const pendingConsoleDetails = new Set();
+let expectedNativeSelectCspWarningCount = 0;
+let cspDiagnosticsFinalized = false;
 page.on("pageerror", (error) =>
   errors.push(`pageerror at ${page.url()}: ${error.stack ?? error.message}`),
 );
 page.on("console", (message) => {
+  if (
+    cspDiagnostics.deferConsole({
+      type: message.type(),
+      text: message.text(),
+      locationUrl: message.location().url,
+    })
+  )
+    return;
   const classification = classifyConsoleMessage(
     engineName,
     message.type(),
@@ -189,6 +204,16 @@ const checks = [];
 function check(condition, label) {
   assert.ok(condition, label);
   checks.push(label);
+}
+
+async function finalizeCspDiagnostics() {
+  await cspDiagnostics.flush();
+  await context.close().catch(() => {});
+  if (cspDiagnosticsFinalized) return;
+  const result = cspDiagnostics.result();
+  errors.push(...result.errors);
+  expectedNativeSelectCspWarningCount += result.matchedCount;
+  cspDiagnosticsFinalized = true;
 }
 
 async function waitForSettledBounds(locator, expectedViewport, timeout = 1500) {
@@ -892,7 +917,7 @@ try {
   await verifyQuickCapture(1440);
   await verifyQuickCapture(390);
   await Promise.all(pendingConsoleDetails);
-  await context.close();
+  await finalizeCspDiagnostics();
   await browser.close();
 
   assert.deepEqual(errors, [], "Planning/bookmark/capture browser errors");
@@ -901,7 +926,15 @@ try {
   console.log(
     `Foundations browser checks passed: ${checks.length} wrapper assertions; planning ${planning.passed.length} checks; Review Owner only; localhost:${baseUrl.port}; unsupported WebKit viewport warnings: ${unsupportedBrowserWarnings.length}.`,
   );
+  console.log(
+    `Matched trusted WebKit native-select CSP diagnostics: ${expectedNativeSelectCspWarningCount}.`,
+  );
 } finally {
+  await finalizeCspDiagnostics().catch((error) =>
+    errors.push(
+      `CSP diagnostic flush failed: ${error instanceof Error ? error.message : "unknown error"}`,
+    ),
+  );
   await context.close().catch(() => {});
   await browser.close().catch(() => {});
   for (const id of owned.notes) {
