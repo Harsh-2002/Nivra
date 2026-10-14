@@ -690,6 +690,7 @@ try {
             }
           }
           await navigate(`/journal?note=${fixtures.journal.id}`);
+          await page.locator(".bn-editor").waitFor();
           const review = page.locator(".journal-review");
           if (!(await review.isVisible().catch(() => false))) {
             await page
