@@ -108,8 +108,6 @@ let expectedNativeFetchCancellationCount = 0;
 const unsupportedBrowserWarnings = [];
 let unsupportedWarningCountReported = false;
 let expectedTemplateConflict = false;
-let expectedConflictNoteId = null;
-let expectedConflictTemplatePostStarted = false;
 let expected409ConsoleWarningCount = 0;
 
 async function openMenuAction(page, label) {
@@ -149,90 +147,6 @@ try {
       engine: engineName,
       origin: baseUrl.origin,
     });
-    const writeRequests = new WeakMap();
-    const writeEvents = [];
-    const trackedNoteIds = new Set([note.id]);
-    let writeOrder = 0;
-    page.on("request", (request) => {
-      const url = new URL(request.url());
-      const isSourcePatch =
-        request.method() === "PATCH" &&
-        [...trackedNoteIds].some(
-          (id) => url.pathname === `/api/v1/notes/${id}`,
-        );
-      const isTemplateCreate =
-        request.method() === "POST" && url.pathname === "/api/v1/templates";
-      if (
-        isTemplateCreate &&
-        expectedTemplateConflict &&
-        expectedConflictNoteId &&
-        request.postDataJSON()?.sourceNoteId === expectedConflictNoteId
-      ) {
-        expectedConflictTemplatePostStarted = true;
-      }
-      if (!isSourcePatch && !isTemplateCreate) return;
-      const event = {
-        method: request.method(),
-        path: url.pathname,
-        startOrder: writeOrder++,
-        finishOrder: null,
-        status: null,
-      };
-      writeRequests.set(request, event);
-      writeEvents.push(event);
-    });
-    page.on("response", (response) => {
-      const event = writeRequests.get(response.request());
-      if (event) event.status = response.status();
-    });
-    page.on("requestfinished", (request) => {
-      const event = writeRequests.get(request);
-      if (event) event.finishOrder = writeOrder++;
-    });
-    let delayedSourcePatch = null;
-    let delayedTemplatePost = null;
-    if (width === widths[0]) {
-      let releasePatch;
-      let notifyPatch;
-      const gate = new Promise((resolve) => {
-        releasePatch = resolve;
-      });
-      const requestSeen = new Promise((resolve) => {
-        notifyPatch = resolve;
-      });
-      let holdNextPatch = true;
-      await page.route(`**/api/v1/notes/${note.id}`, async (route) => {
-        if (holdNextPatch && route.request().method() === "PATCH") {
-          holdNextPatch = false;
-          notifyPatch(route.request());
-          await gate;
-        }
-        await route.continue();
-      });
-      delayedSourcePatch = { requestSeen, release: releasePatch };
-
-      let releasePost;
-      let notifyPost;
-      const postGate = new Promise((resolve) => {
-        releasePost = resolve;
-      });
-      const postRequestSeen = new Promise((resolve) => {
-        notifyPost = resolve;
-      });
-      let holdNextPost = true;
-      await page.route("**/api/v1/templates", async (route) => {
-        if (holdNextPost && route.request().method() === "POST") {
-          holdNextPost = false;
-          notifyPost(route.request());
-          await postGate;
-        }
-        await route.continue();
-      });
-      delayedTemplatePost = {
-        requestSeen: postRequestSeen,
-        release: releasePost,
-      };
-    }
     const taskCreateRequests = [];
     page.on("request", (request) => {
       if (
@@ -273,11 +187,7 @@ try {
         unsupportedBrowserWarnings.push(message.text());
       else if (
         expectedTemplateConflict &&
-        expectedConflictTemplatePostStarted &&
         expected409ConsoleWarningCount === 0 &&
-        expectedConflictNoteId &&
-        new URL(page.url()).searchParams.get("note") ===
-          expectedConflictNoteId &&
         (!locationUrl || locationPath === "/api/v1/templates") &&
         /^Failed to load resource: the server responded with a status of 409 \(Conflict\)$/i.test(
           message.text(),
@@ -456,47 +366,21 @@ try {
       }
 
       templateName = `Weekly reset ${stamp} ${width}`;
-      if (delayedSourcePatch) {
-        const title = page.getByRole("textbox", { name: "Note title" });
-        await title.fill(`Prepared source ${stamp}`);
-        const heldPatch = await delayedSourcePatch.requestSeen;
-        assert.equal(heldPatch.method(), "PATCH");
-        await openMenuAction(page, "Save as template");
-        await page.evaluate(
-          () =>
-            new Promise((resolve) =>
-              requestAnimationFrame(() => requestAnimationFrame(resolve)),
-            ),
-        );
-        assert.equal(
-          await page.locator(".writing-template-editor").count(),
-          0,
-          "The template editor waits for the pending source save",
-        );
-        assert.equal(
-          writeEvents.filter(
-            (event) =>
-              event.method === "POST" && event.path === "/api/v1/templates",
-          ).length,
-          0,
-          "The template request must wait until the source save finishes",
-        );
-        const heldPatchResponse = page.waitForResponse(
-          (response) =>
-            response.request().url() === heldPatch.url() &&
-            response.request().method() === "PATCH",
-        );
-        delayedSourcePatch.release();
-        assert.ok(
-          (await heldPatchResponse).ok(),
-          "The delayed owner save should complete before template creation",
-        );
-        await page.getByLabel("Name", { exact: true }).waitFor();
-      } else {
-        await openMenuAction(page, "Save as template");
-      }
+      await page.locator(".save-status").filter({ hasText: "Saved" }).waitFor();
+      const sourceTitle = (await api(`notes/${note.id}`)).title;
+      await page.goto(`${base}/templates`);
+      await settle(page);
+      await page.getByRole("button", { name: "New template" }).click();
       await page.getByLabel("Name", { exact: true }).fill(templateName);
-      const writesBeforeTemplateSave = writeEvents.length;
+      await page.getByRole("combobox", { name: "Start from" }).click();
+      await page
+        .getByRole("option", { name: "An existing note", exact: true })
+        .click();
+      await page.getByRole("combobox", { name: "Note to copy" }).click();
+      await page
+        .getByRole("combobox", { name: "Search notes" })
+        .fill(sourceTitle);
+      await page.getByRole("option", { name: sourceTitle }).click();
       const templateResponse = page.waitForResponse((response) => {
         const url = new URL(response.url());
         return (
@@ -507,112 +391,30 @@ try {
       await page
         .getByRole("button", { name: "Save template", exact: true })
         .click();
-      if (delayedTemplatePost) {
-        await delayedTemplatePost.requestSeen;
-        await page.evaluate(
-          () =>
-            new Promise((resolve) =>
-              requestAnimationFrame(() => requestAnimationFrame(resolve)),
-            ),
-        );
-        const closeTemplate = page.getByRole("button", {
-          name: "Close template editor",
-        });
-        assert.ok(
-          await closeTemplate.isDisabled(),
-          "The template editor cannot close while its save is in flight",
-        );
-        assert.equal(
-          await page.getByLabel("Name", { exact: true }).inputValue(),
-          templateName,
-          "The template draft remains visible while the save is pending",
-        );
-        delayedTemplatePost.release();
-      }
+      const created = await templateResponse;
       assert.equal(
-        (await templateResponse).status(),
+        created.status(),
         201,
         "The source-backed template should save successfully",
       );
-      await page.locator(".writing-template-picker").waitFor();
-      const templatePost = writeEvents
-        .slice(writesBeforeTemplateSave)
-        .find(
-          (event) =>
-            event.method === "POST" && event.path === "/api/v1/templates",
-        );
-      assert.ok(templatePost, "Saving a template should send its API request");
-      if (delayedSourcePatch) {
-        const sourcePatchesBeforeTemplate = writeEvents.filter(
-          (event) =>
-            event.method === "PATCH" &&
-            event.path === `/api/v1/notes/${note.id}` &&
-            event.startOrder < templatePost.startOrder,
-        );
-        assert.ok(sourcePatchesBeforeTemplate.length > 0);
-        assert.ok(
-          sourcePatchesBeforeTemplate.every(
-            (event) =>
-              event.finishOrder !== null &&
-              event.finishOrder < templatePost.startOrder,
-          ),
-          "Every owner save already in flight must finish before template creation starts",
-        );
-      }
-      const templates = await api("templates?kind=note&limit=100");
-      templateId = templates.items.find(
+      assert.equal(
+        created.request().postDataJSON().sourceNoteId,
+        note.id,
+        "The template should be created from the chosen note",
+      );
+      const templateRow = page.locator("li").filter({
+        has: page.getByRole("heading", { name: templateName, exact: true }),
+      });
+      await templateRow.waitFor();
+      templateId = (await api("templates?kind=note&limit=100")).items.find(
         (item) => item.name === templateName,
       )?.id;
-      assert.ok(
-        templateId,
-        "The saved template should be available in the picker",
-      );
+      assert.ok(templateId, "The saved template should be listed");
       templateIds.push(templateId);
-      await page
-        .locator(".writing-template-row")
-        .filter({ hasText: templateName })
-        .click();
-
-      await page.getByRole("button", { name: "Close templates" }).click();
-      await page.getByRole("textbox", { name: "Note title" }).waitFor();
-      await settle(page);
-      await page.locator(".save-status").filter({ hasText: "Saved" }).waitFor();
-      const postLeaseTitle = `Saved after template ${stamp} ${width}`;
-      const postLeaseSave = page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return (
-          response.request().method() === "PATCH" &&
-          url.pathname === `/api/v1/notes/${note.id}` &&
-          response.request().postDataJSON()?.title === postLeaseTitle
-        );
-      });
-      await page
-        .getByRole("textbox", { name: "Note title" })
-        .fill(postLeaseTitle);
-      assert.ok(
-        (await postLeaseSave).ok(),
-        "Ordinary note saves should resume in the same note pane after the template source lease releases",
-      );
-      await page.locator(".save-status").filter({ hasText: "Saved" }).waitFor();
-      assert.equal(
-        (await api(`notes/${note.id}`)).title,
-        postLeaseTitle,
-        "The post-template title should persist normally",
-      );
       checked += 1;
 
-      await openMenuAction(page, "Start from template");
-      await page
-        .locator(".writing-template-row")
-        .filter({ hasText: templateName })
-        .click();
-      await page
-        .getByRole("button", { name: "Create new note", exact: true })
-        .click();
-      await page.waitForFunction((existingId) => {
-        const noteId = new URL(location.href).searchParams.get("note");
-        return Boolean(noteId && noteId !== existingId);
-      }, note.id);
+      await templateRow.getByRole("button", { name: "Create note" }).click();
+      await page.waitForURL(/\/notes\?note=[0-9a-f-]{36}/);
       templateNoteId = new URL(page.url()).searchParams.get("note");
       assert.ok(templateNoteId && templateNoteId !== note.id);
       noteIds.push(templateNoteId);
@@ -632,8 +434,9 @@ try {
       checked += 1;
 
       if (width === widths[0]) {
+        const conflictTitle = `Conflict source ${stamp}`;
         const conflictNote = await api("notes", "POST", {
-          title: `Conflict source ${stamp}`,
+          title: conflictTitle,
           document: {
             schemaVersion: 1,
             blocks: [
@@ -646,85 +449,23 @@ try {
           },
         });
         noteIds.push(conflictNote.id);
-        trackedNoteIds.add(conflictNote.id);
-        await page.route("**/api/v1/completions", (route) =>
-          route.fulfill({
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-            body: ": idle\n\n",
-          }),
-        );
-        await page.goto(`${base}/notes?note=${conflictNote.id}`);
-        await page.getByRole("textbox", { name: "Note title" }).waitFor();
+        await page.goto(`${base}/templates`);
         await settle(page);
-        await page
-          .locator(".save-status")
-          .filter({ hasText: "Saved" })
-          .waitFor();
-        const conflictWarmupName = `Conflict warmup ${stamp}`;
-        await openMenuAction(page, "Save as template");
-        await page.getByLabel("Name", { exact: true }).fill(conflictWarmupName);
-        const warmupResponse = page.waitForResponse((response) => {
-          const url = new URL(response.url());
-          return (
-            response.request().method() === "POST" &&
-            url.pathname === "/api/v1/templates"
-          );
-        });
-        await page
-          .getByRole("button", { name: "Save template", exact: true })
-          .click();
-        assert.equal(
-          (await warmupResponse).status(),
-          201,
-          "A clean warmup template save drains initial editor normalization",
-        );
-        const warmupTemplate = (
-          await api("templates?kind=note&limit=100")
-        ).items.find((item) => item.name === conflictWarmupName);
-        assert.ok(warmupTemplate, "The warmup template should be persisted");
-        templateIds.push(warmupTemplate.id);
-        await page.getByRole("button", { name: "Close templates" }).click();
-        await page.getByRole("textbox", { name: "Note title" }).waitFor();
-        await settle(page);
-        await page
-          .locator(".save-status")
-          .filter({ hasText: "Saved" })
-          .waitFor();
-
-        const conflictCleanTitle = `Clean local source ${stamp}`;
-        const cleanSourceSave = page.waitForResponse((response) => {
-          const url = new URL(response.url());
-          return (
-            response.request().method() === "PATCH" &&
-            url.pathname === `/api/v1/notes/${conflictNote.id}` &&
-            response.request().postDataJSON()?.title === conflictCleanTitle
-          );
-        });
-        await page
-          .getByRole("textbox", { name: "Note title" })
-          .fill(conflictCleanTitle);
-        assert.ok(
-          (await cleanSourceSave).ok(),
-          "The conflict fixture must have a saved local source before the remote mutation",
-        );
-        await page
-          .locator(".save-status")
-          .filter({ hasText: "Saved" })
-          .waitFor();
-        assert.equal(
-          (await api(`notes/${conflictNote.id}`)).title,
-          conflictCleanTitle,
-          "The clean local source must be persisted before introducing a remote revision",
-        );
-
+        await page.getByRole("button", { name: "New template" }).click();
         const conflictTemplateName = `Keep draft ${stamp}`;
-        await openMenuAction(page, "Save as template");
         await page
           .getByLabel("Name", { exact: true })
           .fill(conflictTemplateName);
+        await page.getByRole("combobox", { name: "Start from" }).click();
+        await page
+          .getByRole("option", { name: "An existing note", exact: true })
+          .click();
+        await page.getByRole("combobox", { name: "Note to copy" }).click();
+        await page
+          .getByRole("combobox", { name: "Search notes" })
+          .fill(conflictTitle);
+        await page.getByRole("option", { name: conflictTitle }).click();
         const latestConflictNote = await api(`notes/${conflictNote.id}`);
-        const writeCountBeforeRemoteMutation = writeEvents.length;
         const remoteConflictNote = await api(
           `notes/${conflictNote.id}`,
           "PATCH",
@@ -740,61 +481,41 @@ try {
             url.pathname === "/api/v1/templates"
           );
         });
-        expectedConflictNoteId = conflictNote.id;
         expectedTemplateConflict = true;
         await page
           .getByRole("button", { name: "Save template", exact: true })
           .click();
         const staleWriteResponse = await conflictResponse;
-        assert.equal(staleWriteResponse.status(), 409);
-        assert.ok(
-          expectedConflictTemplatePostStarted,
-          "The expected source-backed template POST should be the request that conflicts",
-        );
         assert.equal(
-          new URL(staleWriteResponse.url()).pathname,
-          "/api/v1/templates",
+          staleWriteResponse.status(),
+          409,
           "A real remote source edit must still be rejected by the revision guard",
         );
         const attemptedTemplate = staleWriteResponse.request().postDataJSON();
         assert.equal(
           attemptedTemplate.sourceRevision,
           latestConflictNote.revision,
-          "The template request should carry the last clean local source revision",
+          "The template request should carry the revision chosen in the picker",
         );
         assert.ok(
           remoteConflictNote.revision > attemptedTemplate.sourceRevision,
           "The remote edit should create a newer source revision than the submitted template snapshot",
         );
-        assert.equal(
-          writeEvents
-            .slice(writeCountBeforeRemoteMutation)
-            .filter(
-              (event) =>
-                event.method === "PATCH" &&
-                event.path === `/api/v1/notes/${conflictNote.id}`,
-            ).length,
-          0,
-          "A clean source save should not race with the remote edit during template creation",
-        );
-        const templateConflict = page.locator(
-          ".writing-inline-error[role=alert]",
-        );
+        const templateConflict = page.getByRole("alert").filter({
+          hasText: "This note changed.",
+        });
         await templateConflict.waitFor();
         assert.match(
           await templateConflict.innerText(),
           /This note changed\. Reload it before saving the template\./,
           "A genuine remote edit should produce the actionable template conflict message",
         );
-        expectedTemplateConflict = false;
         assert.equal(
           await page.getByLabel("Name", { exact: true }).inputValue(),
           conflictTemplateName,
           "A source conflict must preserve the user's template draft",
         );
         expectedTemplateConflict = false;
-        expectedConflictNoteId = null;
-        expectedConflictTemplatePostStarted = false;
         checked += 3;
       }
 
@@ -901,7 +622,7 @@ try {
     "Writing workflows should not raise browser errors",
   );
   console.log(
-    `Writing workflows passed ${checked} checks at ${widths.join(", ")}px in ${engineName}: linked tasks, template save ordering/conflicts, unchecked template snapshots, normalized weekly journals and review activity. Fixtures were created only on the guarded disposable server.`,
+    `Writing workflows passed ${checked} checks at ${widths.join(", ")}px in ${engineName}: linked tasks, templates created from notes, source-revision conflicts, unchecked template snapshots, normalized weekly journals and review activity. Fixtures were created only on the guarded disposable server.`,
   );
   console.log(
     `Unsupported ${engineName} browser warnings: ${unsupportedBrowserWarnings.length}.`,

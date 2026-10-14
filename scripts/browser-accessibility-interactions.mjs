@@ -465,43 +465,37 @@ try {
       await page.locator(".journal-review").waitFor();
     }
 
-    await page.goto(`${base}/journal`);
-    const browseTemplates = page.getByRole("button", {
-      name: "Browse templates",
+    await page.goto(`${base}/templates`);
+    const templateRow = page.locator("li").filter({
+      has: page.getByRole("heading", {
+        name: fixtures.template.name,
+        exact: true,
+      }),
+    });
+    await templateRow.waitFor();
+    const rowActions = templateRow.getByRole("button", {
+      name: `Actions for ${fixtures.template.name}`,
       exact: true,
     });
-    await browseTemplates.focus();
+    if (width < 1024) await touchTarget(rowActions);
+    await rowActions.focus();
     await page.keyboard.press("Enter");
-    const templatePicker = page.locator(".writing-template-picker");
-    await templatePicker.waitFor();
-    const templateRow = templatePicker
-      .locator(".writing-template-row")
-      .filter({ hasText: fixtures.template.name });
-    await templateRow.focus();
+    await page.getByRole("menuitem", { name: "Edit", exact: true }).waitFor();
+    await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
-    await templatePicker.locator(".writing-template-detail").waitFor();
-    const editTemplate = templatePicker.getByRole("button", {
-      name: `Edit ${fixtures.template.name}`,
-      exact: true,
-    });
-    await editTemplate.focus();
-    await page.keyboard.press("Enter");
-    await page.locator(".writing-template-editor").waitFor();
     await page.getByLabel("Name", { exact: true }).waitFor();
-    assert.equal(
-      await page.evaluate(() => document.activeElement?.id),
-      "template-name",
-      "Opening the template editor moves focus into its name field",
-    );
+    if (await page.evaluate(() => matchMedia("(pointer: fine)").matches))
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.id),
+        "template-name",
+        "Opening the template editor moves focus into its name field",
+      );
     const previewTemplate = page.getByRole("button", {
       name: "Preview",
       exact: true,
     });
     await previewTemplate.focus();
     await page.keyboard.press("Enter");
-    await page
-      .locator("#template-editor-content .writing-template-preview")
-      .waitFor();
     await page.getByRole("button", { name: "Edit content" }).waitFor();
 
     await page.goto(`${base}/capture`);

@@ -192,6 +192,9 @@ function SourcePicker({
           type="button"
           variant="outline"
           role="combobox"
+          aria-label={
+            kind === "journal" ? "Journal entry to copy" : "Note to copy"
+          }
           aria-expanded={open}
           disabled={disabled}
           className="h-11 w-full justify-between font-normal"
@@ -212,6 +215,9 @@ function SourcePicker({
       >
         <Command shouldFilter={false}>
           <CommandInput
+            aria-label={
+              kind === "journal" ? "Search journal entries" : "Search notes"
+            }
             placeholder={
               kind === "journal" ? "Search entries…" : "Search notes…"
             }

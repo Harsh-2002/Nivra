@@ -718,25 +718,36 @@ try {
           );
           await inspect(page, "journal-review", width, theme, engineName);
 
-          await navigate("/journal");
-          await page
-            .getByRole("button", { name: "Browse templates", exact: true })
-            .click();
-          await page.locator(".writing-template-picker").waitFor();
-          const templateRow = page
-            .locator(".writing-template-row")
-            .filter({ hasText: fixtures.template.name });
-          await templateRow.waitFor();
-          await templateRow.click();
-          await page.locator(".writing-template-detail").waitFor();
-          await inspect(page, "template-picker", width, theme, engineName);
-          await page
-            .getByRole("button", {
-              name: `Edit ${fixtures.template.name}`,
+          await navigate("/templates");
+          const templateRow = page.locator("li").filter({
+            has: page.getByRole("heading", {
+              name: fixtures.template.name,
               exact: true,
-            })
+            }),
+          });
+          await templateRow.waitFor();
+          await inspect(page, "templates-list", width, theme, engineName);
+          const rowActions = templateRow.getByRole("button", {
+            name: `Actions for ${fixtures.template.name}`,
+            exact: true,
+          });
+          await rowActions.click();
+          await page
+            .getByRole("menuitem", { name: "Preview", exact: true })
             .click();
-          await page.locator(".writing-template-editor").waitFor();
+          await page.getByRole("dialog").waitFor();
+          await inspect(
+            page,
+            "template-preview-dialog",
+            width,
+            theme,
+            engineName,
+          );
+          await page.keyboard.press("Escape");
+          await rowActions.click();
+          await page
+            .getByRole("menuitem", { name: "Edit", exact: true })
+            .click();
           await page.getByLabel("Name", { exact: true }).waitFor();
           await page.locator(".bn-editor").waitFor();
           await inspect(page, "template-editor", width, theme, engineName);
@@ -744,7 +755,7 @@ try {
             .getByRole("button", { name: "Preview", exact: true })
             .click();
           await page
-            .locator("#template-editor-content .writing-template-preview")
+            .getByRole("button", { name: "Edit content", exact: true })
             .waitFor();
           await inspect(page, "template-preview", width, theme, engineName);
 
