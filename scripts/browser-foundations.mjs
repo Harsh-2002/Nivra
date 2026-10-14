@@ -869,6 +869,7 @@ async function runWritingHarness() {
 
 try {
   await page.goto(`${base}/tasks`);
+  await page.locator(".tasks-panel").waitFor();
   const planning = await verifyPlanning(page);
   check(planning.passed.length > 0, "Planning UI workflow passed");
 
