@@ -3,13 +3,26 @@ import {
   clearConnection,
   getConnection,
   setConnection,
-  setPendingInstance,
+  setPending,
   type Connection,
 } from "./storage.js";
 
 export class PairingError extends Error {}
-const privateHost =
-  /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[^.]+\.local)$/;
+// Plain http would expose the key and saved links to the network.
+const loopbackHost = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/;
+const base64url = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+const newVerifier = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
+async function challengeFor(verifier: string) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(verifier),
+  );
+  return base64url(new Uint8Array(digest));
+}
 
 export function parseInstance(input: string) {
   let value = input.trim();
@@ -25,8 +38,10 @@ export function parseInstance(input: string) {
     throw new PairingError(
       "Remove the username and password from the address.",
     );
-  if (url.protocol === "http:" && !privateHost.test(url.hostname))
-    throw new PairingError("Use an https:// address for a remote instance.");
+  if (url.protocol === "http:" && !loopbackHost.test(url.hostname))
+    throw new PairingError(
+      "Use an https:// address. Plain http is allowed only for localhost.",
+    );
   if (!["https:", "http:"].includes(url.protocol))
     throw new PairingError("Use an https:// address.");
   return { origin: url.origin, insecure: url.protocol === "http:" };
@@ -66,15 +81,21 @@ async function checkInstance(origin: string) {
   }
   throw new PairingError("Nivra didn’t answer at that address.");
 }
-function connectUrl(origin: string, flow: "web" | "code", state: string) {
+async function connectUrl(
+  origin: string,
+  flow: "web" | "code",
+  state: string,
+  verifier: string,
+) {
   const url = new URL("/extension/connect", origin);
   url.searchParams.set("extension", chrome.runtime.id);
   url.searchParams.set("flow", flow);
   url.searchParams.set("name", deviceName());
+  url.searchParams.set("challenge", await challengeFor(verifier));
   if (state) url.searchParams.set("state", state);
   return url.href;
 }
-export async function exchange(origin: string, code: string) {
+export async function exchange(origin: string, code: string, verifier: string) {
   let response: Response;
   try {
     response = await fetch(`${origin}/api/v1/extension/pair`, {
@@ -83,6 +104,7 @@ export async function exchange(origin: string, code: string) {
       body: JSON.stringify({
         code: code.trim(),
         extensionId: chrome.runtime.id,
+        verifier,
       }),
       credentials: "omit",
       redirect: "error",
@@ -107,17 +129,18 @@ export async function exchange(origin: string, code: string) {
     device: deviceName(),
   };
   await setConnection(connection);
-  await setPendingInstance(null);
+  await setPending(null);
   return connection;
 }
 // Resolves with the connection, or null when the owner must paste a code instead.
 export async function connectInBrowser(origin: string) {
   await checkInstance(origin);
   const state = crypto.randomUUID();
+  const verifier = newVerifier();
   let redirect: string | undefined;
   try {
     redirect = await chrome.identity.launchWebAuthFlow({
-      url: connectUrl(origin, "web", state),
+      url: await connectUrl(origin, "web", state, verifier),
       interactive: true,
     });
   } catch {
@@ -128,17 +151,30 @@ export async function connectInBrowser(origin: string) {
   const code = fields.get("code");
   if (!code || fields.get("state") !== state)
     throw new PairingError("The connection was cancelled. Try again.");
-  return exchange(origin, code);
+  return exchange(origin, code, verifier);
 }
 export async function openCodePage(origin: string) {
-  await setPendingInstance(origin);
-  await chrome.tabs.create({ url: connectUrl(origin, "code", "") });
+  const verifier = newVerifier();
+  await setPending({ origin, verifier });
+  await chrome.tabs.create({
+    url: await connectUrl(origin, "code", "", verifier),
+  });
 }
+/** Reports whether the server key was revoked; the local connection is always removed. */
 export async function disconnect() {
   const connection = await getConnection();
-  if (connection)
-    await api(connection, "extension/session", { method: "DELETE" }).catch(
-      () => undefined,
+  let revoked = true;
+  if (connection) {
+    revoked = await api(connection, "extension/session", {
+      method: "DELETE",
+    }).then(
+      () => true,
+      () => false,
     );
+    await chrome.permissions
+      .remove({ origins: [`${connection.instance}/*`] })
+      .catch(() => false);
+  }
   await clearConnection();
+  return revoked;
 }

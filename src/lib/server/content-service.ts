@@ -64,7 +64,11 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { taskStages } from "../boards";
 import { writingPlainText } from "../writing";
-import { authorizeContentPath, type AgentPrincipal } from "./agent-access";
+import {
+  assertExtensionPayload,
+  authorizeContentPath,
+  type AgentPrincipal,
+} from "./agent-access";
 import { agentCounts } from "./agent-counts";
 import { agentSearch } from "./agent-search";
 import { relatedSearch } from "./ai/search";
@@ -319,6 +323,8 @@ async function executeContentInternal(
     throw new HttpError(403, "This operation requires the owner session.");
   validateQuery(operation, query);
   validateBody(operation, payload);
+  if (principal?.client === "extension")
+    assertExtensionPayload(path, method, payload, ownerId);
   const database = sqlite();
   if (area === "forms")
     return (await import("./form-service")).executeForms(command);

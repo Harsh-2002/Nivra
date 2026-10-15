@@ -52,6 +52,16 @@ Change the host port with `-p 3001:3000`, or `NIVRA_PORT=3001` in Compose. Compl
 
 Upgrade with `docker compose pull && docker compose up -d`. Back up first and keep the existing data volume. Releases use `vYYYY.MM.DD` with one active release and the Docker tag `latest`.
 
+## Browser extension
+
+A Chrome-compatible extension (Chrome, Edge, Brave) saves the current page to your Nivra in one click and lets you add a collection, tags or a note. Install it from the latest release:
+
+1. Download `nivra-extension-<version>.zip` from the [latest release](https://github.com/Harsh-2002/Nivra/releases/latest) and unzip it.
+2. Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked**, and select the unzipped folder.
+3. Click the Nivra icon, enter your instance address, and approve the connection on your own Nivra sign-in page.
+
+The extension never sees your password. You can revoke it any time in **Settings → MCP**. It is not in a browser store, so update it by repeating these steps after a new release. See [Browser extension](docs/architecture.md#browser-extension) for permissions and security.
+
 ## Configuration
 
 All three deployment settings are optional. Copy [.env.example](.env.example) to `.env` when needed.
@@ -96,6 +106,8 @@ npm run verify:api
 npm test
 npm run build
 ```
+
+To build the browser extension from source, run `npm run extension:build`, then load the `extension/` folder with **Load unpacked**. `npm run extension:package` checks the release archive.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance and API examples.
 

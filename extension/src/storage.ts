@@ -16,11 +16,12 @@ export const setConnection = (connection: Connection) =>
   chrome.storage.local.set({ connection });
 export const clearConnection = () =>
   chrome.storage.local.remove(["connection", "cache"]);
-export async function getPendingInstance() {
+export type Pending = { origin: string; verifier: string };
+export async function getPending() {
   const stored = await chrome.storage.local.get("pending");
-  return stored.pending as string | undefined;
+  return stored.pending as Pending | undefined;
 }
-export const setPendingInstance = (pending: string | null) =>
+export const setPending = (pending: Pending | null) =>
   pending
     ? chrome.storage.local.set({ pending })
     : chrome.storage.local.remove("pending");

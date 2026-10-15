@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,6 +8,9 @@ import { test } from "node:test";
 
 const extensionId = "afdnjjepnkbmblblbcjfjakoimgniabn";
 const otherId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const verifierFor = () => randomBytes(32).toString("base64url");
+const challengeOf = (verifier: string) =>
+  createHash("sha256").update(verifier).digest("base64url");
 
 test("browser extension pairing issues a narrow, origin-bound, revocable key", async (t) => {
   const directory = await mkdtemp(`${tmpdir()}/nivra-extension-`);
@@ -104,18 +107,27 @@ test("browser extension pairing issues a narrow, origin-bound, revocable key", a
 
   const extensionOrigin = `chrome-extension://${extensionId}`;
   const pair = async () => {
+    const verifier = verifierFor();
     const authorized = await call("extension/authorize", "POST", {
-      body: { extensionId, deviceName: "Test laptop" },
+      body: {
+        extensionId,
+        deviceName: "Test laptop",
+        challenge: challengeOf(verifier),
+      },
     });
     assert.equal(authorized.status, 201);
-    return authorized.body.code as string;
+    return { code: authorized.body.code as string, verifier };
   };
 
   // Authorization is an owner browser action for recognized extensions only.
   assert.equal(
     (
       await call("extension/authorize", "POST", {
-        body: { extensionId: otherId, deviceName: "Other" },
+        body: {
+          extensionId: otherId,
+          deviceName: "Other",
+          challenge: challengeOf(verifierFor()),
+        },
       })
     ).status,
     400,
@@ -124,21 +136,25 @@ test("browser extension pairing issues a narrow, origin-bound, revocable key", a
     (
       await call("extension/authorize", "POST", {
         session: false,
-        body: { extensionId, deviceName: "Anonymous" },
+        body: {
+          extensionId,
+          deviceName: "Anonymous",
+          challenge: challengeOf(verifierFor()),
+        },
       })
     ).status,
     401,
   );
 
   // The code is the credential: wrong origin, wrong extension and replay fail.
-  const code = await pair();
+  const { code, verifier } = await pair();
   for (const origin of [base, `chrome-extension://${otherId}`, null])
     assert.equal(
       (
         await call("extension/pair", "POST", {
           session: false,
           origin,
-          body: { code, extensionId },
+          body: { code, extensionId, verifier },
         })
       ).status,
       403,
@@ -146,7 +162,7 @@ test("browser extension pairing issues a narrow, origin-bound, revocable key", a
   const paired = await call("extension/pair", "POST", {
     session: false,
     origin: extensionOrigin,
-    body: { code, extensionId },
+    body: { code, extensionId, verifier },
   });
   assert.equal(paired.status, 201);
   assert.match(paired.body.key, /^nivra_/);
@@ -155,7 +171,7 @@ test("browser extension pairing issues a narrow, origin-bound, revocable key", a
       await call("extension/pair", "POST", {
         session: false,
         origin: extensionOrigin,
-        body: { code, extensionId },
+        body: { code, extensionId, verifier },
       })
     ).status,
     400,
@@ -163,7 +179,8 @@ test("browser extension pairing issues a narrow, origin-bound, revocable key", a
 
   // Expired codes are rejected.
   const { sqlite } = await import("../src/lib/server/db");
-  const expired = await pair();
+  const expiredPairing = await pair();
+  const expired = expiredPairing.code;
   sqlite()
     .prepare("UPDATE extension_pairing SET expires_at=?")
     .run(Date.now() - 1000);
@@ -172,13 +189,69 @@ test("browser extension pairing issues a narrow, origin-bound, revocable key", a
       await call("extension/pair", "POST", {
         session: false,
         origin: extensionOrigin,
-        body: { code: expired, extensionId },
+        body: { code: expired, extensionId, verifier: expiredPairing.verifier },
       })
     ).status,
     400,
   );
 
-  const key = paired.body.key as string;
+  // A wrong verifier fails and still consumes the code.
+  const proof = await pair();
+  assert.equal(
+    (
+      await call("extension/pair", "POST", {
+        session: false,
+        origin: extensionOrigin,
+        body: {
+          code: proof.code,
+          extensionId,
+          verifier: verifierFor(),
+        },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await call("extension/pair", "POST", {
+        session: false,
+        origin: extensionOrigin,
+        body: { code: proof.code, extensionId, verifier: proof.verifier },
+      })
+    ).status,
+    400,
+  );
+  // Account recovery removes codes that were still outstanding.
+  const outstanding = await pair();
+  const { revokeAllAgents } = await import("../src/lib/server/agent-access");
+  const ownerRow = sqlite().prepare("SELECT id FROM user LIMIT 1").get() as {
+    id: string;
+  };
+  revokeAllAgents(ownerRow.id);
+  assert.equal(
+    (
+      await call("extension/pair", "POST", {
+        session: false,
+        origin: extensionOrigin,
+        body: {
+          code: outstanding.code,
+          extensionId,
+          verifier: outstanding.verifier,
+        },
+      })
+    ).status,
+    400,
+  );
+  // revokeAllAgents also removed the first key, so pair again for the remaining checks.
+  const second = await pair();
+  const repaired = await call("extension/pair", "POST", {
+    session: false,
+    origin: extensionOrigin,
+    body: { code: second.code, extensionId, verifier: second.verifier },
+  });
+  assert.equal(repaired.status, 201);
+
+  const key = repaired.body.key as string;
   const asExtension = (
     route: string,
     method = "GET",
@@ -223,6 +296,66 @@ test("browser extension pairing issues a narrow, origin-bound, revocable key", a
   assert.equal(session.status, 200);
   assert.match(session.body.name, /Test laptop/);
   assert.ok(["light", "dark", "system"].includes(session.body.theme));
+
+  // Writes are limited to plain links, notes and the note just created.
+  assert.equal(
+    (await asExtension("capture", "POST", { type: "task", title: "Nope" }))
+      .status,
+    403,
+  );
+  for (const block of [
+    { type: "heading", props: { level: 1 }, content: [] },
+    { type: "image", props: { url: "https://tracker.example/pixel.png" } },
+    {
+      type: "paragraph",
+      content: [{ type: "link", href: "https://example.org", content: [] }],
+    },
+  ])
+    assert.equal(
+      (
+        await asExtension("notes", "POST", {
+          title: "Blocked",
+          document: { schemaVersion: 1, blocks: [block] },
+        })
+      ).status,
+      403,
+    );
+  const older = await call("notes", "POST", { body: { title: "Old note" } });
+  sqlite()
+    .prepare("UPDATE notes SET created_at=? WHERE id=?")
+    .run(Date.now() - 60 * 60_000, older.body.id);
+  const current = await asExtension(`bookmarks/${saved.body.id}`);
+  assert.equal(
+    (
+      await asExtension(`bookmarks/${saved.body.id}`, "PATCH", {
+        revision: current.body.revision,
+        noteId: older.body.id,
+      })
+    ).status,
+    403,
+  );
+  const fresh = await asExtension("notes", "POST", {
+    title: "Fresh note",
+    document: {
+      schemaVersion: 1,
+      blocks: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "Hello", styles: {} }],
+        },
+      ],
+    },
+  });
+  assert.equal(fresh.status, 201);
+  assert.equal(
+    (
+      await asExtension(`bookmarks/${saved.body.id}`, "PATCH", {
+        revision: current.body.revision,
+        noteId: fresh.body.id,
+      })
+    ).status,
+    200,
+  );
 
   // Everything else stays closed, including MCP and owner administration.
   for (const [route, method] of [

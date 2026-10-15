@@ -57,7 +57,7 @@ npm run build
 
 Docker delivery pulls the public AMD64/ARM64 image `ghcr.io/harsh-2002/nivra:latest`; use `docker compose up -d` with `docker-compose.yaml`, or the Docker run command in the README. The container runs as `nivra` (UID/GID 1000) with persistent data and its home at `/data`. Source builds and container verification are in CONTRIBUTING.md. Inspect configuration with `docker compose -f docker-compose.yaml config`; check readiness with `/health`. Never remove an existing data volume to resolve a startup issue.
 
-Release date tags use `vYYYY.MM.DD`. `.github/workflows/release.yml` requires successful CI on the exact current main commit and verifies native containers before promoting `latest`. Maintain one published release; retire its predecessor and tag only after the replacement is public. Do not bypass CI, overwrite a published date tag, publish extra image tags, or use a PR/fork as privileged release source. Pin GitHub Actions to the commit of their latest upstream release and keep version comments current.
+Release date tags use `vYYYY.MM.DD`. `.github/workflows/release.yml` requires successful CI on the exact current main commit and verifies native containers before promoting `latest`. Maintain one published release; retire its predecessor and tag only after the replacement is public. Do not bypass CI, overwrite a published date tag, publish extra image tags, or use a PR/fork as privileged release source. The release attaches the verified `nivra-extension-vYYYY.MM.DD.zip` built from the same commit; keep `extension/manifest.json` within the audit in `scripts/package-extension.mjs`. Pin GitHub Actions to the commit of their latest upstream release and keep version comments current.
 
 ## Engineering rules
 

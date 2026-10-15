@@ -7,7 +7,12 @@ import {
   type Bookmark,
   type CaptureResult,
 } from "./api.js";
-import { noteDocument, savablePage, type PageTarget } from "./page.js";
+import {
+  looksSensitive,
+  noteDocument,
+  savablePage,
+  type PageTarget,
+} from "./page.js";
 import {
   PairingError,
   allowInstance,
@@ -21,7 +26,7 @@ import {
   cacheIsFresh,
   getCache,
   getConnection,
-  getPendingInstance,
+  getPending,
   setCache,
   type Connection,
   type Tag,
@@ -114,7 +119,12 @@ async function submitCode() {
   if (!code) return message("connect-error", "Paste the pairing code.");
   busy("code-form", true);
   try {
-    connection = await exchange(pendingOrigin, code);
+    const pending = await getPending();
+    if (!pending || pending.origin !== pendingOrigin)
+      throw new PairingError(
+        "Open the pairing page first, then paste its code.",
+      );
+    connection = await exchange(pendingOrigin, code, pending.verifier);
     await start();
     return;
   } catch (error) {
@@ -416,11 +426,11 @@ function showShortcutHints() {
 async function start() {
   const stored = await getConnection();
   if (!stored) {
-    const pending = await getPendingInstance();
+    const pending = await getPending();
     showConnect();
     if (pending) {
-      $<HTMLInputElement>("instance").value = pending;
-      showCodeForm(pending);
+      $<HTMLInputElement>("instance").value = pending.origin;
+      showCodeForm(pending.origin);
     }
     return;
   }
@@ -441,6 +451,15 @@ async function start() {
     message("link-error", "Only web pages (http or https) can be saved.");
     $<HTMLInputElement>("note-source").checked = false;
     $<HTMLInputElement>("note-source").disabled = true;
+    return;
+  }
+  if (looksSensitive(target.url)) {
+    setStatus("Not saved yet");
+    message(
+      "link-error",
+      "This address looks like it contains a private token or one-time code. Saving stores it in Nivra, and Nivra will fetch it.",
+    );
+    $("save-anyway").hidden = false;
     return;
   }
   await saveCurrent();
@@ -467,6 +486,11 @@ $("note-form").addEventListener("submit", (event) => {
   void saveNote();
 });
 $("undo").addEventListener("click", () => void undo());
+$("save-anyway").addEventListener("click", () => {
+  $("save-anyway").hidden = true;
+  message("link-error");
+  void saveCurrent();
+});
 $("mode-link").addEventListener("click", () => setMode("link"));
 $("mode-note").addEventListener("click", () => setMode("note"));
 $("note-source").addEventListener("change", syncNoteLimit);
@@ -479,9 +503,13 @@ $("tag-filter").addEventListener("keydown", (event) => {
 });
 $("collection").addEventListener("input", renderCollections);
 $("disconnect").addEventListener("click", () => {
-  void disconnect().then(() => {
+  void disconnect().then((revoked) => {
     $("view-main").hidden = true;
-    showConnect();
+    showConnect(
+      revoked
+        ? ""
+        : "Disconnected here, but Nivra couldn’t be reached to revoke this browser. Revoke it in Settings → MCP.",
+    );
   });
 });
 document.addEventListener("keydown", (event) => {

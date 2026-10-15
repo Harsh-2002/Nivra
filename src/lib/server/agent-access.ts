@@ -27,6 +27,49 @@ function extensionMayCall(path: string[], method: string) {
     return id === "session" && ["GET", "DELETE"].includes(method);
   return false;
 }
+/** Limits what a browser-extension key may write, beyond which routes it may call. */
+export function assertExtensionPayload(
+  path: string[],
+  method: string,
+  payload: unknown,
+  ownerId: string,
+) {
+  const body = (
+    payload && typeof payload === "object" ? payload : {}
+  ) as Record<string, unknown>;
+  const deny = (message: string): never => {
+    throw new HttpError(403, message);
+  };
+  if (
+    path[0] === "capture" &&
+    !["bookmark", "note"].includes(String(body.type))
+  )
+    deny("Browser extensions can save links and notes only.");
+  if (path[0] === "notes" && method === "POST") {
+    const document = body.document as { blocks?: unknown } | undefined;
+    const blocks = Array.isArray(document?.blocks) ? document.blocks : [];
+    for (const block of blocks as Record<string, unknown>[]) {
+      const content = Array.isArray(block.content) ? block.content : [];
+      if (
+        block.type !== "paragraph" ||
+        (Array.isArray(block.children) && block.children.length) ||
+        content.some((item) => (item as { type?: unknown })?.type !== "text")
+      )
+        deny("Browser extensions can create plain paragraphs only.");
+    }
+  }
+  if (
+    path[0] === "bookmarks" &&
+    method === "PATCH" &&
+    typeof body.noteId === "string" &&
+    !sqlite()
+      .prepare(
+        "SELECT 1 FROM notes WHERE id=? AND owner_id=? AND trashed_at IS NULL AND created_at>?",
+      )
+      .get(body.noteId, ownerId, Date.now() - 10 * 60_000)
+  )
+    deny("Browser extensions can link only a note they just created.");
+}
 export function authorizeContentPath(
   principal: AgentPrincipal,
   path: string[],
@@ -180,6 +223,7 @@ export function revokeAllAgents(owner: string) {
   d.prepare(
     "DELETE FROM verification WHERE json_valid(value) AND json_extract(value,'$.query.client_id') IS NOT NULL",
   ).run();
+  d.prepare("DELETE FROM extension_pairing WHERE owner_id=?").run(owner);
   d.prepare("DELETE FROM agent_idempotency").run();
   d.prepare("DELETE FROM agent_rate_limits").run();
 }

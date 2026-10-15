@@ -90,12 +90,16 @@ if (process.argv[2] === "gate") {
   if (response.headers.get("docker-content-digest") !== digest)
     throw new Error("The latest image digest does not match this release.");
   verifyPlatforms(await response.json());
+  const { buildPackage } = await import("./package-extension.mjs");
+  const extension = buildPackage({ tag: version });
   const directory = mkdtempSync(join(tmpdir(), "nivra-release-"));
   try {
+    const archive = join(directory, extension.name);
+    writeFileSync(archive, extension.bytes);
     const notes = join(directory, "notes.md");
     writeFileSync(
       notes,
-      `## Get started\n\n\`\`\`sh\ndocker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/data \\\n  ${image}:latest\n\`\`\`\n\nOpen http://localhost:3000 to complete setup. Keep the data volume when upgrading.\n\nLinux AMD64 and ARM64 are included; Docker selects the architecture automatically.\n\nCommit: ${sha}\n\nImage: \`${image}@${digest}\`\n\nVerified [CI run](${run.html_url}) and container onboarding, authorization and persistence on both architectures.\n`,
+      `## Get started\n\n\`\`\`sh\ndocker run -d --name nivra \\\n  --restart unless-stopped --init \\\n  -p 3000:3000 \\\n  -v nivra-data:/data \\\n  ${image}:latest\n\`\`\`\n\nOpen http://localhost:3000 to complete setup. Keep the data volume when upgrading.\n\nLinux AMD64 and ARM64 are included; Docker selects the architecture automatically.\n\nCommit: ${sha}\n\nImage: \`${image}@${digest}\`\n\nVerified [CI run](${run.html_url}) and container onboarding, authorization and persistence on both architectures.\n\n## Browser extension\n\nDownload \`${extension.name}\`, unzip it, and load the folder from \`chrome://extensions\` with Developer mode on. SHA-256: \`${extension.sha256}\`\n`,
     );
     const existing = releases().find((release) => release.tag_name === version);
     if (!existing)
@@ -124,6 +128,15 @@ if (process.argv[2] === "gate") {
         "--notes-file",
         notes,
       );
+    gh(
+      "release",
+      "upload",
+      version,
+      archive,
+      "--repo",
+      repository,
+      "--clobber",
+    );
     gh(
       "release",
       "edit",

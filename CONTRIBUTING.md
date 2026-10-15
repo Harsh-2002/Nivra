@@ -15,7 +15,7 @@ git tag -a "v$(date -u +%Y.%m.%d)" -m "Nivra release"
 git push origin "v$(date -u +%Y.%m.%d)"
 ```
 
-The release action requires that exact commit's successful main CI run, builds on native AMD64/ARM64 runners, verifies encrypted and plaintext container onboarding and persistence, and publishes `ghcr.io/harsh-2002/nivra:latest`. The GitHub release includes the commit and immutable image digest. Only `latest` is tagged in the registry. There is one published GitHub release: the previous release and its tag are retired only after the replacement is public and verified. A failed build or verification retains the previous release. Published date tags are immutable; release a different commit on a new UTC date. Use **Actions → Release → Run workflow** with the same tag to retry a failed release; there is no CI bypass.
+The release action requires that exact commit's successful main CI run, builds on native AMD64/ARM64 runners, verifies encrypted and plaintext container onboarding and persistence, and publishes `ghcr.io/harsh-2002/nivra:latest`. The GitHub release includes the commit and immutable image digest. The release also carries the browser-extension zip built from the same commit. Only `latest` is tagged in the registry. There is one published GitHub release: the previous release and its tag are retired only after the replacement is public and verified. A failed build or verification retains the previous release. Published date tags are immutable; release a different commit on a new UTC date. Use **Actions → Release → Run workflow** with the same tag to retry a failed release; there is no CI bypass.
 
 GitHub initially creates GHCR packages as private. On the first publication, the maintainer must change the package's visibility to **Public** in its GitHub package settings. The release action checks anonymous access before publishing the GitHub release; retry its failed publication job after changing visibility. No registry login is required for users.
 
@@ -30,7 +30,7 @@ The smoke check uses disposable volumes and loopback ports to verify onboarding,
 
 ## Browser extension
 
-`extension/` holds the Chromium extension. Run `npm run extension:build` and load `extension/` with **Load unpacked** in `chrome://extensions`; `npm run extension:typecheck` checks it without writing output. The manifest `key` pins the extension ID that the server accepts; set `NIVRA_EXTENSION_IDS` to a comma-separated list to accept a store-assigned ID. Keep the manifest version equal to the release date (for example `2026.10.15`). Packaging for a browser store is an owner action and is not part of the release workflow.
+`extension/` holds the Chromium extension. Run `npm run extension:build` and load `extension/` with **Load unpacked** in `chrome://extensions`; `npm run extension:typecheck` checks it without writing output. The manifest `key` pins the extension ID that the server accepts; set `NIVRA_EXTENSION_IDS` to a comma-separated list to accept a different ID. The release workflow builds the extension from the verified commit and attaches `nivra-extension-vYYYY.MM.DD.zip` to the single published release with its SHA-256 in the notes; the manifest version is stamped from the tag without zero padding (`v2026.10.05` becomes `2026.10.5`). `npm run extension:package` runs the same manifest and source audit, which fails on any added permission, host permission, content script, web-accessible resource, remote resource or dynamic code. There is no browser-store listing.
 
 ## HTTP API
 

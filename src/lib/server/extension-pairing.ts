@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { auth } from "./auth";
 import { sqlite } from "./db";
 import { HttpError, throttle } from "./http";
@@ -32,7 +32,7 @@ export function extensionBinding(keyId: string) {
 }
 export function beginPairing(
   ownerId: string,
-  input: { extensionId: string; deviceName: string },
+  input: { extensionId: string; deviceName: string; challenge: string },
 ) {
   if (!isAllowedExtension(input.extensionId))
     throw new HttpError(
@@ -46,7 +46,7 @@ export function beginPairing(
   d.transaction(() => {
     d.prepare("DELETE FROM extension_pairing WHERE expires_at<=?").run(now);
     d.prepare(
-      "INSERT INTO extension_pairing(code_hash,owner_id,extension_id,device_name,expires_at,created_at) VALUES(?,?,?,?,?,?)",
+      "INSERT INTO extension_pairing(code_hash,owner_id,extension_id,device_name,expires_at,created_at,challenge) VALUES(?,?,?,?,?,?,?)",
     ).run(
       hash(code),
       ownerId,
@@ -54,28 +54,41 @@ export function beginPairing(
       input.deviceName,
       now + codeLifetimeMs,
       now,
+      input.challenge,
     );
   })();
   return { code, expiresAt: now + codeLifetimeMs };
 }
 export async function completePairing(
   request: Request,
-  input: { code: string; extensionId: string },
+  input: { code: string; extensionId: string; verifier: string },
 ) {
-  throttle("extension-pair", 20);
   if (
     !isAllowedExtension(input.extensionId) ||
     request.headers.get("origin") !== `chrome-extension://${input.extensionId}`
   )
     throw new HttpError(403, "Request origin is not allowed.");
+  // A wrong verifier still consumes the code, so a stolen code cannot be retried.
   const claimed = sqlite()
     .prepare(
-      "DELETE FROM extension_pairing WHERE code_hash=? AND extension_id=? AND expires_at>? RETURNING owner_id AS ownerId,device_name AS deviceName",
+      "DELETE FROM extension_pairing WHERE code_hash=? AND extension_id=? AND expires_at>? RETURNING owner_id AS ownerId,device_name AS deviceName,challenge",
     )
     .get(hash(input.code), input.extensionId, Date.now()) as
-    { ownerId: string; deviceName: string } | undefined;
-  if (!claimed)
+    { ownerId: string; deviceName: string; challenge: string } | undefined;
+  const expected = Buffer.from(claimed?.challenge ?? "");
+  const actual = Buffer.from(
+    createHash("sha256").update(input.verifier).digest("base64url"),
+  );
+  if (
+    !claimed ||
+    expected.length === 0 ||
+    expected.length !== actual.length ||
+    !timingSafeEqual(expected, actual)
+  ) {
+    // Only failures are throttled so abuse cannot block a legitimate pairing.
+    throttle("extension-pair-failure", 20);
     throw new HttpError(400, "This pairing code is not valid or has expired.");
+  }
   const key = await auth(request).api.createApiKey({
     body: {
       userId: claimed.ownerId,
@@ -84,11 +97,17 @@ export async function completePairing(
       permissions: { nivra: ["read", "write"] },
     },
   });
-  sqlite()
-    .prepare(
-      "INSERT INTO extension_keys(key_id,owner_id,extension_id,created_at) VALUES(?,?,?,?)",
-    )
-    .run(key.id, claimed.ownerId, input.extensionId, Date.now());
+  try {
+    sqlite()
+      .prepare(
+        "INSERT INTO extension_keys(key_id,owner_id,extension_id,created_at) VALUES(?,?,?,?)",
+      )
+      .run(key.id, claimed.ownerId, input.extensionId, Date.now());
+  } catch (error) {
+    // Never leave an unrestricted key behind when it could not be bound.
+    sqlite().prepare("DELETE FROM apikey WHERE id=?").run(key.id);
+    throw error;
+  }
   return {
     key: key.key,
     id: key.id,

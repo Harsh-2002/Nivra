@@ -28,11 +28,14 @@ export function ExtensionConnect() {
     extension: query.get("extension") || "",
     state: (query.get("state") || "").slice(0, 200),
     flow: query.get("flow") === "web" ? "web" : "code",
+    challenge: query.get("challenge") || "",
   };
   const device =
     deviceEdit ??
     ((query.get("name") || "Chrome").trim().slice(0, 60) || "Chrome");
-  const valid = idPattern.test(params.extension);
+  const valid =
+    idPattern.test(params.extension) &&
+    /^[A-Za-z0-9_-]{43}$/.test(params.challenge);
   useEffect(() => {
     api<Status>("status")
       .then(setStatus)
@@ -47,6 +50,7 @@ export function ExtensionConnect() {
         body: JSON.stringify({
           extensionId: params.extension,
           deviceName: device.trim() || "Chrome",
+          challenge: params.challenge,
         }),
       });
       if (params.flow === "web") {
@@ -110,9 +114,14 @@ export function ExtensionConnect() {
               </FieldDescription>
             </Field>
             <ul className="oauth-access-summary">
-              <li>Save links and notes you send from the browser.</li>
-              <li>Add tags, collections and a note to saved links.</li>
-              <li>Cannot read settings or permanently delete anything.</li>
+              <li>Save links and quick notes you send from the browser.</li>
+              <li>
+                Read your saved bookmarks and tags, and move bookmarks to Trash.
+              </li>
+              <li>
+                Cannot read notes, change settings, or permanently delete
+                anything.
+              </li>
             </ul>
             <p className="oauth-note">Extension ID: {params.extension}</p>
             {error && (

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,8 @@ assert.ok(
   ["localhost", "127.0.0.1", "[::1]"].includes(baseUrl.hostname),
   "Extension tests are restricted to a disposable local instance",
 );
+const verifier = randomBytes(32).toString("base64url");
+const challenge = createHash("sha256").update(verifier).digest("base64url");
 const pinnedId = "afdnjjepnkbmblblbcjfjakoimgniabn";
 const screenshots = process.env.NIVRA_EXTENSION_SCREENSHOTS;
 const colorScheme =
@@ -135,7 +137,7 @@ try {
   // Pairing by code: the consent page shows a one-time code to paste.
   const consent = await context.newPage();
   await consent.goto(
-    `${base}/extension/connect?extension=${id}&flow=code&name=Playwright`,
+    `${base}/extension/connect?extension=${id}&flow=code&name=Playwright&challenge=${challenge}`,
   );
   await consent.getByRole("button", { name: "Connect browser" }).click();
   const code = await consent.getByLabel("Pairing code").inputValue();
@@ -149,7 +151,7 @@ try {
     route.fulfill({ status: 200, body: "ok" }),
   );
   await web.goto(
-    `${base}/extension/connect?extension=${id}&flow=web&state=abc123&name=Playwright`,
+    `${base}/extension/connect?extension=${id}&flow=web&state=abc123&name=Playwright&challenge=${challenge}`,
   );
   await web.getByRole("button", { name: "Connect browser" }).click();
   await web.waitForURL(`https://${id}.chromiumapp.org/**`);
@@ -161,7 +163,7 @@ try {
   // Unknown extension IDs are refused before any code is issued.
   const refused = await context.newPage();
   await refused.goto(
-    `${base}/extension/connect?extension=${"b".repeat(32)}&flow=code`,
+    `${base}/extension/connect?extension=${"b".repeat(32)}&flow=code&challenge=${challenge}`,
   );
   await refused.getByRole("button", { name: "Connect browser" }).click();
   await refused.getByText(/not recognized/).waitFor();
@@ -173,8 +175,9 @@ try {
   await popup.getByLabel("Nivra address").waitFor();
   await shot(popup, "connect");
   await popup.evaluate(
-    (origin) => chrome.storage.local.set({ pending: origin }),
-    base,
+    ({ origin, verifier }) =>
+      chrome.storage.local.set({ pending: { origin, verifier } }),
+    { origin: base, verifier },
   );
   await popup.reload();
   await popup.getByLabel("Pairing code").fill("not-a-real-code-at-all-0000000");
@@ -248,6 +251,16 @@ try {
   const again = await open();
   await again.getByText("This link is in Trash").waitFor();
   await again.close();
+
+  // Addresses that look like they carry a secret are not saved until confirmed.
+  await article.goto(`${base}/extension-article?topic=three&token=abc123`);
+  const sensitive = await open();
+  await sensitive.getByText("Not saved yet").waitFor();
+  assert.equal(await sensitive.getByLabel("Title").isVisible(), false);
+  await sensitive.getByRole("button", { name: "Save anyway" }).click();
+  await sensitive.getByText("Saved to Nivra").waitFor();
+  await sensitive.close();
+  await article.goto(`${base}/extension-article?topic=two`);
 
   // Quick note with and without the page link.
   const noteTab = await open();

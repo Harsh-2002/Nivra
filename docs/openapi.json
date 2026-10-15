@@ -11354,18 +11354,20 @@
         "type": "object",
         "properties": {
           "extensionId": { "type": "string", "pattern": "^[a-p]{32}$" },
-          "deviceName": { "type": "string", "minLength": 1, "maxLength": 60 }
+          "deviceName": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "challenge": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }
         },
-        "required": ["extensionId", "deviceName"],
+        "required": ["extensionId", "deviceName", "challenge"],
         "additionalProperties": false
       },
       "ExtensionPairRequest": {
         "type": "object",
         "properties": {
           "code": { "type": "string", "minLength": 20, "maxLength": 100 },
-          "extensionId": { "type": "string", "pattern": "^[a-p]{32}$" }
+          "extensionId": { "type": "string", "pattern": "^[a-p]{32}$" },
+          "verifier": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43,128}$" }
         },
-        "required": ["code", "extensionId"],
+        "required": ["code", "extensionId", "verifier"],
         "additionalProperties": false
       },
       "AgentManagementRequest": {

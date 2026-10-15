@@ -43,12 +43,14 @@ export const apiInputs = {
     .object({
       extensionId: z.string().regex(/^[a-p]{32}$/),
       deviceName: z.string().trim().min(1).max(60),
+      challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
     })
     .strict(),
   extensionPair: z
     .object({
       code: z.string().min(20).max(100),
       extensionId: z.string().regex(/^[a-p]{32}$/),
+      verifier: z.string().regex(/^[A-Za-z0-9_-]{43,128}$/),
     })
     .strict(),
   agentManagement: z.discriminatedUnion("action", [
