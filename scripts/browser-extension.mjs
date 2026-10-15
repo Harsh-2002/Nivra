@@ -139,7 +139,7 @@ try {
   await consent.goto(
     `${base}/extension/connect?extension=${id}&flow=code&name=Playwright&challenge=${challenge}`,
   );
-  await consent.getByRole("button", { name: "Connect browser" }).click();
+  await consent.getByRole("button", { name: "Allow this browser" }).click();
   const code = await consent.getByLabel("Pairing code").inputValue();
   assert.ok(code.length > 30, "pairing code is shown");
   await shot(consent, "consent-code");
@@ -153,7 +153,7 @@ try {
   await web.goto(
     `${base}/extension/connect?extension=${id}&flow=web&state=abc123&name=Playwright&challenge=${challenge}`,
   );
-  await web.getByRole("button", { name: "Connect browser" }).click();
+  await web.getByRole("button", { name: "Allow this browser" }).click();
   await web.waitForURL(`https://${id}.chromiumapp.org/**`);
   const fields = new URLSearchParams(new URL(web.url()).hash.slice(1));
   assert.equal(fields.get("state"), "abc123");
@@ -165,7 +165,7 @@ try {
   await refused.goto(
     `${base}/extension/connect?extension=${"b".repeat(32)}&flow=code&challenge=${challenge}`,
   );
-  await refused.getByRole("button", { name: "Connect browser" }).click();
+  await refused.getByRole("button", { name: "Allow this browser" }).click();
   await refused.getByText(/not recognized/).waitFor();
   await refused.close();
 
@@ -309,6 +309,59 @@ try {
   await revoked.getByText(/connection ended/i).waitFor();
   await shot(revoked, "reconnect");
   await revoked.close();
+
+  // Browser sign-in finishes in the background worker even though Chrome closes the popup.
+  await worker.evaluate(() => {
+    chrome.identity.launchWebAuthFlow = (details) =>
+      new Promise((resolve) => {
+        globalThis.__authUrl = details.url;
+        globalThis.__resolveAuth = resolve;
+      });
+  });
+  const connectPopup = await open();
+  await connectPopup.getByLabel("Nivra address").fill(base);
+  await connectPopup.getByRole("button", { name: "Connect browser" }).click();
+  await connectPopup
+    .getByRole("heading", { name: "Finish in the sign-in window" })
+    .waitFor();
+  await shot(connectPopup, "waiting");
+  let authUrl;
+  for (let attempt = 0; attempt < 100 && !authUrl; attempt += 1) {
+    authUrl = await worker.evaluate(() => globalThis.__authUrl);
+    if (!authUrl) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(authUrl, "background worker started the sign-in window");
+  const authorize = new URL(authUrl);
+  assert.equal(authorize.searchParams.get("flow"), "web");
+  assert.ok(authorize.searchParams.get("challenge"));
+  const approval = await context.newPage();
+  await approval.route(`https://${id}.chromiumapp.org/**`, (route) =>
+    route.fulfill({ status: 200, body: "ok" }),
+  );
+  await approval.goto(authUrl);
+  await approval.getByRole("button", { name: "Allow this browser" }).click();
+  await approval.waitForURL(`https://${id}.chromiumapp.org/**`);
+  const redirected = new URL(approval.url());
+  assert.equal(redirected.search, "", "the code is not sent as a query");
+  const returned = new URLSearchParams(redirected.hash.slice(1));
+  assert.equal(returned.get("state"), authorize.searchParams.get("state"));
+  assert.ok(returned.get("code"));
+  await approval.close();
+  // Close the popup first: the exchange must complete without it.
+  await connectPopup.close();
+  await worker.evaluate(
+    (url) => globalThis.__resolveAuth(url),
+    redirected.href,
+  );
+  const reopened = await open();
+  await reopened.getByRole("group", { name: "Save as" }).waitFor();
+  const refreshed = await owner("ai-connections");
+  assert.ok(
+    refreshed.body.keys.filter((key) => key.name.startsWith("Chrome extension"))
+      .length >= 1,
+    "browser sign-in created a key",
+  );
+  await reopened.close();
 
   assert.deepEqual(failures, [], "no uncaught page errors");
   console.log("Extension verification passed");

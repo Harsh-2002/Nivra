@@ -16,7 +16,6 @@ import {
 import {
   PairingError,
   allowInstance,
-  connectInBrowser,
   disconnect,
   exchange,
   openCodePage,
@@ -26,7 +25,9 @@ import {
   cacheIsFresh,
   getCache,
   getConnection,
+  getConnectState,
   getPending,
+  setConnectState,
   setCache,
   type Connection,
   type Tag,
@@ -34,7 +35,7 @@ import {
 
 const $ = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
-const views = ["loading", "connect", "main"] as const;
+const views = ["loading", "connect", "waiting", "main"] as const;
 const attemptKey = crypto.randomUUID();
 let connection: Connection;
 let target: PageTarget | null = null;
@@ -91,18 +92,12 @@ async function connectBrowser() {
     hint.textContent = insecure
       ? "This address isn’t encrypted. Use it only on a network you trust."
       : "";
+    // Must stay the first await: the permission prompt needs the click's user gesture.
     await allowInstance(origin);
-    busy("connect-form", true);
-    const result = await connectInBrowser(origin);
-    if (result) {
-      connection = result;
-      await start();
-      return;
-    }
-    showCodeForm(
-      origin,
-      "Sign-in window didn’t complete. Use a pairing code instead.",
-    );
+    await setConnectState({ status: "waiting", origin });
+    pendingOrigin = origin;
+    show("waiting");
+    void chrome.runtime.sendMessage({ type: "connect", origin });
   } catch (error) {
     message(
       "connect-error",
@@ -111,7 +106,6 @@ async function connectBrowser() {
         : "Couldn’t connect. Check the address and try again.",
     );
   }
-  busy("connect-form", false);
 }
 async function submitCode() {
   message("connect-error");
@@ -425,7 +419,29 @@ function showShortcutHints() {
 // Start ----------------------------------------------------------------
 async function start() {
   const stored = await getConnection();
+  const state = await getConnectState();
+  // A sign-in in progress wins over a stale connection that is being replaced.
+  if (state?.status === "waiting") {
+    pendingOrigin = state.origin;
+    show("waiting");
+    return;
+  }
   if (!stored) {
+    if (state?.status === "code") {
+      await setConnectState(null);
+      $<HTMLInputElement>("instance").value = state.origin;
+      showConnect();
+      showCodeForm(
+        state.origin,
+        "The sign-in window didn’t finish. Use a pairing code instead.",
+      );
+      return;
+    }
+    if (state?.status === "error") {
+      await setConnectState(null);
+      showConnect(state.message ?? "Couldn’t connect. Try again.");
+      return;
+    }
     const pending = await getPending();
     showConnect();
     if (pending) {
@@ -468,6 +484,22 @@ async function start() {
 $("connect-form").addEventListener("submit", (event) => {
   event.preventDefault();
   void connectBrowser();
+});
+$("connect-cancel").addEventListener("click", () => {
+  void setConnectState(null).then(() => showConnect());
+});
+$("use-code").addEventListener("click", () => {
+  void setConnectState(null).then(() => {
+    showConnect();
+    showCodeForm(pendingOrigin);
+    void openCodePage(pendingOrigin);
+  });
+});
+// The background worker finishes pairing even when this popup was closed meanwhile.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.connection?.newValue) void start();
+  else if (changes.connectState) void start();
 });
 $("code-form").addEventListener("submit", (event) => {
   event.preventDefault();

@@ -143,7 +143,7 @@ export function ExtensionConnect() {
                   Cancel
                 </Button>
                 <Button onClick={() => void allow()} disabled={busy}>
-                  {busy ? "Connecting…" : "Connect browser"}
+                  {busy ? "Connecting…" : "Allow this browser"}
                 </Button>
               </div>
             </footer>

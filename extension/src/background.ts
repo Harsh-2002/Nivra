@@ -1,3 +1,5 @@
+import { PairingError, connectInBrowser } from "./pairing.js";
+import { setConnectState } from "./storage.js";
 import { ApiError, api, friendlyError, type CaptureResult } from "./api.js";
 import { savablePage } from "./page.js";
 import { getConnection } from "./storage.js";
@@ -86,3 +88,50 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     );
   }
 });
+
+// Chrome closes the popup when the sign-in window takes focus, so the pairing runs here.
+chrome.runtime.onMessage.addListener((message, sender) => {
+  if (
+    sender.id === chrome.runtime.id &&
+    message?.type === "connect" &&
+    typeof message.origin === "string"
+  )
+    void runConnect(message.origin);
+});
+async function runConnect(origin: string) {
+  // Any extension API call resets the idle timer, which sign-in with TOTP can outlast.
+  const keepAlive = setInterval(
+    () => void chrome.runtime.getPlatformInfo(),
+    20_000,
+  );
+  try {
+    await setConnectState({ status: "waiting", origin });
+    const connection = await connectInBrowser(origin);
+    if (connection) {
+      await setConnectState(null);
+      void chrome.action.setBadgeText({ text: "✓" });
+      void chrome.action.setBadgeBackgroundColor({ color: "#171717" });
+      void chrome.action.setBadgeTextColor({ color: "#ffffff" });
+      void chrome.action.setTitle({
+        title: "Connected. Click to save this page.",
+      });
+      setTimeout(() => {
+        void chrome.action.setBadgeText({ text: "" });
+        void chrome.action.setTitle({ title: "Save to Nivra" });
+      }, 8000);
+      return;
+    }
+    await setConnectState({ status: "code", origin });
+  } catch (error) {
+    await setConnectState({
+      status: "error",
+      origin,
+      message:
+        error instanceof PairingError
+          ? error.message
+          : "Couldn’t connect. Check the address and try again.",
+    });
+  } finally {
+    clearInterval(keepAlive);
+  }
+}

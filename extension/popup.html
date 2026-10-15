@@ -46,12 +46,9 @@
             />
             <p class="hint" id="instance-hint" hidden></p>
           </div>
-          <div class="footer">
-            <span class="shortcut">Enter to connect</span>
-            <button type="submit" class="button" id="connect-submit">
-              Connect browser
-            </button>
-          </div>
+          <button type="submit" class="button wide" id="connect-submit">
+            Connect browser
+          </button>
         </form>
         <form id="code-form" hidden novalidate>
           <p class="muted">
@@ -75,6 +72,34 @@
           </div>
         </form>
         <p id="connect-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <section id="view-waiting" hidden>
+        <header class="heading">
+          <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+            <path
+              d="M9 1h22a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8H9a8 8 0 0 1-8-8V9a8 8 0 0 1 8-8Z"
+              fill="currentColor"
+            />
+            <path
+              d="M10 30V10h5l10 13V10h5v20h-5L15 17v13Z"
+              fill="var(--background)"
+            />
+          </svg>
+          <h1>Finish in the sign-in window</h1>
+          <p class="muted" role="status">
+            Approve this browser on your Nivra page. This popup can close; the
+            connection finishes on its own.
+          </p>
+        </header>
+        <div class="footer">
+          <button type="button" class="button ghost" id="connect-cancel">
+            Cancel
+          </button>
+          <button type="button" class="button outline" id="use-code">
+            Use a pairing code
+          </button>
+        </div>
       </section>
 
       <section id="view-main" hidden>

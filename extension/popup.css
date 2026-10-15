@@ -445,3 +445,9 @@ input[type="checkbox"]:focus-visible {
     transition: none !important;
   }
 }
+.button.wide {
+  width: 100%;
+}
+#connect-form {
+  gap: 16px;
+}

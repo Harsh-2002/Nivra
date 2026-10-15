@@ -25,6 +25,19 @@ export const setPending = (pending: Pending | null) =>
   pending
     ? chrome.storage.local.set({ pending })
     : chrome.storage.local.remove("pending");
+export type ConnectState = {
+  status: "waiting" | "code" | "error";
+  origin: string;
+  message?: string;
+};
+export async function getConnectState() {
+  const stored = await chrome.storage.local.get("connectState");
+  return stored.connectState as ConnectState | undefined;
+}
+export const setConnectState = (state: ConnectState | null) =>
+  state
+    ? chrome.storage.local.set({ connectState: state })
+    : chrome.storage.local.remove("connectState");
 export async function getCache(instance: string) {
   const stored = await chrome.storage.local.get("cache");
   const cache = stored.cache as (Cache & { instance: string }) | undefined;
