@@ -650,6 +650,32 @@ add("recover", "POST", "Recover the owner account", extraOutputs.recovery, {
   access: "public",
   input: apiInputs.recovery,
 });
+add(
+  "extension/authorize",
+  "POST",
+  "Approve a browser extension pairing as the owner",
+  extraOutputs.extensionCode,
+  { access: "owner", input: apiInputs.extensionAuthorize, status: 201 },
+);
+add(
+  "extension/pair",
+  "POST",
+  "Exchange a one-time pairing code for an extension key",
+  extraOutputs.extensionPaired,
+  { access: "public", input: apiInputs.extensionPair, status: 201 },
+);
+add(
+  "extension/session",
+  "GET",
+  "Read the current browser extension connection",
+  extraOutputs.extensionSession,
+);
+add(
+  "extension/session",
+  "DELETE",
+  "Disconnect the current browser extension",
+  apiOutputs.ok,
+);
 for (const method of ["GET", "PATCH"])
   add(
     "settings",

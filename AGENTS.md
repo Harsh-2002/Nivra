@@ -43,6 +43,7 @@ ONNXRUNTIME_NODE_INSTALL=skip npm ci
 npm run ai:assets
 npm run dev
 npm run typecheck
+npm run extension:typecheck
 npm run lint
 npm run format:check
 npm run verify:branding
@@ -51,7 +52,7 @@ npm test
 npm run build
 ```
 
-`npm run dev` uses port 3000, or the next free port. To choose a port, use `npm run dev -- --port 3001`. Persistent development data defaults to `data/`; tests must use a separate temporary directory.
+`npm run extension:build` compiles the Chromium extension in `extension/` for **Load unpacked**; see CONTRIBUTING.md. `npm run dev` uses port 3000, or the next free port. To choose a port, use `npm run dev -- --port 3001`. Persistent development data defaults to `data/`; tests must use a separate temporary directory.
 
 Docker delivery pulls the public AMD64/ARM64 image `ghcr.io/harsh-2002/nivra:latest`; use `docker compose up -d` with `docker-compose.yaml`, or the Docker run command in the README. The container runs as `nivra` (UID/GID 1000) with persistent data and its home at `/data`. Source builds and container verification are in CONTRIBUTING.md. Inspect configuration with `docker compose -f docker-compose.yaml config`; check readiness with `/health`. Never remove an existing data volume to resolve a startup issue.
 

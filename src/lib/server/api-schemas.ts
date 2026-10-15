@@ -39,6 +39,18 @@ const changes = <T extends z.ZodRawShape>(shape: T) =>
       "Provide at least one field to change.",
     );
 export const apiInputs = {
+  extensionAuthorize: z
+    .object({
+      extensionId: z.string().regex(/^[a-p]{32}$/),
+      deviceName: z.string().trim().min(1).max(60),
+    })
+    .strict(),
+  extensionPair: z
+    .object({
+      code: z.string().min(20).max(100),
+      extensionId: z.string().regex(/^[a-p]{32}$/),
+    })
+    .strict(),
   agentManagement: z.discriminatedUnion("action", [
     z.object({
       action: z.literal("create-key"),

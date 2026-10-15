@@ -64,6 +64,18 @@ const recentContent = z.discriminatedUnion("type", [
 export const extraOutputs = {
   settings,
   recovery: z.object({ recoveryCode: z.string() }),
+  extensionCode: z.object({ code: z.string(), expiresAt: count }),
+  extensionPaired: z.object({
+    key: z.string(),
+    id: z.string(),
+    expiresAt: count,
+  }),
+  extensionSession: z.object({
+    name: z.string(),
+    expiresAt: count.nullable(),
+    theme: z.enum(["light", "dark", "system"]),
+    instance: z.string(),
+  }),
   passkeySetup: z.object({ context: z.string(), recoveryCode: z.string() }),
   status: z.object({
     setup: z.boolean(),

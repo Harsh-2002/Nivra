@@ -51,7 +51,7 @@ Favorites is a browsing-only card collection of starred notes, journal entries a
 
 ## Next iteration
 
-The PWA share target, browser bookmarklet and Capture review page are implemented; a browser extension remains proposed. Bookmarks and tasks are separate sections backed by SQLite and included in lossless bundles and encrypted instance backups. Offline editing and collaboration remain deferred.
+The PWA share target, browser bookmarklet and Capture review page are implemented. A minimal Chromium (Manifest V3) browser extension in `extension/` saves the current page with one click, then offers a quick form for title, collection, tags and a note, plus a quick note; it pairs through the owner's own sign-in and is not yet published to a browser store. Bookmarks and tasks are separate sections backed by SQLite and included in lossless bundles and encrypted instance backups. Offline editing and collaboration remain deferred.
 
 ## Writing and journals
 

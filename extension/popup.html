@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Nivra</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script type="module" src="dist/popup.js"></script>
+  </head>
+  <body>
+    <main id="app">
+      <section id="view-loading" aria-live="polite">
+        <p class="muted">Loading…</p>
+      </section>
+
+      <section id="view-connect" hidden>
+        <header class="heading">
+          <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+            <path
+              d="M9 1h22a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8H9a8 8 0 0 1-8-8V9a8 8 0 0 1 8-8Z"
+              fill="currentColor"
+            />
+            <path
+              d="M10 30V10h5l10 13V10h5v20h-5L15 17v13Z"
+              fill="var(--background)"
+            />
+          </svg>
+          <h1>Connect to Nivra</h1>
+          <p class="muted" id="connect-intro">
+            Enter the address of your Nivra instance. You’ll sign in on your own
+            Nivra page, so this extension never sees your password.
+          </p>
+        </header>
+        <form id="connect-form" novalidate>
+          <div class="field">
+            <label for="instance">Nivra address</label>
+            <input
+              id="instance"
+              type="url"
+              inputmode="url"
+              autocomplete="url"
+              spellcheck="false"
+              placeholder="https://nivra.example.com"
+              aria-describedby="instance-hint"
+            />
+            <p class="hint" id="instance-hint" hidden></p>
+          </div>
+          <div class="footer">
+            <span class="shortcut">Enter to connect</span>
+            <button type="submit" class="button" id="connect-submit">
+              Connect browser
+            </button>
+          </div>
+        </form>
+        <form id="code-form" hidden novalidate>
+          <p class="muted">
+            Open the pairing page, approve this browser, then paste the code
+            here.
+          </p>
+          <div class="field">
+            <label for="pair-code">Pairing code</label>
+            <input
+              id="pair-code"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="connect-error"
+            />
+          </div>
+          <div class="footer">
+            <button type="button" class="button outline" id="code-reopen">
+              Open pairing page
+            </button>
+            <button type="submit" class="button">Use code</button>
+          </div>
+        </form>
+        <p id="connect-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <section id="view-main" hidden>
+        <header class="heading row">
+          <svg class="mark small" viewBox="0 0 40 40" aria-hidden="true">
+            <path
+              d="M9 1h22a8 8 0 0 1 8 8v22a8 8 0 0 1-8 8H9a8 8 0 0 1-8-8V9a8 8 0 0 1 8-8Z"
+              fill="currentColor"
+            />
+            <path
+              d="M10 30V10h5l10 13V10h5v20h-5L15 17v13Z"
+              fill="var(--background)"
+            />
+          </svg>
+          <h1 class="title">Nivra</h1>
+        </header>
+
+        <div class="types" role="group" aria-label="Save as">
+          <button
+            type="button"
+            class="button ghost"
+            id="mode-link"
+            aria-pressed="true"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"
+              />
+            </svg>
+            Link
+          </button>
+          <button
+            type="button"
+            class="button ghost"
+            id="mode-note"
+            aria-pressed="false"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"
+              />
+              <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+              <path d="M10 9H8" />
+              <path d="M16 13H8" />
+              <path d="M16 17H8" />
+            </svg>
+            Note
+          </button>
+        </div>
+
+        <div id="panel-link">
+          <div class="status-row">
+            <p id="status" role="status" aria-live="polite">
+              <svg
+                id="status-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                hidden
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              <span id="status-text"></span>
+            </p>
+            <button type="button" class="button ghost small" id="undo" hidden>
+              Undo
+            </button>
+          </div>
+          <p id="link-error" class="error" role="alert" hidden></p>
+          <form id="link-form" novalidate hidden>
+            <div class="field">
+              <label for="title">Title</label>
+              <input id="title" maxlength="300" />
+            </div>
+            <div class="field">
+              <label for="collection"
+                >Collection <span class="optional">(optional)</span></label
+              >
+              <input id="collection" maxlength="80" autocomplete="off" />
+              <div
+                class="suggestions"
+                id="collection-chips"
+                role="group"
+                aria-label="Recent collections"
+              ></div>
+            </div>
+            <div class="field">
+              <label for="tag-filter">Tags</label>
+              <input
+                id="tag-filter"
+                autocomplete="off"
+                maxlength="50"
+                aria-describedby="tag-hint"
+              />
+              <p class="hint" id="tag-hint">Press Enter to create a new tag.</p>
+              <div
+                class="tag-options"
+                id="tag-chips"
+                role="group"
+                aria-label="Available tags"
+              ></div>
+            </div>
+            <div class="field">
+              <label for="note"
+                >Note <span class="optional">(optional)</span></label
+              >
+              <textarea id="note" rows="3" maxlength="10000"></textarea>
+            </div>
+            <div class="footer">
+              <span class="shortcut" id="link-shortcut"></span>
+              <button type="submit" class="button" id="link-save">
+                Save changes
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div id="panel-note" hidden>
+          <form id="note-form" novalidate>
+            <div class="field">
+              <label for="note-text">Note</label>
+              <textarea
+                id="note-text"
+                rows="6"
+                maxlength="10000"
+                placeholder="Write a thought…"
+              ></textarea>
+            </div>
+            <label class="check">
+              <input type="checkbox" id="note-source" checked />
+              <span>Include a link to this page</span>
+            </label>
+            <div class="footer">
+              <span class="shortcut" id="note-shortcut"></span>
+              <button type="submit" class="button" id="note-save">
+                Save note
+              </button>
+            </div>
+          </form>
+          <p id="note-status" role="status" aria-live="polite"></p>
+          <p id="note-error" class="error" role="alert" hidden></p>
+        </div>
+
+        <footer class="foot">
+          <a
+            id="open-nivra"
+            class="button ghost small"
+            href="#"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open Nivra
+          </a>
+          <button type="button" class="button ghost small" id="disconnect">
+            Disconnect
+          </button>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>

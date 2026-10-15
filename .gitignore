@@ -58,3 +58,4 @@ next-env.d.ts
 /public/icons/launch/
 
 /models/
+/extension/dist

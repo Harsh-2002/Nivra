@@ -10,6 +10,7 @@ import {
   revokeOAuth,
   type AgentPrincipal,
 } from "./agent-access";
+import { extensionBinding, extensionIdFromOrigin } from "./extension-pairing";
 function limitedResponse() {
   const result = response(
     { error: "Too many agent requests. Retry shortly." },
@@ -49,7 +50,13 @@ export async function withAgent(
   try {
     if (!installationExists())
       return response({ error: "Complete installation setup first." }, 401);
-    checkOrigin(request);
+    const origin = request.headers.get("origin");
+    const extensionOrigin = origin ? extensionIdFromOrigin(origin) : undefined;
+    const bareCrossSite =
+      !origin && request.headers.get("sec-fetch-site") === "cross-site";
+    const crossOrigin = Boolean(extensionOrigin) || bareCrossSite;
+    // Bearer keys carry no ambient credentials; only extension keys may cross origins
+    if (!crossOrigin) checkOrigin(request);
     const publicUrl = installationUrl();
     if (
       publicUrl &&
@@ -72,12 +79,22 @@ export async function withAgent(
         return agentChallenge(request);
       const scopes = result.key.permissions?.nivra || [];
       if (!scopes.includes("read")) return agentChallenge(request, 403);
+      const binding = extensionBinding(result.key.id);
+      if (binding && !options.apiKeyOnly) return agentChallenge(request, 403);
+      if (
+        crossOrigin &&
+        (!binding ||
+          (extensionOrigin && binding.extensionId !== extensionOrigin))
+      )
+        throw new HttpError(403, "Request origin is not allowed.");
       return handler({
         ownerId: owner,
         connectionId: `key:${result.key.id}`,
         scopes: scopes.map((s) => `nivra:${s}`),
+        ...(binding ? { client: "extension" as const } : {}),
       });
     }
+    if (crossOrigin) throw new HttpError(403, "Request origin is not allowed.");
     if (options.apiKeyOnly)
       return response(
         { error: "A bearer API key is required.", code: "unauthorized" },

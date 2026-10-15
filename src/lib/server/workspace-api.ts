@@ -60,6 +60,12 @@ import {
 } from "./ai/service";
 import { listTagProposals, decideTagProposal } from "./ai/tagging";
 import { apiInputs } from "./api-schemas";
+import {
+  beginPairing,
+  completePairing,
+  extensionSession,
+  revokeOwnExtensionKey,
+} from "./extension-pairing";
 
 type Attachment = {
   id: string;
@@ -147,7 +153,9 @@ async function handleWorkspaceInternal(
     }
     const database = sqlite();
     await migrateStoredFiles();
-    if (!principal && method !== "GET") checkOrigin(request);
+    const extensionPairing = area === "extension" && id === "pair";
+    if (!principal && method !== "GET" && !extensionPairing)
+      checkOrigin(request);
     if (area === "health" && method === "GET") {
       database.prepare("SELECT 1").get();
       return response({ status: "ok" });
@@ -265,6 +273,14 @@ async function handleWorkspaceInternal(
       headers.set("Cache-Control", "no-store");
       return new Response(JSON.stringify({ recoveryCode: code }), { headers });
     }
+    if (extensionPairing && method === "POST" && !principal && !action)
+      return response(
+        await completePairing(
+          request,
+          apiInputs.extensionPair.parse(await json(request)),
+        ),
+        201,
+      );
     if (area === "recover" && method === "POST") {
       throttle("recover");
       const input = credentials
@@ -338,6 +354,28 @@ async function handleWorkspaceInternal(
         : !session || session.user.id !== owner.id)
     )
       throw new HttpError(401, "Please sign in to continue.");
+    if (area === "extension" && id === "authorize" && !principal && !action) {
+      if (method !== "POST")
+        throw new HttpError(405, "This method is not supported.");
+      return response(
+        beginPairing(
+          owner.id,
+          apiInputs.extensionAuthorize.parse(await json(request)),
+        ),
+        201,
+      );
+    }
+    if (area === "extension" && id === "session" && principal && !action) {
+      if (method === "DELETE") {
+        revokeOwnExtensionKey(owner.id, principal.connectionId);
+        return response({ ok: true });
+      }
+      if (method === "GET")
+        return response({
+          ...extensionSession(owner.id, principal.connectionId),
+          instance: installationUrl() || requestOrigin(request),
+        });
+    }
     if (contentAreas.has(area)) {
       if (
         method === "POST" &&

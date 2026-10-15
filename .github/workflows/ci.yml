@@ -21,6 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run ai:assets
       - run: npm run typecheck
+      - run: npm run extension:typecheck
       - run: npm run lint
       - run: npm run format:check
       - run: npm run verify:branding

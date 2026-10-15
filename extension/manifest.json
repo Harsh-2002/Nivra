@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Nivra",
+  "short_name": "Nivra",
+  "description": "Save the current page to your self-hosted Nivra instance in one click, then add a title, collection, tags or a note.",
+  "version": "2026.10.15",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4o/B4nwaNi7XUwf5R0eBFMjremtzKsgxKZZSvK+0mh4YmGJWzw5nTJn45294bulfc5H7oIBcFfHLdiqL4cJu+W5gzpj0hW0WRyP0+ag4DODYsRfpkzEiigTDEzsXKqYDsDWa7sBTlRuMmsx/lxCk0P8tuxOfLmJxYUmanJpdQKh3MeZEADUyH5hzHQUSddKfDMjlWnLvVI7jXdpK86C/lP8J4F70fOYELwXuER3stbwA2Y50KNk6H9QSvdJrLFTvjWBC4Z/KaAlcIEMB+h2R1Fbh3U/4NnEclkj6oPto4Fg8Q1OM6aYeUFIvH5hdQfpBH8VjCPQpYSm19bQ9T+s/FwIDAQAB",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Save to Nivra",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "background": { "service_worker": "dist/background.js", "type": "module" },
+  "permissions": ["activeTab", "storage", "contextMenus", "identity"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Save the current page to Nivra"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  }
+}

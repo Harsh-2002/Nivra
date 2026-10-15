@@ -28,6 +28,10 @@ node scripts/smoke-container.mjs nivra:test
 
 The smoke check uses disposable volumes and loopback ports to verify onboarding, backups and persistence. It removes only its test resources.
 
+## Browser extension
+
+`extension/` holds the Chromium extension. Run `npm run extension:build` and load `extension/` with **Load unpacked** in `chrome://extensions`; `npm run extension:typecheck` checks it without writing output. The manifest `key` pins the extension ID that the server accepts; set `NIVRA_EXTENSION_IDS` to a comma-separated list to accept a store-assigned ID. Keep the manifest version equal to the release date (for example `2026.10.15`). Packaging for a browser store is an owner action and is not part of the release workflow.
+
 ## HTTP API
 
 The versioned content API is at `/api/v1`; readiness is at `/health`. The [OpenAPI contract](docs/openapi.json) is maintained in this repository and is not served by the instance. Browser sessions and bearer API keys use the same content services as MCP. Create a Read or Read & write key in **Settings → MCP**; OAuth stays at `/mcp`.

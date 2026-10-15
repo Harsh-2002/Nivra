@@ -32,9 +32,19 @@ The data directory contains `nivra.sqlite`, SQLite WAL files, `auth.secret`, and
 
 The PWA caches public static assets and an offline explanation. Notes, API responses, and attachments are network-only. Fonts and drawing assets are bundled with the application.
 
+## Browser extension
+
+`extension/` is a dependency-free Manifest V3 extension for Chromium browsers, compiled with `tsc` to `extension/dist`. It requests only `activeTab`, `storage`, `contextMenus` and `identity`, and requests host access to the owner's instance origin at connect time through `optional_host_permissions`. It has no content scripts and no remote code.
+
+Pairing never exposes the owner's credentials to the extension. The popup asks for the instance address, then `chrome.identity.launchWebAuthFlow` opens `/extension/connect` on that instance, where the normal sign-in (password, TOTP or passkey) applies. After the owner approves the browser, the consent page creates a one-time code valid for two minutes (`extension_pairing`, stored as a hash) and returns it in the fragment of the extension's `https://<id>.chromiumapp.org/` URL. Where the identity API is unavailable the page shows the code to paste. The extension exchanges the code at `POST /api/v1/extension/pair`, which accepts only the matching `chrome-extension://<id>` origin, for a 90-day API key recorded in `extension_keys`. Only extension IDs bundled with the source (or listed in `NIVRA_EXTENSION_IDS`) are accepted.
+
+Extension keys are ordinary revocable API keys with a stricter boundary. `authorizeContentPath` restricts them to capture, bookmark read/update/Trash, tags, bookmark tag assignment, note creation and their own session; they are refused at `/mcp`. Only these keys may present a `chrome-extension://` origin, and it must be the one they were paired with. Cookie requests remain strictly same-origin. The key is kept in `chrome.storage.local`, sent only as a bearer header with credentials omitted and redirects disabled, and removed on disconnect (`DELETE /api/v1/extension/session`) or when the owner revokes it in Settings → MCP.
+
+The save itself is the duplicate check: `POST /api/v1/capture` returns `alreadySaved` from the `UNIQUE(owner_id,url)` constraint, and a URL in Trash returns 409. Metadata is fetched by the server job, so a quick-form update can race it; the popup re-reads the bookmark revision and retries once.
+
 ## Deferred work
 
-IndexedDB offline editing and synchronization, Yjs collaboration, shared workspaces, browser-extension capture and executable HTML/React previews are not available in this release. PWA share-target and bookmarklet capture are available through the authenticated Capture page.
+IndexedDB offline editing and synchronization, Yjs collaboration, shared workspaces, an extension offline queue or background saved-page indicator, and executable HTML/React previews are not available in this release. PWA share-target and bookmarklet capture are available through the authenticated Capture page.
 
 ## Dependency maintenance
 

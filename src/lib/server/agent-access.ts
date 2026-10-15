@@ -5,17 +5,42 @@ export type AgentPrincipal = {
   ownerId: string;
   connectionId: string;
   scopes: string[];
+  client?: "extension";
 };
 export const agentScopes = ["nivra:read", "nivra:write"];
 export function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+function extensionMayCall(path: string[], method: string) {
+  const [area, id, third] = path;
+  if (area === "capture") return method === "POST" && path.length === 1;
+  if (area === "bookmarks")
+    return path.length === 1
+      ? method === "GET"
+      : path.length === 2 && ["GET", "PATCH", "DELETE"].includes(method);
+  if (area === "tags")
+    return path.length === 1 && ["GET", "POST"].includes(method);
+  if (area === "item-tags")
+    return id === "bookmark" && !!third && ["GET", "PATCH"].includes(method);
+  if (area === "notes") return method === "POST" && path.length === 1;
+  if (area === "extension")
+    return id === "session" && ["GET", "DELETE"].includes(method);
+  return false;
 }
 export function authorizeContentPath(
   principal: AgentPrincipal,
   path: string[],
   method: string,
 ) {
+  if (principal.client === "extension" && !extensionMayCall(path, method))
+    throw new HttpError(
+      403,
+      "This browser extension connection cannot use that operation.",
+    );
+  if (path[0] === "extension" && principal.client !== "extension")
+    throw new HttpError(403, "Agents cannot administer this instance.");
   if (
+    path[0] !== "extension" &&
     ![
       "forms",
       "capture",
