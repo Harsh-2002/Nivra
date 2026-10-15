@@ -10,6 +10,7 @@ Nivra is a single-owner, self-hosted notes, tasks, and bookmarks web app. Its st
 - `src/app/`: routes, metadata, and application styles.
 - `src/components/`: onboarding, workspace, editor, tasks, bookmarks, drawings, and settings; `ui/` contains shadcn components.
 - `src/lib/server/`: authentication, schema, persistence, storage, and validation.
+- `extension/`: Chromium (Manifest V3) browser extension that saves pages and quick notes; built separately with `npm run extension:build`.
 - `migrations/`: ordered SQL migrations, including FTS5 and the single-owner invariant.
 - `tests/`: automated behavior and persistence checks.
 

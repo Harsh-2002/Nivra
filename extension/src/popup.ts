@@ -129,7 +129,7 @@ async function submitCode() {
 // Link -----------------------------------------------------------------
 function setStatus(text: string, ok = false) {
   $("status-text").textContent = text;
-  $("status-icon").hidden = !ok;
+  $("status-icon").toggleAttribute("hidden", !ok);
 }
 function renderCollections() {
   const holder = $("collection-chips");
