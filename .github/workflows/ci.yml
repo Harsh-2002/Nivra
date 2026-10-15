@@ -8,7 +8,9 @@ permissions:
 env:
   ONNXRUNTIME_NODE_INSTALL: skip
 jobs:
-  verify:
+  # Fast gates: everything that does not need a production build or a browser.
+  static:
+    name: static
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,11 +29,45 @@ jobs:
       - run: npm run verify:branding
       - run: npm run verify:api
       - run: npm test
+      - name: Validate image-based Compose configuration
+        run: docker compose -f docker-compose.yaml config --quiet
+  # One job per engine so they run in parallel and a failure reruns alone.
+  browser:
+    name: browser (${{ matrix.engine }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install video preview dependency
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm ci
+      - run: npm run ai:assets
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .next/cache
+          key: next-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts') }}
+          restore-keys: next-${{ hashFiles('package-lock.json') }}-
       - run: npm run build
-      - name: Verify connected workflows, tag actions and live Overview
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('package-lock.json') }}-${{ matrix.engine }}
+      - name: Install the browser
+        run: npx playwright install --with-deps ${{ matrix.engine }}
+      - name: Verify the WebKit compositor
+        if: matrix.engine == 'webkit'
+        run: node scripts/browser-webkit-runtime.mjs
+      - name: Verify connected workflows and tag actions in ${{ matrix.engine }}
+        env:
+          NIVRA_AUDIT_ENGINE: ${{ matrix.engine }}
         run: |
-          npx playwright install --with-deps chromium firefox webkit
-          node scripts/browser-webkit-runtime.mjs
           foundations_dir="$(mktemp -d /tmp/nivra-foundations.XXXXXX)"
           chmod 700 "$foundations_dir"
           export NIVRA_DATA_DIR="$foundations_dir/data"
@@ -47,12 +83,25 @@ jobs:
             sleep 1
           done
           curl --fail --silent http://localhost:3015/health > /dev/null
-          for browser in chromium firefox webkit; do
-            NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-foundations.mjs
-            NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-tag-actions.mjs
-            NIVRA_AUDIT_ENGINE="$browser" node scripts/browser-local-ai.mjs
-          done
-          node scripts/browser-overview.mjs
+          node scripts/browser-foundations.mjs
+          node scripts/browser-tag-actions.mjs
+          node scripts/browser-local-ai.mjs
+          if [ "$NIVRA_AUDIT_ENGINE" = chromium ]; then node scripts/browser-overview.mjs; fi
+  onboarding:
+    name: onboarding
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install video preview dependency
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm ci
+      - run: npm run ai:assets
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium firefox webkit
       - name: Verify guided onboarding and installation instructions
         run: |
           export NIVRA_DATA_DIR="$(mktemp -d)"
@@ -67,10 +116,8 @@ jobs:
           done
           curl --fail --silent http://localhost:3016/health > /dev/null
           node scripts/browser-post-setup.mjs
-      - name: Validate image-based Compose configuration
-        run: docker compose -f docker-compose.yaml config --quiet
   containers:
-    needs: verify
+    needs: static
     strategy:
       fail-fast: false
       matrix:

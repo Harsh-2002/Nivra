@@ -11,6 +11,7 @@
     "extension:build": "tsc -p extension/tsconfig.json",
     "extension:typecheck": "tsc -p extension/tsconfig.json --noEmit",
     "extension:package": "node scripts/package-extension.mjs",
+    "verify:push": "npm run typecheck && npm run extension:build && npm run lint && npm run format:check && npm run verify:branding && npm run verify:api",
     "test": "tsx --test --test-concurrency=4 tests/*.test.ts",
     "postinstall": "node scripts/patch-csp.mjs && node scripts/copy-assets.mjs",
     "prebuild": "node scripts/copy-assets.mjs && node scripts/build-processing-worker.mjs && node scripts/build-public-reader.mjs",

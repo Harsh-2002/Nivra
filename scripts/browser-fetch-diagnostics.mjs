@@ -622,6 +622,19 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
     </script>`);
   });
 
+  // Held requests never complete, so without this they pile up and saturate the
+  // browser's per-host connection pool; later fetches then queue instead of starting.
+  const releaseHeldRequests = () => {
+    for (const response of pendingResponses) response.destroy();
+    pendingResponses.clear();
+    for (const socket of sockets) socket.destroy();
+  };
+  const waitForHeldRequest = async () => {
+    const deadline = Date.now() + 2000;
+    while (pendingResponses.size === 0 && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    return pendingResponses.size;
+  };
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -650,9 +663,10 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
 
   try {
     for (let attempt = 0; attempt < 20; attempt += 1) {
+      releaseHeldRequests();
       await page.goto(`${origin}/source`);
       await page.evaluate(() => window.startFetches());
-      await page.waitForTimeout(8);
+      await waitForHeldRequest();
       await page.goto(`${origin}/target`);
     }
     await diagnostics.flush();
@@ -669,11 +683,15 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
     // WebKit emits the cancellation pageerror only for some in-flight fetches, so a
     // single navigation is not a reliable positive control; bound the retries instead.
     const reproduceNativeCancellation = async (path, label) => {
+      const held = [];
       for (let attempt = 1; attempt <= nativeControlAttempts; attempt += 1) {
+        releaseHeldRequests();
         const before = diagnostics.result().deferredCount;
         await page.goto(`${origin}/source`);
         await page.evaluate((target) => window.startFetches(target), path);
-        await page.waitForTimeout(20);
+        // Navigate only once the server holds a request, so one is really in flight.
+        held.push(await waitForHeldRequest());
+        await page.waitForTimeout(5);
         await page.goto(`${origin}/target`);
         await diagnostics.flush();
         const result = diagnostics.result();
@@ -684,7 +702,7 @@ export async function verifyWebKitFetchDiagnosticControls(browser) {
         if (result.deferredCount > before) return attempt;
       }
       throw new Error(
-        `WebKit control did not reproduce a native ${label} fetch pageerror in ${nativeControlAttempts} attempts`,
+        `WebKit control did not reproduce a native ${label} fetch pageerror in ${nativeControlAttempts} attempts (requests held per attempt: ${held.join(",")}; fatal page errors: ${fatalPageErrors.length})`,
       );
     };
     const notesPreview = new URLSearchParams({

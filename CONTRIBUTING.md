@@ -6,6 +6,10 @@ Use Node.js 24 and `npm ci`. Run `npm run ai:assets` once to prepare the pinned 
 
 Keep code comments minimal and concise. Preserve the monochrome interface and single-owner model. Do not commit private notes, credentials, generated secrets, recovery codes, or data directories. Put detailed documentation in `docs/`; keep the README focused on getting started.
 
+## Before pushing
+
+Run `npm run verify:push` (types, extension build, lint, formatting, branding and API contract; about two minutes) and the tests for the area you changed with `npx tsx --test tests/<name>.test.ts`. CI repeats these as the `static` job, runs the full suite, and runs the Chromium, Firefox and WebKit browser harnesses in parallel `browser` jobs; those harnesses and the container builds are CI-only checks unless you changed UI behavior. A failed engine job can be rerun on its own.
+
 ## Releases
 
 CI verifies every `main` push and pull request. After CI passes on the current `main` commit, push an annotated UTC date tag to trigger [.github/workflows/release.yml](.github/workflows/release.yml):
