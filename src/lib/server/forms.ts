@@ -285,6 +285,16 @@ export function changeFormStatus(
     .immediate();
   return action === "trash" ? { ok: true } : getForm(owner, id);
 }
+export function publicFormExists(token: string) {
+  return (
+    /^[A-Za-z0-9_-]{32}$/.test(token) &&
+    !!sqlite()
+      .prepare(
+        "SELECT 1 FROM forms WHERE public_token=? AND trashed_at IS NULL AND status IN ('published','closed')",
+      )
+      .get(token)
+  );
+}
 export function publicForm(token: string): {
   id: string;
   ownerId: string;

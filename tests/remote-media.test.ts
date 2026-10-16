@@ -67,20 +67,21 @@ test("linked media rejects SSRF and active formats, preserves ranges, and bounds
     active--;
     return { bytes: png, type: "image/png", url: source };
   };
+  // Fresh addresses: an earlier fetch of the same address would be answered from the short-lived cache.
   const first = remoteMedia(
     new Request("http://localhost/media"),
-    source,
+    `${source}?busy=1`,
     blocked,
   );
   const second = remoteMedia(
     new Request("http://localhost/media"),
-    source,
+    `${source}?busy=2`,
     blocked,
   );
   const aborted = new AbortController();
   const third = remoteMedia(
     new Request("http://localhost/media", { signal: aborted.signal }),
-    source,
+    `${source}?busy=3`,
     blocked,
   );
   aborted.abort();
@@ -89,8 +90,13 @@ test("linked media rejects SSRF and active formats, preserves ranges, and bounds
   releases.forEach((release) => release());
   await Promise.all([first, second]);
   assert.equal(
-    (await remoteMedia(new Request("http://localhost/media"), source, image))
-      .status,
+    (
+      await remoteMedia(
+        new Request("http://localhost/media"),
+        `${source}?released=1`,
+        image,
+      )
+    ).status,
     200,
   );
 });

@@ -750,7 +750,7 @@ export function TasksPanel({
               )}
               <h2>
                 {query
-                  ? "No matching tasks."
+                  ? "No matching tasks"
                   : filter === "completed"
                     ? "Your finished tasks will live here."
                     : counts && counts.open + counts.completed

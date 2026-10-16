@@ -323,6 +323,10 @@ export default async function verifyNivra(page, phase) {
         "Shared reader cannot access private notes",
       );
       await button("Stop sharing").click();
+      await page
+        .getByRole("alertdialog")
+        .getByRole("button", { name: "Stop sharing", exact: true })
+        .click();
       await button("Publish note").waitFor();
       check(
         (

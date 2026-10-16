@@ -68,15 +68,13 @@ import {
   type CapturedItem,
 } from "./quick-capture";
 import { NotePane } from "./note-pane";
-import { TemplatesPanel, type TemplateSource } from "./templates-panel";
+import type { TemplateSource } from "./templates-panel";
 import { useConfirm } from "./confirm-provider";
 import { TagColorPicker } from "./tag-color-picker";
 import type { TagColor } from "@/lib/tags";
 import { SettingsPanel } from "./settings-panel";
-import { BookmarksPanel } from "./bookmarks-panel";
 import { OverviewPanel } from "./overview-panel";
 import { ItemCollection } from "./item-collection";
-import { TagSuggestionsPanel } from "./tag-suggestions-panel";
 import { NavigationIcon } from "./navigation-icon";
 import {
   Select,
@@ -86,11 +84,17 @@ import {
   SelectValue,
 } from "./ui/select";
 import { FeedbackOutlet } from "./inline-feedback";
-import { TrashPanel } from "./trash-panel";
-import { CalendarPanel } from "./calendar-panel";
-import { TasksWorkspace } from "./tasks-workspace";
-import { ArtifactsPanel } from "./artifacts-panel";
-import { FormWorkspace } from "./form-workspace";
+import {
+  ArtifactsPanel,
+  BookmarksPanel,
+  CalendarPanel,
+  FormWorkspace,
+  TagSuggestionsPanel,
+  TasksWorkspace,
+  TemplatesPanel,
+  TrashPanel,
+  preloadPanel,
+} from "./lazy-panels";
 import { useCompletion, useCompletionStream } from "@/lib/completion-client";
 import { sectionCache } from "@/lib/section-cache";
 import { matches, shortcuts } from "@/lib/shortcuts";
@@ -643,6 +647,9 @@ export function Workspace({
     } else notify.error("Your edits haven’t been saved yet.");
   };
   const filter = async (next: string, tagId = "") => {
+    const sequence = routeSequence.current;
+    await preloadPanel(next, 300);
+    if (sequence !== routeSequence.current) return false;
     if (!(await guard.current())) return false;
     const previous = new URL(window.location.href);
     notify.dismiss();
@@ -1095,6 +1102,8 @@ export function Workspace({
                   aria-label={label}
                   aria-current={view === id && !tag ? "page" : undefined}
                   onClick={() => void filter(id)}
+                  onPointerEnter={() => void preloadPanel(id)}
+                  onFocus={() => void preloadPanel(id)}
                 >
                   <Icon size={18} strokeWidth={1.6} />
                   <span className="nav-item-label">{label}</span>
@@ -1130,6 +1139,8 @@ export function Workspace({
               onClick={() =>
                 afterNavigation(() => void filter("tag-suggestions"))
               }
+              onPointerEnter={() => void preloadPanel("tag-suggestions")}
+              onFocus={() => void preloadPanel("tag-suggestions")}
             >
               <Tags size={18} strokeWidth={1.6} />
               <span className="nav-item-label">Tag suggestions</span>

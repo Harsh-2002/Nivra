@@ -141,6 +141,15 @@ const config: NextConfig = {
           },
         ],
       },
+      ...["/excalidraw/:path*", "/icons/:path*"].map((source) => ({
+        source,
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=86400, stale-while-revalidate=604800",
+          },
+        ],
+      })),
       {
         source: "/sw.js",
         headers: [

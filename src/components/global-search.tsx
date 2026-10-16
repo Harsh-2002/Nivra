@@ -139,6 +139,7 @@ export function GlobalSearch({
   const [error, setError] = useState("");
   const [selection, setSelection] = useState("");
   const nextFocus = useRef<string | null>(null);
+  const strategy = aiEnabled && query.trim() ? "semantic" : "keyword";
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -146,7 +147,6 @@ export function GlobalSearch({
       () => {
         setLoading(true);
         setError("");
-        const strategy = aiEnabled && query.trim() ? "semantic" : "keyword";
         void api<{ items: SearchResult[]; strategyUsed?: string }>(
           `search?mode=suggest&strategy=${strategy}&q=${encodeURIComponent(query)}`,
           {
@@ -180,7 +180,7 @@ export function GlobalSearch({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [open, query, aiEnabled, completionVersion]);
+  }, [open, query, strategy, completionVersion]);
   const run = async (action: () => Promise<boolean>, focus: string) => {
     if (busy) return;
     setBusy(true);

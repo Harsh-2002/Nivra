@@ -920,7 +920,7 @@ export function KanbanPanel({
                           <div className="kanban-column-empty">
                             <p>
                               {query
-                                ? "No matching tasks."
+                                ? "No matching tasks"
                                 : s === "todo"
                                   ? "Ready for your next task."
                                   : s === "in_progress"

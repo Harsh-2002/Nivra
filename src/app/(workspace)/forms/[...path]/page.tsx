@@ -21,5 +21,5 @@ export default async function Page({
   );
   if (state === "missing") notFound();
   if (state === "login") redirect("/");
-  return <Nivra initialView="forms" />;
+  return <Nivra initialView="forms" signedIn />;
 }

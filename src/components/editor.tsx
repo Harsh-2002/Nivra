@@ -16,7 +16,6 @@ import {
 import { filterSuggestionItems } from "@blocknote/core/extensions";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { syntaxHighlighter } from "@blocknote/code-block";
-import { locales as diagramLocales } from "@blocknote/diagram-block";
 import * as locales from "@blocknote/core/locales";
 import { PencilLine, Download, Loader2, FileText } from "lucide-react";
 import { Button } from "./ui/button";
@@ -29,11 +28,11 @@ import {
 } from "./task-link-block";
 import { audioBlockSpec, videoBlockSpec } from "./media-blocks";
 import { download } from "@/lib/client";
-import { apiItems } from "@/lib/client";
+import { api, apiItems } from "@/lib/client";
 import { canonicalizeTaskLinks } from "@/lib/writing";
 import { notify } from "@/lib/feedback";
 import { mediaUrl } from "@/lib/media-url";
-import { diagramBlockSpec } from "./diagram-block";
+import { diagramBlockSpec, diagramDictionary } from "./diagram-block";
 import { useCspNonce } from "@/lib/csp";
 import type { Document, NoteSummary } from "@/lib/types";
 import { findSearchBlock } from "@/lib/search-context";
@@ -268,7 +267,7 @@ export default function Editor({
     dictionary: {
       ...locales.en,
       placeholders: { ...locales.en.placeholders, default: "Start writing…" },
-      diagram: diagramLocales.en,
+      diagram: diagramDictionary,
     },
     uploadFile: async (file) => {
       if (!allowUpload)
@@ -276,13 +275,9 @@ export default function Editor({
       const form = new FormData();
       form.set("file", file);
       form.set("note", noteId);
-      const result = await fetch("/api/v1/files", {
-        method: "POST",
-        body: form,
-      });
-      const data = await result.json();
-      if (!result.ok) throw new Error(data.error);
-      return data.url;
+      return (
+        await api<{ url: string }>("files", { method: "POST", body: form })
+      ).url;
     },
   });
   const suppressedDocument = useRef<string | null>(null);

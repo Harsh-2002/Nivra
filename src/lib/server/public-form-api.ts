@@ -1,5 +1,5 @@
 import { formApiInputs } from "./form-api-schemas";
-import { publicForm, submitForm } from "./forms";
+import { publicForm, publicFormExists, submitForm } from "./forms";
 import {
   createFormUploadSession,
   formUploadReservation,
@@ -8,18 +8,28 @@ import {
   writeFormUpload,
 } from "./form-uploads";
 import { uploadLimit } from "./config";
-import { HttpError, json, readLimited, response, throttle } from "./http";
+import {
+  clientKey,
+  HttpError,
+  json,
+  readLimited,
+  response,
+  throttle,
+  throttleClient,
+} from "./http";
 export async function publicFormApi(request: Request, path: string[]) {
   const [, , token, action, fileId] = path;
   const method = request.method;
   if (!token) throw new HttpError(404, "Form not available.");
   if (method !== "GET") {
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-      request.headers.get("x-real-ip") ||
-      "unknown";
-    throttle(`form:${token}:${ip}`, 60);
-    throttle(`forms:global:${ip}`, 120);
+    if (!publicFormExists(token))
+      throw new HttpError(404, "Form not available.");
+    const client = clientKey(request);
+    throttleClient(`form:${token}:${client}`, 120);
+    throttleClient(`forms:client:${client}`, 240);
+    // Forwarded addresses can be forged by direct clients, so these caps do not depend on them.
+    throttle(`form:${token}`, 600);
+    throttle("forms:anonymous", 1500);
   }
   if (method === "GET" && !action) {
     const form = publicForm(token);

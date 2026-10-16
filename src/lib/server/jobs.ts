@@ -82,18 +82,20 @@ export function claimJob(
   preferredKind?: JobKind,
   allowSemantic = true,
 ): Job | undefined {
-  return sqlite()
+  const database = sqlite();
+  const next = database.prepare(
+    `SELECT * FROM background_jobs
+     WHERE (? OR kind<>'semantic')
+       AND kind<>'article'
+       AND ((state='queued' AND available_at<=?) OR (state='running' AND lease_until<=?))
+     ORDER BY CASE WHEN kind='thumbnail' THEN 0 WHEN kind=? THEN 1 ELSE 2 END,available_at,created_at LIMIT 1`,
+  );
+  const args = [Number(allowSemantic), now, now, preferredKind ?? null];
+  // The worker polls every second; an idle poll must not take the write lock.
+  if (!next.get(...args)) return;
+  return database
     .transaction(() => {
-      const row = sqlite()
-        .prepare(
-          `SELECT * FROM background_jobs
-           WHERE (? OR kind<>'semantic')
-             AND kind<>'article'
-             AND ((state='queued' AND available_at<=?) OR (state='running' AND lease_until<=?))
-           ORDER BY CASE WHEN kind='thumbnail' THEN 0 WHEN kind=? THEN 1 ELSE 2 END,available_at,created_at LIMIT 1`,
-        )
-        .get(Number(allowSemantic), now, now, preferredKind ?? null) as
-        Job | undefined;
+      const row = next.get(...args) as Job | undefined;
       if (!row) return;
       const token = randomUUID();
       sqlite()

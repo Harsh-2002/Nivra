@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { useConfirm } from "./confirm-provider";
+import { formatDateTime } from "@/lib/dates";
 const Editor = dynamic(() => import("./editor"), {
   ssr: false,
   loading: () => (
@@ -151,8 +152,7 @@ export function HistoryDialog({
               <SelectContent>
                 {versions.map((v) => (
                   <SelectItem key={v.id} value={v.id}>
-                    {new Date(v.createdAt).toLocaleString()} · Revision{" "}
-                    {v.revision}
+                    {formatDateTime(v.createdAt)} · Revision {v.revision}
                   </SelectItem>
                 ))}
               </SelectContent>

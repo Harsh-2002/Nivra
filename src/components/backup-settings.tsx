@@ -3,6 +3,7 @@ import { useCompletion } from "@/lib/completion-client";
 import { useEffect, useState } from "react";
 import { Check, Loader2, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/client";
+import { formatDateTime } from "@/lib/dates";
 import { Button } from "./ui/button";
 import type { BackupStatus } from "@/lib/server/backups";
 export function BackupSettings({
@@ -123,12 +124,10 @@ export function BackupSettings({
             {status.running
               ? "Creating a complete recovery copy. You can keep using Nivra."
               : status.lastSuccess
-                ? `Last completed ${new Date(status.lastSuccess).toLocaleString()}`
+                ? `Last completed ${formatDateTime(status.lastSuccess)}`
                 : "No completed backup yet."}
             {status.nextAt && !status.running && (
-              <span>
-                Next scheduled {new Date(status.nextAt).toLocaleString()}
-              </span>
+              <span>Next scheduled {formatDateTime(status.nextAt)}</span>
             )}
           </p>
           {status.backend === "local" && (
@@ -143,7 +142,7 @@ export function BackupSettings({
               {status.backups.slice(0, 3).map((backup) => (
                 <div className="settings-row" key={backup.id}>
                   <div>
-                    <h3>{new Date(backup.createdAt).toLocaleString()}</h3>
+                    <h3>{formatDateTime(backup.createdAt)}</h3>
                     <p>
                       {backup.files} files ·{" "}
                       {(backup.size / 1024 / 1024).toFixed(1)} MB

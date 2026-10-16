@@ -168,7 +168,9 @@ async function handleWorkspaceInternal(
         const source = url.searchParams.get("url") || "";
         if (!hasPublishedMedia(published.document, source))
           throw new HttpError(404, "This media is not shared by this note.");
-        return await remoteMedia(request, source);
+        return await remoteMedia(request, source, undefined, () =>
+          throttle(`published-media:${id}`, 240),
+        );
       }
       if (action === "files" && path[3]) {
         const file = database

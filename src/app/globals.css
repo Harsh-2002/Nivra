@@ -691,6 +691,11 @@ button:disabled {
 .tag-menu:focus-visible {
   opacity: 1;
 }
+@media (hover: none) {
+  .tag-menu {
+    opacity: 1;
+  }
+}
 .empty-tags {
   display: block;
   text-align: left;

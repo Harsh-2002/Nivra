@@ -1,5 +1,5 @@
 Nivra source: https://github.com/Harsh-2002/Nivra (MIT).
-BlockNote core, React, shadcn, code-block and diagram-block: MPL-2.0.
+BlockNote core, React, shadcn and code-block: MPL-2.0. src/components/diagram-block.tsx is adapted from BlockNote's diagram block (MPL-2.0) and remains under those terms.
 Unmodified covered source: https://github.com/TypeCellOS/BlockNote
 License: MPL-2.0.txt in this directory.
 Geist font: SIL Open Font License 1.1, Geist-OFL.txt in this directory.

@@ -39,5 +39,5 @@ export default async function Page({
   );
   if (state === "missing") notFound();
   if (state === "login") redirect("/");
-  return <Nivra initialView={view ?? "overview"} />;
+  return <Nivra initialView={view ?? "overview"} signedIn />;
 }

@@ -34,3 +34,26 @@ export function formatDate(value: string): string {
     year: "numeric",
   });
 }
+type Stamp = string | number | Date;
+export function formatDay(value: Stamp): string {
+  return new Date(value).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+export function formatTime(value: Stamp): string {
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+export function formatDateTime(value: Stamp): string {
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}

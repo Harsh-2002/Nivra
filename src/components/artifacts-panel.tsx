@@ -711,7 +711,7 @@ export function ArtifactsPanel({
               ) : (
                 <Layers size={30} strokeWidth={1.5} />
               )}
-              <h2>{query ? "No matches." : "Nothing saved yet."}</h2>
+              <h2>{query ? "No matching artifacts" : "Nothing saved yet"}</h2>
               <p>
                 {query
                   ? "Text inside images is searched once it has been read. Try another word."

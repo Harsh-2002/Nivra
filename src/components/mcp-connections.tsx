@@ -7,6 +7,7 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { McpClientSetup } from "./mcp-client-setup";
 import { useConfirm } from "./confirm-provider";
+import { formatDay } from "@/lib/dates";
 type Connections = {
   endpoint: string;
   keys: {
@@ -296,7 +297,7 @@ export function McpConnections({
                       ? "Read & write"
                       : "Read"}
                     {key.expiresAt
-                      ? ` · Expires ${new Date(key.expiresAt).toLocaleDateString()}`
+                      ? ` · Expires ${formatDay(key.expiresAt)}`
                       : ""}
                   </small>
                 </div>

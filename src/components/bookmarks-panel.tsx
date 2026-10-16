@@ -833,7 +833,7 @@ export function BookmarksPanel({
                 favorites ||
                 collection !== "all" ||
                 readingState !== "all"
-                  ? "No matching bookmarks."
+                  ? "No matching bookmarks"
                   : "A home for your useful links."}
               </h2>
               <p>

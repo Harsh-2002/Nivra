@@ -21,17 +21,18 @@ import { AuthScreen, Mark } from "./auth-screen";
 import { WorkspaceOnboarding } from "./workspace-onboarding";
 import { Button } from "./ui/button";
 import type { WorkspaceView } from "@/lib/workspace-routes";
-const Workspace = dynamic(
-  () => import("./workspace").then((module) => module.Workspace),
-  {
-    ssr: false,
-    loading: () => <LaunchScreen />,
-  },
-);
+const loadWorkspace = () =>
+  import("./workspace").then((module) => module.Workspace);
+const Workspace = dynamic(loadWorkspace, {
+  ssr: false,
+  loading: () => <LaunchScreen />,
+});
 export function Nivra({
   initialView = "overview",
+  signedIn = false,
 }: {
   initialView?: WorkspaceView;
+  signedIn?: boolean;
 }) {
   const [status, setStatus] = useState<{
     setup: boolean;
@@ -54,6 +55,9 @@ export function Nivra({
   useEffect(() => {
     setThemeRef.current = setTheme;
   }, [setTheme]);
+  useEffect(() => {
+    if (signedIn) loadWorkspace().catch(() => {});
+  }, [signedIn]);
   const refresh = useCallback(async () => {
     await Promise.resolve();
     if (!mounted.current) return false;

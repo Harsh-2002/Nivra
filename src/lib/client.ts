@@ -7,8 +7,40 @@ export class ApiError extends Error {
     super(message);
   }
 }
+export const unreachable =
+  "Nivra can't be reached. Check your connection and try again.";
+function failure(status: number) {
+  if (status === 413)
+    return "That is larger than the server accepts. Try a smaller file.";
+  if (status === 429) return "Too many requests. Wait a moment and try again.";
+  if (status >= 500)
+    return "Nivra could not finish that. Try again in a moment.";
+  return "This action could not be completed.";
+}
+async function send(input: string, init?: RequestInit) {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (
+      init?.signal?.aborted ||
+      (error instanceof DOMException && error.name === "AbortError")
+    )
+      throw error;
+    throw new ApiError(unreachable, 0, "unreachable");
+  }
+}
+async function errorBody(result: Response) {
+  try {
+    const body = await result.json();
+    return body && typeof body === "object"
+      ? (body as { error?: unknown; code?: unknown })
+      : {};
+  } catch {
+    return {};
+  }
+}
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const result = await fetch(`/api/v1/${path}`, {
+  const result = await send(`/api/v1/${path}`, {
     ...init,
     headers: {
       ...(init?.body instanceof FormData
@@ -17,14 +49,25 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   });
-  const body = await result.json();
-  if (!result.ok)
+  if (!result.ok) {
+    const body = await errorBody(result);
     throw new ApiError(
-      body.error || "This action could not be completed.",
+      typeof body.error === "string" && body.error
+        ? body.error
+        : failure(result.status),
       result.status,
-      body.code,
+      typeof body.code === "string" ? body.code : undefined,
     );
-  return body;
+  }
+  try {
+    return await result.json();
+  } catch {
+    throw new ApiError(
+      "Nivra sent an unexpected response. Try again.",
+      result.status,
+      "invalid-response",
+    );
+  }
 }
 export async function apiItems<T>(
   path: string,
@@ -54,29 +97,47 @@ export async function downloadRequest(
   name: string,
   init?: RequestInit,
 ) {
-  const result = await fetch(`/api/v1/${path}`, init);
+  const result = await send(`/api/v1/${path}`, init);
   if (!result.ok) {
-    const body = await result.json();
-    throw new Error(body.error);
+    const body = await errorBody(result);
+    throw new ApiError(
+      typeof body.error === "string" && body.error
+        ? body.error
+        : failure(result.status),
+      result.status,
+    );
   }
   download(await result.blob(), name);
 }
 export async function authRequest(path: string, data: Record<string, unknown>) {
-  const result = await fetch(`/api/auth/${path}`, {
+  const result = await send(`/api/auth/${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  const body = await result.json();
-  if (!result.ok)
-    throw new ApiError(
-      (body.error === "invalid_signature"
-        ? "This connection request expired or is invalid. Start again from your MCP client."
-        : body.error_description) ||
-        body.message ||
-        "This request could not be completed. Try again.",
-      result.status,
-      body.code || body.error,
-    );
-  return body;
+  let parsed;
+  try {
+    parsed = await result.json();
+  } catch {
+    if (result.ok)
+      throw new ApiError(
+        "Nivra sent an unexpected response. Try again.",
+        result.status,
+        "invalid-response",
+      );
+  }
+  if (result.ok) return parsed;
+  const body = (parsed && typeof parsed === "object" ? parsed : {}) as Record<
+    string,
+    string | undefined
+  >;
+  throw new ApiError(
+    (body.error === "invalid_signature"
+      ? "This connection request expired or is invalid. Start again from your MCP client."
+      : body.error_description) ||
+      body.message ||
+      failure(result.status),
+    result.status,
+    body.code || body.error,
+  );
 }

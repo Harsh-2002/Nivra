@@ -1,7 +1,6 @@
 "use client";
 import { useState } from "react";
 import Image from "next/image";
-import QRCode from "qrcode";
 import { Download, Loader2, ShieldCheck } from "lucide-react";
 import { notify } from "@/lib/feedback";
 import { authRequest, download } from "@/lib/client";
@@ -219,7 +218,9 @@ export function MfaSettings({
                     throw new Error("Authenticator setup was not available.");
                   setSetup({
                     uri: result.totpURI,
-                    qr: await QRCode.toDataURL(result.totpURI, {
+                    qr: await (
+                      await import("qrcode")
+                    ).default.toDataURL(result.totpURI, {
                       width: 180,
                       margin: 2,
                     }),

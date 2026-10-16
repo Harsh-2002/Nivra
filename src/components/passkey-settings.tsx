@@ -10,6 +10,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { useConfirm } from "./confirm-provider";
+import { formatDay } from "@/lib/dates";
 
 type Credential = {
   id: string;
@@ -162,7 +163,7 @@ export function PasskeySettings({
                   <strong>{item.name || "Passkey"}</strong>
                   {item.createdAt && (
                     <p className="field-hint">
-                      Added {new Date(item.createdAt).toLocaleDateString()}
+                      Added {formatDay(item.createdAt)}
                     </p>
                   )}
                 </div>

@@ -18,7 +18,7 @@ import {
   Tag,
 } from "lucide-react";
 import { api } from "@/lib/client";
-import { formatDate, localDate } from "@/lib/dates";
+import { formatDate, formatTime, localDate } from "@/lib/dates";
 import type { Overview } from "@/lib/types";
 import { notify } from "@/lib/feedback";
 import { Button } from "./ui/button";
@@ -339,7 +339,7 @@ export function OverviewPanel({
                           <small>
                             {formatDate(event.date)}
                             {event.startAt !== undefined &&
-                              ` · ${new Date(event.startAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`}
+                              ` · ${formatTime(event.startAt)}`}
                             {event.startAt === undefined &&
                               event.label !== "Event" &&
                               ` · ${event.label}`}

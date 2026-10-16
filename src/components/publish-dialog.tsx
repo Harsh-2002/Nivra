@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { NoteReading } from "./published-reader";
+import { useConfirm } from "./confirm-provider";
 export function PublishDialog({
   note,
   onClose,
@@ -29,6 +30,7 @@ export function PublishDialog({
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
   const [origin, setOrigin] = useState("");
+  const confirm = useConfirm();
   useEffect(() => {
     api<Publication | null>(`notes/${note.id}/publication`)
       .then((result) => {
@@ -180,15 +182,24 @@ export function PublishDialog({
                 className="unpublish-button"
                 variant="ghost"
                 disabled={busy}
-                onClick={() =>
+                onClick={async () => {
+                  if (
+                    !(await confirm({
+                      title: "Stop sharing this note?",
+                      description:
+                        "The current link stops working for everyone who has it. Publishing again creates a new link.",
+                      action: "Stop sharing",
+                    }))
+                  )
+                    return;
                   void run(async () => {
                     await api(`notes/${note.id}/publication`, {
                       method: "DELETE",
                     });
                     setPublication(null);
                     notify.success("Share link removed.");
-                  })
-                }
+                  });
+                }}
               >
                 Stop sharing
               </Button>

@@ -48,7 +48,14 @@ export function completionStream(
           controller.enqueue(encoder.encode(data));
           return true;
         };
-        const latest = sqlite()
+        const database = sqlite();
+        const validSession = database.prepare(
+          "SELECT 1 FROM session WHERE id=? AND user_id=? AND expires_at>?",
+        );
+        const pending = database.prepare(
+          "SELECT id,kind,target_id AS target,status FROM completion_events WHERE owner_id=? AND id>? ORDER BY id LIMIT 101",
+        );
+        const latest = database
           .prepare(
             "SELECT coalesce(max(id),0) AS id FROM completion_events WHERE owner_id=?",
           )
@@ -56,22 +63,12 @@ export function completionStream(
         cursor = latest.id;
         send(`retry: 3000\nevent: resync\nid: ${cursor}\ndata: {}\n\n`);
         const tick = () => {
-          if (
-            !sqlite()
-              .prepare(
-                "SELECT 1 FROM session WHERE id=? AND user_id=? AND expires_at>?",
-              )
-              .get(sessionId, owner, Date.now())
-          ) {
+          if (!validSession.get(sessionId, owner, Date.now())) {
             send("event: revoked\ndata: {}\n\n");
             close();
             return;
           }
-          const events = sqlite()
-            .prepare(
-              "SELECT id,kind,target_id AS target,status FROM completion_events WHERE owner_id=? AND id>? ORDER BY id LIMIT 101",
-            )
-            .all(owner, cursor) as {
+          const events = pending.all(owner, cursor) as {
             id: number;
             kind: string;
             target: string;
