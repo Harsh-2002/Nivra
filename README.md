@@ -50,7 +50,7 @@ NIVRA_PUBLIC_URL=https://notes.example.com docker compose up -d
 
 Change the host port with `-p 3001:3000`, or `NIVRA_PORT=3001` in Compose. Complete onboarding before exposing the installation, and save the recovery code. Passkeys and notifications require HTTPS or localhost.
 
-Upgrade with `docker compose pull && docker compose up -d`. Back up first and keep the existing data volume. Releases use `vYYYY.MM.DD` with one active release and the Docker tag `latest`.
+Upgrade with `docker compose pull && docker compose up -d`. Back up first and keep the existing data volume. Releases use `vYYYY.MM.DD` with one active release and the Docker tag `latest`. The running release and commit are printed when the server starts (`docker logs nivra`) and shown in **Settings → System → Version**, where **Check for updates** compares them with the latest GitHub release when you ask.
 
 ## Browser extension
 

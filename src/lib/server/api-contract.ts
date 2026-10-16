@@ -752,6 +752,13 @@ for (const action of ["verify", "retry", "cleanup"])
     },
   );
 add(
+  "system/updates",
+  "POST",
+  "Look up the latest Nivra release on GitHub as the owner",
+  extraOutputs.updates,
+  { access: "owner", input: empty, optionalBody: true },
+);
+add(
   "backups",
   "GET",
   "Read full-instance backup status",

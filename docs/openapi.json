@@ -6923,6 +6923,49 @@
         }
       }
     },
+    "/api/v1/system/updates": {
+      "post": {
+        "operationId": "post_api_v1_system_updates",
+        "summary": "Look up the latest Nivra release on GitHub as the owner",
+        "security": [{ "ownerSession": [] }],
+        "x-nivra-access": "owner",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/post_api_v1_system_updatesResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" },
+          "404": { "$ref": "#/components/responses/Error404" },
+          "405": { "$ref": "#/components/responses/Error405" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "413": { "$ref": "#/components/responses/Error413" },
+          "415": { "$ref": "#/components/responses/Error415" },
+          "422": { "$ref": "#/components/responses/Error422" },
+          "429": { "$ref": "#/components/responses/Error429" },
+          "500": { "$ref": "#/components/responses/Error500" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/post_api_v1_artifacts_id_extractRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/backups": {
       "get": {
         "operationId": "get_api_v1_backups",
@@ -16500,6 +16543,16 @@
       "get_api_v1_systemResponse": {
         "type": "object",
         "properties": {
+          "build": {
+            "type": "object",
+            "properties": {
+              "version": { "type": ["string", "null"] },
+              "commit": { "type": ["string", "null"] },
+              "modified": { "type": "boolean" }
+            },
+            "required": ["version", "commit", "modified"],
+            "additionalProperties": false
+          },
           "cleanupAvailable": { "type": "boolean" },
           "revision": {
             "type": "integer",
@@ -16579,6 +16632,7 @@
           }
         },
         "required": [
+          "build",
           "cleanupAvailable",
           "revision",
           "storageBackend",
@@ -16597,6 +16651,33 @@
         "type": "object",
         "properties": { "verificationToken": { "type": "string" } },
         "required": ["verificationToken"],
+        "additionalProperties": false
+      },
+      "post_api_v1_system_updatesResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["current", "available", "unknown"]
+          },
+          "checkedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "current": { "type": ["string", "null"] },
+          "latest": {
+            "type": "object",
+            "properties": {
+              "version": { "type": "string" },
+              "publishedAt": { "type": "string" },
+              "url": { "type": "string", "format": "uri" }
+            },
+            "required": ["version", "publishedAt", "url"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["state", "checkedAt", "current", "latest"],
         "additionalProperties": false
       },
       "get_api_v1_backupsResponse": {

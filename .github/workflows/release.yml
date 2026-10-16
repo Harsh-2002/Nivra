@@ -79,6 +79,9 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           outputs: type=image,name=${{ needs.gate.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            NIVRA_VERSION=${{ needs.gate.outputs.version }}
+            NIVRA_COMMIT=${{ needs.gate.outputs.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.gate.outputs.version }}
@@ -89,6 +92,8 @@ jobs:
       - name: Verify the built container before promotion
         env:
           IMAGE: ${{ needs.gate.outputs.image }}@${{ steps.build.outputs.digest }}
+          NIVRA_EXPECT_VERSION: ${{ needs.gate.outputs.version }}
+          NIVRA_EXPECT_COMMIT: ${{ needs.gate.outputs.sha }}
         run: node scripts/smoke-container.mjs "$IMAGE"
       - name: Export the verified digest
         env:

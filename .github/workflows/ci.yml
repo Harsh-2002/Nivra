@@ -134,9 +134,9 @@ jobs:
           node-version: "24"
       - name: Build and verify the source container
         run: |
-          docker build -t nivra:ci .
+          docker build --build-arg NIVRA_COMMIT="$GITHUB_SHA" -t nivra:ci .
           docker image inspect nivra:ci --format 'Image bytes: {{.Size}}'
-          node scripts/smoke-container.mjs nivra:ci
+          NIVRA_EXPECT_COMMIT="$GITHUB_SHA" node scripts/smoke-container.mjs nivra:ci
           docker run --rm --network none --cpus 1 --memory 1536m --memory-swap 1536m --read-only --tmpfs /tmp -e NIVRA_DATA_DIR=/tmp/ai-smoke --entrypoint node nivra:ci scripts/smoke-ai-runtime.mjs
 
       - name: Measure encrypted retrieval under the runtime resource limits

@@ -150,6 +150,24 @@ for (const encrypted of [false, true]) {
     base = await ready();
     checkRuntime();
     checkNotices();
+    const expectedCommit = process.env.NIVRA_EXPECT_COMMIT;
+    if (expectedCommit) {
+      const expectedVersion = process.env.NIVRA_EXPECT_VERSION || null;
+      const logs = docker("logs", name);
+      const label = `${expectedVersion ?? "development"} (commit ${expectedCommit.slice(0, 7)})`;
+      assert.ok(
+        logs.includes(`Nivra ${label}`),
+        `The startup log must name the running version (${label}):\n${logs.slice(0, 600)}`,
+      );
+      const { build } = await (
+        await request("/api/v1/system", "GET", undefined, cookie)
+      ).json();
+      assert.deepEqual(
+        [build.version, build.commit],
+        [expectedVersion, expectedCommit],
+        "Settings must report the version the image was built from",
+      );
+    }
     const notes = await request("/api/v1/notes", "GET", undefined, cookie);
     assert.equal(notes.status, 200, "Session was not preserved");
     assert.deepEqual(

@@ -22,6 +22,8 @@ import { activateStorage } from "./storage-operations";
 import { completionEvent } from "./jobs";
 import { copyStorageObject, removeRetainedCopies } from "./storage";
 import { randomUUID } from "node:crypto";
+import { checkForUpdates } from "./updates";
+import { buildInfo } from "./version";
 
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -51,6 +53,7 @@ export function systemStatus() {
       .prepare("SELECT 1 FROM storage_transfers WHERE state<>'done' LIMIT 1")
       .get();
   return {
+    build: buildInfo(),
     cleanupAvailable,
     revision: c.revision,
     storageBackend: media.backend,
@@ -224,6 +227,8 @@ export async function systemApi(
       );
     return response({ verificationToken: token });
   }
+  if (path.length === 2 && path[1] === "updates" && request.method === "POST")
+    return response(await checkForUpdates());
   if (path.length === 2 && path[1] === "cleanup" && request.method === "POST") {
     if (!systemStatus().cleanupAvailable)
       throw new HttpError(

@@ -38,6 +38,9 @@ COPY --from=build --chown=nivra:nivra /app/migrations ./migrations
 COPY --from=model --chown=nivra:nivra /app/models ./models
 COPY --chown=nivra:nivra scripts/smoke-ai-runtime.mjs ./scripts/smoke-ai-runtime.mjs
 COPY --chown=nivra:nivra LICENSE ./LICENSE
+ARG NIVRA_VERSION=
+ARG NIVRA_COMMIT=
+ENV NIVRA_VERSION=$NIVRA_VERSION NIVRA_COMMIT=$NIVRA_COMMIT
 VOLUME ["/data"]
 USER nivra
 EXPOSE 3000

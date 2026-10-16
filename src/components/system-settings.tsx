@@ -17,6 +17,7 @@ import {
 import { useConfirm } from "./confirm-provider";
 import { LocalAiSettings } from "./local-ai-settings";
 import { BackupSettings } from "./backup-settings";
+import { VersionSettings } from "./version-settings";
 import type { systemStatus } from "@/lib/server/system-api";
 type Status = ReturnType<typeof systemStatus>;
 type Draft = {
@@ -537,6 +538,7 @@ export function SystemSettings({
       {!onboarding && (
         <BackupSettings key={status.revision} beforeAction={beforeAction} />
       )}
+      {!onboarding && <VersionSettings build={status.build} />}
     </div>
   );
 }

@@ -2723,12 +2723,14 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
-.backup-settings {
+.backup-settings,
+.version-settings {
   margin-top: 32px;
   padding-top: 24px;
   border-top: 1px solid var(--border);
 }
-.backup-settings h2 {
+.backup-settings h2,
+.version-settings h2 {
   font-size: 15px;
   font-weight: 550;
   margin-bottom: 8px;
@@ -2749,10 +2751,12 @@ button:disabled {
 .backup-list {
   margin-top: 16px;
 }
-.backup-settings .settings-row > div {
+.backup-settings .settings-row > div,
+.version-settings .settings-row > div {
   min-width: 0;
 }
-.backup-settings .settings-row p {
+.backup-settings .settings-row p,
+.version-settings .settings-row p {
   overflow-wrap: anywhere;
 }
 
@@ -7136,7 +7140,8 @@ body .bn-mobile-formatting-toolbar {
 .system-form > button {
   align-self: flex-start;
 }
-.system-settings > .backup-settings {
+.system-settings > .backup-settings,
+.system-settings > .version-settings {
   margin-top: 32px;
 }
 .auth-panel .system-form > button {

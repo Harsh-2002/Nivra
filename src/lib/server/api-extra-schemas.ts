@@ -242,7 +242,22 @@ export const extraOutputs = {
     revision: z.number().int().positive(),
     publishedAt: count,
   }),
+  updates: z.object({
+    state: z.enum(["current", "available", "unknown"]),
+    checkedAt: count,
+    current: z.string().nullable(),
+    latest: z.object({
+      version: z.string(),
+      publishedAt: z.string(),
+      url: z.string().url(),
+    }),
+  }),
   system: z.object({
+    build: z.object({
+      version: z.string().nullable(),
+      commit: z.string().nullable(),
+      modified: z.boolean(),
+    }),
     cleanupAvailable: z.boolean(),
     revision: z.number().int().positive(),
     storageBackend: z.enum(["local", "s3"]),
